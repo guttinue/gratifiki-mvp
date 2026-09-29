@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:e2e": "playwright test",
-    "db:test": "supabase test db"
+    "db:test": "supabase test db",
+    "demo:users": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/create-demo-users.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
