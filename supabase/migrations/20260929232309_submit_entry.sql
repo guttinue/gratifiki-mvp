@@ -24,11 +24,13 @@ declare
   v_competence_state text;
   v_rule_id uuid;
   v_rule_version integer;
+  v_rule_version_text text;
   v_factor numeric(12, 6);
   v_result_value numeric(13, 5);
   v_result_id uuid;
   v_entry_id uuid;
   v_existing public.entradas%rowtype;
+  v_result_memory jsonb;
   v_memory jsonb;
 begin
   v_actor_id := auth.uid();
@@ -84,15 +86,29 @@ begin
       raise exception using errcode = '22023', message = 'operation_id_payload_mismatch';
     end if;
 
-    select r.id, r.valor, rule.versao
-    into v_result_id, v_result_value, v_rule_version
+    select r.id, r.valor, r.memoria
+    into v_result_id, v_result_value, v_result_memory
     from public.resultados as r
-    join public.regras as rule on rule.id = r.regra_id
     where r.entrada_id = v_existing.id;
 
     if not found then
       raise exception using errcode = '55000', message = 'operation_result_missing';
     end if;
+
+    v_rule_version_text := v_result_memory->>'ruleVersion';
+    if v_rule_version_text is null
+      or pg_catalog.jsonb_typeof(v_result_memory->'ruleVersion') <> 'number'
+      or v_rule_version_text !~ '^[1-9][0-9]*$'
+    then
+      raise exception using errcode = '55000', message = 'operation_result_memory_invalid';
+    end if;
+
+    begin
+      v_rule_version := v_rule_version_text::integer;
+    exception
+      when invalid_text_representation or numeric_value_out_of_range then
+        raise exception using errcode = '55000', message = 'operation_result_memory_invalid';
+    end;
 
     return pg_catalog.jsonb_build_object(
       'entryId', v_existing.id::text,
@@ -171,15 +187,29 @@ begin
       raise exception using errcode = '22023', message = 'operation_id_payload_mismatch';
     end if;
 
-    select r.id, r.valor, rule.versao
-    into v_result_id, v_result_value, v_rule_version
+    select r.id, r.valor, r.memoria
+    into v_result_id, v_result_value, v_result_memory
     from public.resultados as r
-    join public.regras as rule on rule.id = r.regra_id
     where r.entrada_id = v_existing.id;
 
     if not found then
       raise exception using errcode = '55000', message = 'operation_result_missing';
     end if;
+
+    v_rule_version_text := v_result_memory->>'ruleVersion';
+    if v_rule_version_text is null
+      or pg_catalog.jsonb_typeof(v_result_memory->'ruleVersion') <> 'number'
+      or v_rule_version_text !~ '^[1-9][0-9]*$'
+    then
+      raise exception using errcode = '55000', message = 'operation_result_memory_invalid';
+    end if;
+
+    begin
+      v_rule_version := v_rule_version_text::integer;
+    exception
+      when invalid_text_representation or numeric_value_out_of_range then
+        raise exception using errcode = '55000', message = 'operation_result_memory_invalid';
+    end;
 
     return pg_catalog.jsonb_build_object(
       'entryId', v_existing.id::text,

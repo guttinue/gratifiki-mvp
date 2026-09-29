@@ -1,6 +1,6 @@
 begin;
 
-select plan(46);
+select plan(51);
 
 create temporary table submit_calls (
   call_name text primary key,
@@ -163,6 +163,16 @@ select is(
   'c0de0000-0000-4000-8000-000000000002', 'memory identifies DEMO-01'
 );
 
+reset role;
+update public.regras
+set versao = 2
+where id = 'c0de0000-0000-4000-8000-000000000004';
+set local role authenticated;
+select is(
+  ((select r.memoria->>'ruleVersion' from public.resultados r join public.entradas e on e.id = r.entrada_id where e.operation_id = 'd4e00000-0000-4000-8000-000000000201')::integer),
+  1, 'existing result memory retains its rule version after the catalog row changes'
+);
+
 insert into pg_temp.submit_calls values (
   'retry', pg_temp.capture_submit(
     'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
@@ -185,7 +195,53 @@ select is(
   (select outcome->'response'->>'resultValue' from pg_temp.submit_calls where call_name = 'ten'),
   'retry returns the original exact result value'
 );
+select is(((select outcome->'response'->>'ruleVersion' from pg_temp.submit_calls where call_name = 'retry')::integer), 1, 'retry returns the version from persisted result memory after the rule row changes');
 select is((select count(*)::integer from public.eventos_auditoria where actor_id = auth.uid() and acao = 'demo.entry.submitted'), 3, 'same operation id does not create another audit event');
+
+reset role;
+update public.resultados r
+set memoria = pg_catalog.jsonb_set(r.memoria, '{ruleVersion}', '"not-an-integer"'::jsonb)
+from public.entradas e
+where e.id = r.entrada_id
+  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+set local role authenticated;
+insert into pg_temp.submit_calls values (
+  'malformed-snapshot', pg_temp.capture_submit(
+    'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+  )
+);
+select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'malformed-snapshot'), '55000', 'retry rejects a nonnumeric rule version in persisted memory');
+
+reset role;
+update public.resultados r
+set memoria = pg_catalog.jsonb_set(r.memoria, '{ruleVersion}', '2147483648'::jsonb)
+from public.entradas e
+where e.id = r.entrada_id
+  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+set local role authenticated;
+insert into pg_temp.submit_calls values (
+  'overflow-snapshot', pg_temp.capture_submit(
+    'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+  )
+);
+select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'overflow-snapshot'), '55000', 'retry converts an out-of-range persisted rule version to a controlled error');
+
+reset role;
+update public.resultados r
+set memoria = r.memoria - 'ruleVersion'
+from public.entradas e
+where e.id = r.entrada_id
+  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+set local role authenticated;
+insert into pg_temp.submit_calls values (
+  'missing-version-snapshot', pg_temp.capture_submit(
+    'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+  )
+);
+select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'missing-version-snapshot'), '55000', 'retry rejects a missing rule version in persisted memory');
 
 insert into pg_temp.submit_calls values (
   'changed-payload', pg_temp.capture_submit(
