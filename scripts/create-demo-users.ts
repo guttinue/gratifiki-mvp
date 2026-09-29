@@ -98,7 +98,7 @@ export async function createDemoUsers(
   const camId = await ensureDemoUser(localAdminClient, credentials.cam);
 
   for (const link of [
-    { actor_id: technicalId, papel: "tecnica", escopo_id: scope.id },
+    { actor_id: technicalId, papel: "area_tecnica", escopo_id: scope.id },
     { actor_id: camId, papel: "cam", escopo_id: scope.id },
   ]) {
     const { error } = await localAdminClient

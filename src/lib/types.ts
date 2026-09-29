@@ -3,6 +3,8 @@ export type CompetenceState = "aberta" | "em_revisao" | "fechada" | "invalidada"
 export type EntryState = "pendente" | "validada" | "corrigida" | "fechada" | "invalidada";
 
 export interface PilotContext {
+  actorId: string;
+  papel: "area_tecnica" | "cam";
   competenciaId: string;
   competenciaCodigo: string;
   referencia: string;

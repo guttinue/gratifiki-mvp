@@ -1,6 +1,6 @@
 begin;
 
-select plan(45);
+select plan(46);
 
 select ok(to_regclass('public.competencias') is not null, 'competencias table exists');
 select ok(to_regclass('public.indicadores') is not null, 'indicadores table exists');
@@ -43,6 +43,7 @@ select ok(exists (select 1 from pg_constraint where conrelid = to_regclass('publ
 select is((select count(*)::integer from public.competencias where codigo = 'DEMO-2026-09'), 1, 'one synthetic competence is seeded');
 select is((select count(*)::integer from public.escopos where codigo = 'DEMO-ESCOPO-01'), 1, 'one synthetic scope is seeded');
 select is((select count(*)::integer from public.regras r join public.indicadores i on i.id = r.indicador_id join public.competencias c on c.codigo = 'DEMO-2026-09' where i.codigo = 'DEMO-01' and c.referencia >= r.vigencia_inicio and (r.vigencia_fim is null or c.referencia <= r.vigencia_fim)), 1, 'one DEMO-01 rule is active for the fixed competence reference');
+select is((select fator from public.regras r join public.indicadores i on i.id = r.indicador_id where i.codigo = 'DEMO-01' and r.versao = 1), 0.8::numeric, 'DEMO-01 uses the synthetic 0.8 factor for the required demo result');
 
 select ok(exists (select 1 from pg_constraint where conrelid = to_regclass('public.entradas') and contype = 'u' and conname = 'uq_entradas_autor_operation'), 'author and operation id have a unique constraint');
 insert into auth.users (id, email, aud, role)
