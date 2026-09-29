@@ -32,3 +32,11 @@ export interface ResultMemory {
   inputs: Record<string, number | string | boolean | null>;
   terms: Array<{ label: string; value: number | string }>;
 }
+
+export type SubmitResult = {
+  entryId: string;
+  resultId: string;
+  resultValue: string;
+  ruleVersion: number;
+  operationId: string;
+};
