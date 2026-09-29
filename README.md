@@ -23,6 +23,10 @@ npm run dev
 
 O Vite disponibiliza a aplicação em `http://localhost:5173`.
 
+## Contas fictícias de demonstração
+
+`npm run demo:users` cria duas identidades locais: uma conta `area_tecnica` (perfil técnico) e uma conta `cam` (perfil de revisão), ambas vinculadas ao escopo fictício do piloto. Para esse script, configure `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` local e as variáveis `DEMO_TECHNICAL_*` e `DEMO_CAM_*` no `.env.local` ignorado pelo Git. Informe e-mails e senhas somente nesse arquivo; nunca coloque a chave administrativa em variáveis `VITE_*`. O repositório não publica nem acompanha senhas. Após cada reset local, execute novamente o script para recriar as identidades Auth.
+
 ## Banco de dados local
 
 Use o comando abaixo somente com a instância local iniciada por `npx supabase start`. Ele recria o banco local a partir das migrations e seeds deste repositório:
