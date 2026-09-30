@@ -42,6 +42,7 @@ export function ResultMemory({ items, isLoading, errorMessage }: ResultMemoryPro
               <dl className="memory-details">
                 <div><dt>Competência</dt><dd>{item.competenciaCodigo}</dd></div>
                 <div><dt>Indicador</dt><dd>{item.indicadorCodigo}</dd></div>
+                <div><dt>Escopo</dt><dd>{item.escopoCodigo}</dd></div>
                 <div><dt>Fator demonstrativo</dt><dd>{formatDemoDecimal(item.factor)}</dd></div>
                 <div><dt>Regra</dt><dd>DEMO · versão {item.ruleVersion}</dd></div>
                 <div><dt>Estado</dt><dd>{item.state}</dd></div>

@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PilotContext, SubmitResult } from "../../lib/types";
-import { entryErrorMessage, formatDemoDecimal, submitDemoEntry } from "./entryApi";
+import { entryErrorMessage, formatDemoDecimal, isUncertainEntryError, submitDemoEntry } from "./entryApi";
 
 interface EntryFormProps {
   client: SupabaseClient;
@@ -17,6 +17,7 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
   const [valueText, setValueText] = useState("");
   const [operationId, setOperationId] = useState(newOperationId);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isRetryPending, setIsRetryPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const operationIdRef = useRef(operationId);
@@ -39,11 +40,13 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
       });
     } catch (error) {
       setErrorMessage(entryErrorMessage(error));
+      setIsRetryPending(isUncertainEntryError(error));
       setIsSubmitting(false);
       return;
     }
 
     setValueText("");
+    setIsRetryPending(false);
     setSuccessMessage(`Entrada registrada. Resultado sintético persistido: ${formatDemoDecimal(result.resultValue)}.`);
     const nextOperationId = newOperationId();
     operationIdRef.current = nextOperationId;
@@ -81,11 +84,12 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
             id="demo-value"
             inputMode="decimal"
             onChange={(event) => setValueText(event.target.value)}
+            disabled={isSubmitting || isRetryPending}
             type="text"
             value={valueText}
           />
           <button disabled={isSubmitting} type="submit">
-            {isSubmitting ? "Enviando…" : "Registrar entrada"}
+            {isSubmitting ? "Enviando…" : isRetryPending ? "Repetir mesma operação" : "Registrar entrada"}
           </button>
         </div>
         <p className="field-hint">Envie um número não negativo. A validação e o resultado são produzidos pelo servidor local.</p>

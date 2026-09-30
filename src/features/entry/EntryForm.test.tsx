@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../app/App";
@@ -154,7 +154,11 @@ describe("SR1 entry form in the authenticated application", () => {
     expect(await screen.findByRole("status").then((node) => node.textContent)).toContain(
       "Resultado sintético persistido: 8",
     );
-    expect(await screen.findByRole("article", { name: /entrada de 10.*resultado persistido de 8/i })).toBeTruthy();
+    const persistedMemory = await screen.findByRole("article", {
+      name: /entrada de 10.*resultado persistido de 8/i,
+    });
+    expect(within(persistedMemory).getByText("Escopo")).toBeTruthy();
+    expect(within(persistedMemory).getByText("DEMO-ESCOPO-01")).toBeTruthy();
   });
 
   it("does not render the submission form for CAM", async () => {

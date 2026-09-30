@@ -172,3 +172,28 @@ export function entryErrorMessage(error: unknown): string {
 
   return "Não foi possível confirmar a resposta do servidor. Tente novamente; o próximo envio repetirá a mesma operação.";
 }
+
+export function isUncertainEntryError(error: unknown): boolean {
+  const details =
+    typeof error === "object" && error !== null
+      ? (error as { code?: unknown; message?: unknown; status?: unknown })
+      : {};
+  const code = typeof details.code === "string" ? details.code : "";
+  const message = typeof details.message === "string" ? details.message.toLowerCase() : "";
+  const status = typeof details.status === "number" ? details.status : undefined;
+
+  if (
+    message.includes("session_expired") ||
+    message.includes("jwt expired") ||
+    message.includes("invalid_demo_value") ||
+    code === "PGRST301" ||
+    code === "22023" ||
+    code === "42501" ||
+    status === 401 ||
+    status === 403
+  ) {
+    return false;
+  }
+
+  return status === undefined || status <= 0 || status >= 500;
+}

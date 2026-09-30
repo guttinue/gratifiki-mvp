@@ -107,14 +107,17 @@ test("retry after a lost response reuses its operation ID and displays one persi
   await signIn(page, technicalEmail, technicalPassword);
 
   let calls = 0;
-  let firstPayload: { p_operation_id: string } | undefined;
-  let retryPayload: { p_operation_id: string } | undefined;
+  let firstPayload: { p_operation_id: string; p_valor_texto: string } | undefined;
+  let retryPayload: { p_operation_id: string; p_valor_texto: string } | undefined;
   let firstResult: { entryId: string; resultId: string } | undefined;
   let retryResult: { entryId: string; resultId: string } | undefined;
 
   await page.route("**/rest/v1/rpc/submit_demo_entry", async (route) => {
     calls += 1;
-    const payload = route.request().postDataJSON() as { p_operation_id: string };
+    const payload = route.request().postDataJSON() as {
+      p_operation_id: string;
+      p_valor_texto: string;
+    };
     const response = await route.fetch();
     const result = (await response.json()) as { entryId: string; resultId: string };
 
@@ -130,14 +133,19 @@ test("retry after a lost response reuses its operation ID and displays one persi
     await route.fulfill({ response });
   });
 
-  await page.getByLabel("Valor para o indicador").fill("10");
+  const valueInput = page.getByLabel("Valor para o indicador");
+  await valueInput.fill("10");
   await page.getByRole("button", { name: "Registrar entrada" }).click();
   await expect(page.getByRole("alert")).toBeVisible();
-  await page.getByRole("button", { name: "Registrar entrada" }).click();
+  await expect(valueInput).toBeDisabled();
+  await expect(valueInput).toHaveValue("10");
+  await page.getByRole("button", { name: "Repetir mesma operação" }).click();
   await expect(page.getByRole("status")).toContainText("Resultado sintético persistido: 8");
 
   expect(firstPayload?.p_operation_id).toBeTruthy();
   expect(retryPayload?.p_operation_id).toBe(firstPayload?.p_operation_id);
+  expect(firstPayload?.p_valor_texto).toBe("10");
+  expect(retryPayload?.p_valor_texto).toBe(firstPayload?.p_valor_texto);
   expect(retryResult?.entryId).toBe(firstResult?.entryId);
   expect(retryResult?.resultId).toBe(firstResult?.resultId);
   await expect(page.locator(`[data-entry-id="${firstResult?.entryId}"]`)).toHaveCount(1);
