@@ -120,6 +120,7 @@ function createClient() {
 
 describe("SR1 entry form in the authenticated application", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     const { client } = createClient();
     authMocks.getAuthClient.mockReturnValue(client);
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
@@ -127,7 +128,9 @@ describe("SR1 entry form in the authenticated application", () => {
 
   afterEach(() => {
     cleanup();
+    window.localStorage.clear();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   it("restores the local session and shows the synthetic entry form for area técnica", async () => {
@@ -170,5 +173,109 @@ describe("SR1 entry form in the authenticated application", () => {
 
     expect(await screen.findByText(/perfil CAM.*não envia/i)).toBeTruthy();
     expect(screen.queryByLabelText("Valor para o indicador")).toBeNull();
+  });
+
+  it.each([
+    ["another actor", { ...technicalContext, actorId: "d3mo0000-0000-4000-8000-000000000002" }],
+    ["another pilot context", { ...technicalContext, escopoId: "c0de0000-0000-4000-8000-000000000004", escopoCodigo: "DEMO-ESCOPO-02" }],
+  ])("keeps a pending operation isolated from %s", async (_description, nextContext) => {
+    const { client, rpc } = createClient();
+    rpc.mockRejectedValueOnce(Object.assign(new Error("network unavailable"), { status: 500 }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValueOnce(technicalContext).mockResolvedValueOnce(nextContext);
+
+    const firstApp = render(<App />);
+    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+
+    expect(await screen.findByRole("button", { name: "Repetir mesma operação" })).toBeTruthy();
+    expect(window.localStorage.length).toBe(1);
+    firstApp.unmount();
+
+    render(<App />);
+    const restoredInput = await screen.findByLabelText("Valor para o indicador");
+    expect((restoredInput as HTMLInputElement).value).toBe("");
+    expect((restoredInput as HTMLInputElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Registrar entrada" })).toBeTruthy();
+    expect(window.localStorage.length).toBe(1);
+  });
+
+  it("does not send an entry when the pending operation cannot be stored", async () => {
+    const { client, rpc } = createClient();
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/a entrada não foi enviada/i);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("blocks submission when it cannot read pending operation state", async () => {
+    const { client, rpc } = createClient();
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("storage unavailable");
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { level: 1, name: "Entrada do indicador" });
+    expect((await screen.findByRole("alert")).textContent).toMatch(/estado pendente.*não pôde ser lido/i);
+    expect((screen.getByLabelText("Valor para o indicador") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Registrar entrada" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps an operation locked when the server reports a payload mismatch", async () => {
+    const { client, rpc } = createClient();
+    rpc.mockRejectedValueOnce({
+      code: "22023",
+      message: "operation_id_payload_mismatch",
+      status: 400,
+    });
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+      target: { value: "10" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/operação anterior com outro valor/i);
+    expect((screen.getByLabelText("Valor para o indicador") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Repetir mesma operação" })).toBeTruthy();
+  });
+
+  it("does not discard an unresolved operation when a later retry has an expired session", async () => {
+    const { client, rpc } = createClient();
+    rpc
+      .mockRejectedValueOnce(Object.assign(new Error("network unavailable"), { status: 500 }))
+      .mockRejectedValueOnce({ code: "PGRST301", message: "JWT expired", status: 401 });
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    const valueInput = await screen.findByLabelText("Valor para o indicador");
+    fireEvent.change(valueInput, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Repetir mesma operação" }));
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(/sessão.*expir/i);
+    expect((valueInput as HTMLInputElement).value).toBe("10");
+    expect((valueInput as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Repetir mesma operação" })).toBeTruthy();
+    expect(rpc.mock.calls[1]?.[1]?.p_operation_id).toBe(rpc.mock.calls[0]?.[1]?.p_operation_id);
+    expect(window.localStorage.length).toBe(1);
   });
 });

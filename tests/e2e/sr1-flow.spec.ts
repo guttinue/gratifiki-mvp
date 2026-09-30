@@ -103,8 +103,11 @@ test("an expired-session response is not shown as a successful entry", async ({ 
   await expect(page.getByRole("status")).toHaveCount(0);
 });
 
-test("retry after a lost response reuses its operation ID and displays one persisted result", async ({ page }) => {
+test("retry after a lost response and reload reuses its operation ID without duplication", async ({ page }) => {
   await signIn(page, technicalEmail, technicalPassword);
+  const history = page.getByRole("region", { name: "Histórico do piloto" });
+  await expect(history).toHaveAttribute("aria-busy", "false");
+  const previousEntryCount = await history.getByRole("article").count();
 
   let calls = 0;
   let firstPayload: { p_operation_id: string; p_valor_texto: string } | undefined;
@@ -139,6 +142,17 @@ test("retry after a lost response reuses its operation ID and displays one persi
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(valueInput).toBeDisabled();
   await expect(valueInput).toHaveValue("10");
+
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Entrada do indicador" })).toBeVisible();
+  const restoredValueInput = page.getByLabel("Valor para o indicador");
+  await expect(restoredValueInput).toBeDisabled();
+  await expect(restoredValueInput).toHaveValue("10");
+  await expect(page.getByRole("button", { name: "Repetir mesma operação" })).toBeVisible();
+  await expect(history).toHaveAttribute("aria-busy", "false");
+  await expect(history.getByRole("article")).toHaveCount(previousEntryCount + 1);
+  await expect(page.locator(`[data-entry-id="${firstResult?.entryId}"]`)).toHaveCount(1);
+
   await page.getByRole("button", { name: "Repetir mesma operação" }).click();
   await expect(page.getByRole("status")).toContainText("Resultado sintético persistido: 8");
 
@@ -149,4 +163,5 @@ test("retry after a lost response reuses its operation ID and displays one persi
   expect(retryResult?.entryId).toBe(firstResult?.entryId);
   expect(retryResult?.resultId).toBe(firstResult?.resultId);
   await expect(page.locator(`[data-entry-id="${firstResult?.entryId}"]`)).toHaveCount(1);
+  await expect(history.getByRole("article")).toHaveCount(previousEntryCount + 1);
 });

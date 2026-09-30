@@ -153,6 +153,10 @@ export function entryErrorMessage(error: unknown): string {
   const message = typeof details.message === "string" ? details.message.toLowerCase() : "";
   const status = typeof details.status === "number" ? details.status : undefined;
 
+  if (message.includes("operation_id_payload_mismatch")) {
+    return "O servidor encontrou uma operação anterior com outro valor. A tentativa preservada foi mantida bloqueada para reconciliação; não edite nem inicie outra entrada.";
+  }
+
   if (
     message.includes("session_expired") ||
     message.includes("jwt expired") ||
@@ -182,12 +186,15 @@ export function isUncertainEntryError(error: unknown): boolean {
   const message = typeof details.message === "string" ? details.message.toLowerCase() : "";
   const status = typeof details.status === "number" ? details.status : undefined;
 
+  if (message.includes("operation_id_payload_mismatch")) return true;
+
   if (
     message.includes("session_expired") ||
     message.includes("jwt expired") ||
     message.includes("invalid_demo_value") ||
+    message.includes("operation_id_required") ||
+    message.includes("demo_context_required") ||
     code === "PGRST301" ||
-    code === "22023" ||
     code === "42501" ||
     status === 401 ||
     status === 403
@@ -195,5 +202,21 @@ export function isUncertainEntryError(error: unknown): boolean {
     return false;
   }
 
+  if (code === "22023") return true;
+
   return status === undefined || status <= 0 || status >= 500;
+}
+
+export function isDefinitelyRejectedEntry(error: unknown): boolean {
+  const details =
+    typeof error === "object" && error !== null
+      ? (error as { message?: unknown })
+      : {};
+  const message = typeof details.message === "string" ? details.message.toLowerCase() : "";
+
+  return (
+    message.includes("invalid_demo_value") ||
+    message.includes("operation_id_required") ||
+    message.includes("demo_context_required")
+  );
 }
