@@ -5,9 +5,10 @@ import { getAuthClient, getPilotContext, signIn, signOut } from "./auth";
 
 interface AuthScreenProps {
   client?: SupabaseClient;
+  onAuthenticated?: (context: PilotContext) => void;
 }
 
-export function AuthScreen({ client = getAuthClient() }: AuthScreenProps) {
+export function AuthScreen({ client = getAuthClient(), onAuthenticated }: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [context, setContext] = useState<PilotContext | null>(null);
@@ -20,7 +21,7 @@ export function AuthScreen({ client = getAuthClient() }: AuthScreenProps) {
     setIsBusy(true);
 
     try {
-      await signIn(email, password);
+      await signIn(email, password, client);
       const authorizedContext = await getPilotContext(client);
 
       if (!authorizedContext) {
@@ -31,9 +32,11 @@ export function AuthScreen({ client = getAuthClient() }: AuthScreenProps) {
       }
 
       setContext(authorizedContext);
+      onAuthenticated?.(authorizedContext);
       setPassword("");
     } catch {
       setContext(null);
+      setPassword("");
       setErrorMessage("Não foi possível entrar. Verifique suas credenciais ou o acesso.");
     } finally {
       setIsBusy(false);
@@ -45,7 +48,7 @@ export function AuthScreen({ client = getAuthClient() }: AuthScreenProps) {
     setErrorMessage(null);
 
     try {
-      await signOut();
+      await signOut(client);
       setContext(null);
     } catch {
       setErrorMessage("Não foi possível encerrar a sessão agora.");

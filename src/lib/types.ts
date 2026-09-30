@@ -27,10 +27,22 @@ export interface Entry {
 }
 
 export interface ResultMemory {
+  entryId: string;
+  resultId: string;
+  competenciaId: string;
+  competenciaCodigo: string;
+  indicadorId: string;
+  indicadorCodigo: string;
+  escopoId: string;
+  escopoCodigo: string;
+  inputValue: string;
+  resultValue: string;
+  state: EntryState;
+  revision: number;
+  operationId: string;
   ruleId: string;
   ruleVersion: number;
-  inputs: Record<string, number | string | boolean | null>;
-  terms: Array<{ label: string; value: number | string }>;
+  factor: string;
 }
 
 export type SubmitResult = {

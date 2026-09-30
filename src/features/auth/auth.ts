@@ -9,16 +9,20 @@ export function getAuthClient(): SupabaseClient {
   return authClient;
 }
 
-export async function signIn(email: string, password: string): Promise<void> {
-  const { error } = await getAuthClient().auth.signInWithPassword({ email, password });
+export async function signIn(
+  email: string,
+  password: string,
+  client: SupabaseClient = getAuthClient(),
+): Promise<void> {
+  const { error } = await client.auth.signInWithPassword({ email, password });
 
   if (error) {
     throw error;
   }
 }
 
-export async function signOut(): Promise<void> {
-  const { error } = await getAuthClient().auth.signOut();
+export async function signOut(client: SupabaseClient = getAuthClient()): Promise<void> {
+  const { error } = await client.auth.signOut();
 
   if (error) {
     throw error;
