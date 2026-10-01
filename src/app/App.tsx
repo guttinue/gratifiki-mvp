@@ -184,6 +184,8 @@ export function App() {
   function handleAuthenticated(authorizedContext: PilotContext) {
     setSessionError(null);
     setSignOutError(null);
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${pageHash("overview")}`);
+    setPage("overview");
     setContext(authorizedContext);
   }
 

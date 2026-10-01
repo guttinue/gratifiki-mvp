@@ -175,6 +175,20 @@ describe("App", () => {
     expect(authMocks.getPilotContext).not.toHaveBeenCalled();
     expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
   });
+
+  it("starts a fresh sign-in on the overview even when the login page has another allowed hash", async () => {
+    const { client } = createAuthBoundary(false);
+    authMocks.getAuthClient.mockReturnValue(client);
+    window.history.replaceState({}, "", "/#history");
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "area@example.test" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "not-a-real-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Visão geral" })).toBeTruthy();
+    expect(window.location.hash).toBe("#overview");
+  });
 });
 
 describe("createSupabaseClient", () => {
