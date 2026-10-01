@@ -1,7 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PilotContext } from "../../lib/types";
+import { technicalContext } from "../workspace/workspaceTestFixtures";
 import { getPilotContext, signIn } from "./auth";
 import { AuthScreen } from "./AuthScreen";
 
@@ -19,6 +20,12 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
 
 describe("AuthScreen", () => {
   it("shows an invalid-credentials error without revealing protected UI", async () => {
@@ -67,5 +74,26 @@ describe("AuthScreen", () => {
       expect(vi.mocked(signIn)).toHaveBeenCalledWith("area@example.invalid", "test-only-password", client);
       expect(vi.mocked(getPilotContext)).toHaveBeenCalledWith(client);
     });
+    expect(await screen.findByRole("heading", { level: 1, name: "Contexto autorizado" })).toBeTruthy();
+    expect(screen.getByText("Perfil: area_tecnica")).toBeTruthy();
+  });
+
+  it("does not complete an authentication callback after AuthScreen unmounts", async () => {
+    const client = {} as SupabaseClient;
+    const delayedContext = deferred<PilotContext | null>();
+    const onAuthenticated = vi.fn();
+    vi.mocked(signIn).mockResolvedValueOnce();
+    vi.mocked(getPilotContext).mockReturnValueOnce(delayedContext.promise);
+
+    const view = render(<AuthScreen client={client} onAuthenticated={onAuthenticated} />);
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "area@example.invalid" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "test-only-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(getPilotContext).toHaveBeenCalledOnce());
+    view.unmount();
+
+    await act(async () => delayedContext.resolve(technicalContext));
+
+    expect(onAuthenticated).not.toHaveBeenCalled();
   });
 });

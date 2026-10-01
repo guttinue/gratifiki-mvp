@@ -41,6 +41,8 @@ export function App() {
   const [page, setPage] = useState<WorkspacePage>(() => pageFromHash(window.location.hash));
   const readGeneration = useRef(0);
   const authGeneration = useRef(0);
+  const signOutGeneration = useRef(0);
+  const authActorId = useRef<string | null>(null);
   const contextKey = getContextKey(context);
   const contextRef = useRef<PilotContext | null>(context);
   const contextKeyRef = useRef(contextKey);
@@ -68,6 +70,25 @@ export function App() {
       if (!isMounted) return;
       if (event === "SIGNED_OUT" || !session) {
         authGeneration.current += 1;
+        signOutGeneration.current += 1;
+        authActorId.current = null;
+        readGeneration.current += 1;
+        setContext(null);
+        setReadState({ contextKey: null, status: "idle", entries: [] });
+        setSelectedEntryId(null);
+        setSessionError(null);
+        setSignOutError(null);
+        return;
+      }
+
+      const nextActorId = session.user.id;
+      const previousActorId = authActorId.current;
+      const activeActorId = contextRef.current?.actorId;
+      if (
+        (previousActorId !== null && previousActorId !== nextActorId)
+        || (activeActorId !== undefined && activeActorId !== nextActorId)
+      ) {
+        authGeneration.current += 1;
         readGeneration.current += 1;
         setContext(null);
         setReadState({ contextKey: null, status: "idle", entries: [] });
@@ -75,6 +96,7 @@ export function App() {
         setSessionError(null);
         setSignOutError(null);
       }
+      authActorId.current = nextActorId;
     });
 
     void (async () => {
@@ -161,6 +183,8 @@ export function App() {
     if (!context || !contextKey) return;
     const activeContext = context;
     const activeKey = contextKey;
+    authGeneration.current += 1;
+    signOutGeneration.current += 1;
     readGeneration.current += 1;
     setReadState({ contextKey: activeKey, status: "loading", entries: [] });
     setSelectedEntryId(null);
@@ -181,12 +205,45 @@ export function App() {
     }
   }
 
-  function handleAuthenticated(authorizedContext: PilotContext) {
+  function getAuthenticationGenerationAfterSignIn(startedSignOutGeneration: number): number | null {
+    if (signOutGeneration.current !== startedSignOutGeneration) return null;
+    return authGeneration.current;
+  }
+
+  function isAuthenticationGenerationCurrent(generation: number): boolean {
+    return authGeneration.current === generation;
+  }
+
+  async function handleAuthenticated(
+    authorizedContext: PilotContext,
+    generation: number | undefined,
+    isAttemptCurrent: () => boolean,
+  ): Promise<boolean> {
+    if (
+      generation === undefined
+      || !isAttemptCurrent()
+      || authGeneration.current !== generation
+    ) return false;
+
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (
+        error
+        || !data.session
+        || data.session.user.id !== authorizedContext.actorId
+        || !isAttemptCurrent()
+        || authGeneration.current !== generation
+      ) return false;
+    } catch {
+      return false;
+    }
+
     setSessionError(null);
     setSignOutError(null);
     window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${pageHash("overview")}`);
     setPage("overview");
     setContext(authorizedContext);
+    return true;
   }
 
   function handleRetry() {
@@ -214,7 +271,13 @@ export function App() {
     return (
       <>
         {sessionError && <p className="session-error" role="alert">{sessionError}</p>}
-        <AuthScreen client={client} onAuthenticated={handleAuthenticated} />
+        <AuthScreen
+          client={client}
+          isAuthenticationGenerationCurrent={isAuthenticationGenerationCurrent}
+          onAuthenticationContextLoading={getAuthenticationGenerationAfterSignIn}
+          onAuthenticationStarted={() => signOutGeneration.current}
+          onAuthenticated={handleAuthenticated}
+        />
       </>
     );
   }

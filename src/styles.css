@@ -425,6 +425,11 @@ select:focus-visible {
   padding: 23px 32px 22px;
 }
 
+.workspace-content:focus {
+  outline: 3px solid rgb(66 103 178 / 32%);
+  outline-offset: -3px;
+}
+
 .environment-notice {
   display: flex;
   min-width: 0;
@@ -1100,6 +1105,12 @@ td code,
   border-radius: 6px;
   background: #fff;
   color: #9aa3af;
+}
+
+.search-field:focus-within {
+  border-color: #8ca5d0;
+  outline: 3px solid rgb(66 103 178 / 32%);
+  outline-offset: 2px;
 }
 
 .search-icon {

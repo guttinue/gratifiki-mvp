@@ -1,45 +1,100 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PilotContext } from "../../lib/types";
 import { getAuthClient, getPilotContext, signIn, signOut } from "./auth";
 
 interface AuthScreenProps {
   client?: SupabaseClient;
-  onAuthenticated?: (context: PilotContext) => void;
+  onAuthenticationStarted?: () => number;
+  onAuthenticationContextLoading?: (signOutGeneration: number) => number | null;
+  isAuthenticationGenerationCurrent?: (generation: number) => boolean;
+  onAuthenticated?: (
+    context: PilotContext,
+    generation: number | undefined,
+    isAttemptCurrent: () => boolean,
+  ) => boolean | void | Promise<boolean | void>;
 }
 
-export function AuthScreen({ client = getAuthClient(), onAuthenticated }: AuthScreenProps) {
+export function AuthScreen({
+  client = getAuthClient(),
+  onAuthenticationStarted,
+  onAuthenticationContextLoading,
+  isAuthenticationGenerationCurrent,
+  onAuthenticated,
+}: AuthScreenProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [context, setContext] = useState<PilotContext | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const mounted = useRef(true);
+  const attemptGeneration = useRef(0);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      attemptGeneration.current += 1;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const attemptId = ++attemptGeneration.current;
+    const isAttemptCurrent = () => mounted.current && attemptGeneration.current === attemptId;
+    const signOutGeneration = onAuthenticationStarted?.();
     setErrorMessage(null);
     setIsBusy(true);
 
     try {
       await signIn(email, password, client);
+      if (!isAttemptCurrent()) return;
+
+      const generation = onAuthenticationContextLoading
+        ? onAuthenticationContextLoading(signOutGeneration ?? 0)
+        : undefined;
+      if (generation === null) {
+        setErrorMessage("A sessão mudou durante o acesso. Entre novamente.");
+        return;
+      }
+
       const authorizedContext = await getPilotContext(client);
+      if (!isAttemptCurrent()) return;
 
       if (!authorizedContext) {
+        if (
+          generation !== undefined
+          && isAuthenticationGenerationCurrent
+          && !isAuthenticationGenerationCurrent(generation)
+        ) {
+          setErrorMessage("A sessão mudou durante o acesso. Entre novamente.");
+          return;
+        }
         await signOut(client);
+        if (!isAttemptCurrent()) return;
         setContext(null);
         setErrorMessage("Esta conta não possui um vínculo autorizado para o piloto.");
         return;
       }
 
+      const accepted = await onAuthenticated?.(authorizedContext, generation ?? undefined, isAttemptCurrent);
+      if (!isAttemptCurrent()) return;
+      if (accepted === false) {
+        setContext(null);
+        setErrorMessage("A sessão mudou durante o acesso. Entre novamente.");
+        return;
+      }
+
       setContext(authorizedContext);
-      onAuthenticated?.(authorizedContext);
       setPassword("");
     } catch {
-      setContext(null);
-      setPassword("");
-      setErrorMessage("Não foi possível entrar. Verifique suas credenciais ou o acesso.");
+      if (isAttemptCurrent()) {
+        setContext(null);
+        setPassword("");
+        setErrorMessage("Não foi possível entrar. Verifique suas credenciais ou o acesso.");
+      }
     } finally {
-      setIsBusy(false);
+      if (isAttemptCurrent()) setIsBusy(false);
     }
   }
 
@@ -49,11 +104,12 @@ export function AuthScreen({ client = getAuthClient(), onAuthenticated }: AuthSc
 
     try {
       await signOut(client);
+      if (!mounted.current) return;
       setContext(null);
     } catch {
-      setErrorMessage("Não foi possível encerrar a sessão agora.");
+      if (mounted.current) setErrorMessage("Não foi possível encerrar a sessão agora.");
     } finally {
-      setIsBusy(false);
+      if (mounted.current) setIsBusy(false);
     }
   }
 

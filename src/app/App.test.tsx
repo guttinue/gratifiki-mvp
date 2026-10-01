@@ -20,10 +20,14 @@ vi.mock("../features/entry/pilotReadModel", () => readModelMocks);
 
 function createAuthBoundary(hasSession = true) {
   const authListener = vi.fn();
+  const session = hasSession ? {
+    access_token: "test-session",
+    user: { id: technicalContext.actorId },
+  } : null;
   const client = {
     auth: {
       getSession: vi.fn().mockResolvedValue({
-        data: { session: hasSession ? { access_token: "test-session" } : null },
+        data: { session },
         error: null,
       }),
       onAuthStateChange: vi.fn((callback: typeof authListener) => {
@@ -152,6 +156,70 @@ describe("App", () => {
     expect(screen.queryByText("entry-001")).toBeNull();
   });
 
+  it("discards a delayed login context after the session signs out", async () => {
+    const delayedContext = deferred<typeof technicalContext | null>();
+    const { client, authListener } = createAuthBoundary(false);
+    let currentSession: { access_token: string; user: { id: string } } | null = null;
+    vi.mocked(client.auth.getSession).mockImplementation(async () => ({
+      data: { session: currentSession as never },
+      error: null,
+    }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.signIn.mockImplementationOnce(async () => {
+      currentSession = { access_token: "login-session-a", user: { id: technicalContext.actorId } };
+      authListener("SIGNED_IN", currentSession);
+    });
+    authMocks.getPilotContext.mockReturnValueOnce(delayedContext.promise);
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "area@example.test" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "not-a-real-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(authMocks.getPilotContext).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      currentSession = null;
+      authListener("SIGNED_OUT", null);
+      delayedContext.resolve(technicalContext);
+    });
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Acesse o piloto local" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+    expect(screen.queryByText("DEMO-ESCOPO-01", { exact: true })).toBeNull();
+  });
+
+  it("discards a delayed login context when the signed-in actor changes", async () => {
+    const delayedContext = deferred<typeof technicalContext | null>();
+    const { client, authListener } = createAuthBoundary(false);
+    let currentSession: { access_token: string; user: { id: string } } | null = null;
+    vi.mocked(client.auth.getSession).mockImplementation(async () => ({
+      data: { session: currentSession as never },
+      error: null,
+    }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.signIn.mockImplementationOnce(async () => {
+      currentSession = { access_token: "login-session-a", user: { id: technicalContext.actorId } };
+      authListener("SIGNED_IN", currentSession);
+    });
+    authMocks.getPilotContext.mockReturnValueOnce(delayedContext.promise);
+
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "area@example.test" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "not-a-real-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(authMocks.getPilotContext).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      currentSession = { access_token: "login-session-b", user: { id: "d3mo0000-0000-4000-8000-000000000002" } };
+      authListener("SIGNED_IN", currentSession);
+      delayedContext.resolve(technicalContext);
+    });
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Acesse o piloto local" })).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+    expect(screen.queryByText("DEMO-ESCOPO-01", { exact: true })).toBeNull();
+  });
+
   it("keeps the session error visible and lets the user retry a failed logout", async () => {
     authMocks.signOut.mockRejectedValueOnce(new Error("network error")).mockResolvedValueOnce(undefined);
     render(<App />);
@@ -177,7 +245,16 @@ describe("App", () => {
   });
 
   it("starts a fresh sign-in on the overview even when the login page has another allowed hash", async () => {
-    const { client } = createAuthBoundary(false);
+    const { client, authListener } = createAuthBoundary(false);
+    let currentSession: { access_token: string; user: { id: string } } | null = null;
+    vi.mocked(client.auth.getSession).mockImplementation(async () => ({
+      data: { session: currentSession as never },
+      error: null,
+    }));
+    authMocks.signIn.mockImplementationOnce(async () => {
+      currentSession = { access_token: "fresh-login-session", user: { id: technicalContext.actorId } };
+      authListener("SIGNED_IN", currentSession);
+    });
     authMocks.getAuthClient.mockReturnValue(client);
     window.history.replaceState({}, "", "/#history");
     render(<App />);
@@ -188,6 +265,27 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Visão geral" })).toBeTruthy();
     expect(window.location.hash).toBe("#overview");
+  });
+
+  it("moves skip-link focus to the current page without changing its route", async () => {
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "Visão geral" });
+
+    fireEvent.click(screen.getByRole("link", { name: "Entradas" }));
+    await screen.findByRole("heading", { level: 1, name: "Entradas" });
+    fireEvent.click(screen.getByRole("link", { name: "Pular para o conteúdo" }));
+
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+    await waitFor(() => expect(window.location.hash).toBe("#entries"));
+    expect(screen.getByRole("heading", { level: 1, name: "Entradas" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Histórico e auditoria" }));
+    await screen.findByRole("heading", { level: 1, name: "Histórico e auditoria" });
+    fireEvent.click(screen.getByRole("link", { name: "Pular para o conteúdo" }));
+
+    expect(document.activeElement).toBe(screen.getByRole("main"));
+    await waitFor(() => expect(window.location.hash).toBe("#history"));
+    expect(screen.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeTruthy();
   });
 });
 

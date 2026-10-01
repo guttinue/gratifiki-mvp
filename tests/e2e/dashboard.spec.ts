@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { assertLocalE2eConfiguration, entryIds } from "./e2eSupport";
 
 test.use({ trace: "off" });
@@ -24,6 +24,69 @@ async function assertNoHorizontalPageOverflow(page: Page) {
   }));
   expect(dimensions.pageWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
 }
+
+async function tabTo(page: Page, target: Locator) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    await page.keyboard.press("Tab");
+    if (await target.evaluate((element) => element === document.activeElement)) return;
+  }
+  throw new Error("O controle esperado não recebeu foco pela navegação de teclado.");
+}
+
+test("keyboard skip link focuses the current page without changing its hash", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Entradas" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Entradas" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Entradas" })).toBeVisible();
+  await entryIds(page);
+  await page.keyboard.press("Tab");
+  const skipLink = page.getByRole("link", { name: "Pular para o conteúdo" });
+  await expect(skipLink).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/#entries$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Entradas" })).toBeVisible();
+  await expect(page.locator("#workspace-content")).toBeFocused();
+
+  await page.getByRole("link", { name: "Histórico e auditoria" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeVisible();
+  await expect(page.getByText("Carregando os eventos autorizados…", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  await expect(skipLink).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(page).toHaveURL(/#history$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeVisible();
+  await expect(page.locator("#workspace-content")).toBeFocused();
+});
+
+test("entry and history search fields show a keyboard focus indicator", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: "Entradas" }).click();
+  const entrySearch = page.getByRole("searchbox", { name: "Buscar por identificador ou valor" });
+  await tabTo(page, entrySearch);
+  await expect(entrySearch).toBeFocused();
+  const entryFocusStyle = await entrySearch.evaluate((input) => {
+    const style = getComputedStyle(input.parentElement!);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(entryFocusStyle.outlineStyle).not.toBe("none");
+  expect(Number.parseFloat(entryFocusStyle.outlineWidth)).toBeGreaterThan(0);
+
+  await page.getByRole("link", { name: "Histórico e auditoria" }).click();
+  const historySearch = page.getByRole("searchbox", { name: "Buscar eventos por identificador ou ação" });
+  await tabTo(page, historySearch);
+  await expect(historySearch).toBeFocused();
+  const historyFocusStyle = await historySearch.evaluate((input) => {
+    const style = getComputedStyle(input.parentElement!);
+    return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth };
+  });
+  expect(historyFocusStyle.outlineStyle).not.toBe("none");
+  expect(Number.parseFloat(historyFocusStyle.outlineWidth)).toBeGreaterThan(0);
+});
 
 test("hash navigation supports fallback, back and forward while search filters can be cleared", async ({ page }) => {
   await signIn(page);

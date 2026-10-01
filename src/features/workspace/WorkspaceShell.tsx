@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { PilotContext } from "../../lib/types";
 import { PAGE_LABELS, pageHash, WORKSPACE_PAGES, type WorkspacePage } from "./workspaceModel";
 
@@ -22,10 +22,20 @@ export function WorkspaceShell({
   children,
 }: WorkspaceShellProps) {
   const roleLabel = context.papel === "area_tecnica" ? "Área técnica" : "CAM · leitura";
+  const contentRef = useRef<HTMLElement>(null);
 
   return (
     <div className="workspace-app">
-      <a className="skip-link" href="#workspace-content">Pular para o conteúdo</a>
+      <a
+        className="skip-link"
+        href="#workspace-content"
+        onClick={(event) => {
+          event.preventDefault();
+          contentRef.current?.focus();
+        }}
+      >
+        Pular para o conteúdo
+      </a>
       <aside aria-label="Barra lateral" className="workspace-sidebar">
         <a className="brand-lockup" href="#overview" onClick={(event) => {
           event.preventDefault();
@@ -91,7 +101,7 @@ export function WorkspaceShell({
           </div>
         </header>
 
-        <main className="workspace-content" id="workspace-content">
+        <main className="workspace-content" id="workspace-content" ref={contentRef} tabIndex={-1}>
           <aside aria-label="Aviso do ambiente" className="environment-notice">
             <span aria-hidden="true" className="notice-symbol">i</span>
             <p><strong>Ambiente local · dados sintéticos</strong><span>Regra de demonstração; os registros não representam cálculo oficial nem validação institucional.</span></p>
