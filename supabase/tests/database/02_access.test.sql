@@ -2,6 +2,16 @@ begin;
 
 select plan(24);
 
+create temporary table access_scope_baseline as
+select
+  count(distinct e.id)::integer as entries,
+  count(distinct r.id)::integer as results
+from public.escopos s
+left join public.entradas e on e.escopo_id = s.id
+left join public.resultados r on r.entrada_id = e.id
+where s.codigo = 'DEMO-ESCOPO-01';
+grant select on pg_temp.access_scope_baseline to authenticated;
+
 insert into auth.users (id, email, aud, role)
 values
   ('d3e00000-0000-4000-8000-000000000011', 'access-area@example.invalid', 'authenticated', 'authenticated'),
@@ -63,7 +73,11 @@ reset role;
 select set_config('request.jwt.claim.sub', 'd3e00000-0000-4000-8000-000000000011', true);
 select set_config('request.jwt.claims', '{"sub":"d3e00000-0000-4000-8000-000000000011","role":"authenticated"}', true);
 set local role authenticated;
-select is((select count(*)::integer from public.entradas), 1, 'area tecnica sees its assigned scope entry');
+select is(
+  (select count(*)::integer from public.entradas),
+  (select entries + 1 from pg_temp.access_scope_baseline),
+  'area tecnica sees the baseline entries in its assigned scope plus the fixture entry'
+);
 select is((select count(*)::integer from public.entradas where escopo_id = 'd3e00000-0000-4000-8000-000000000101'), 0, 'area tecnica cannot see another scope entry');
 select is((select count(*)::integer from public.escopos), 1, 'area tecnica sees only its assigned scope');
 select is((select count(*)::integer from public.vinculos where papel = 'area_tecnica'), 1, 'area tecnica can read its own server-side role link');
@@ -72,8 +86,16 @@ reset role;
 select set_config('request.jwt.claim.sub', 'd3e00000-0000-4000-8000-000000000012', true);
 select set_config('request.jwt.claims', '{"sub":"d3e00000-0000-4000-8000-000000000012","role":"authenticated"}', true);
 set local role authenticated;
-select is((select count(*)::integer from public.entradas), 1, 'CAM can review entries in its assigned scope');
-select is((select count(*)::integer from public.resultados), 1, 'CAM can read result memory in its assigned scope');
+select is(
+  (select count(*)::integer from public.entradas),
+  (select entries + 1 from pg_temp.access_scope_baseline),
+  'CAM can review baseline entries in its assigned scope plus the fixture entry'
+);
+select is(
+  (select count(*)::integer from public.resultados),
+  (select results + 1 from pg_temp.access_scope_baseline),
+  'CAM can read baseline result memory in its assigned scope plus the fixture result'
+);
 select is((select count(*)::integer from public.vinculos where papel = 'cam'), 1, 'CAM can read its own server-side role link');
 reset role;
 

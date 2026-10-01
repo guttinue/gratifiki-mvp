@@ -2,6 +2,13 @@ begin;
 
 select plan(51);
 
+create temporary table submit_baseline as
+select
+  (select count(*)::integer from public.entradas) as entries,
+  (select count(*)::integer from public.resultados) as results,
+  (select count(*)::integer from public.eventos_auditoria) as events;
+grant select on pg_temp.submit_baseline to authenticated;
+
 create temporary table submit_calls (
   call_name text primary key,
   outcome jsonb not null
@@ -306,9 +313,21 @@ insert into pg_temp.submit_calls values (
 select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'other-scope-actor'), '42501', 'actor assigned to another scope cannot submit in the demo scope');
 
 reset role;
-select is((select count(*)::integer from public.entradas), 3, 'rejected requests leave no partial entries');
-select is((select count(*)::integer from public.resultados), 3, 'rejected requests leave no partial results');
-select is((select count(*)::integer from public.eventos_auditoria), 3, 'rejected requests leave no partial audit events');
+select is(
+  (select count(*)::integer from public.entradas),
+  (select entries + 3 from pg_temp.submit_baseline),
+  'rejected requests leave no partial entries beyond the global baseline and three legitimate submissions'
+);
+select is(
+  (select count(*)::integer from public.resultados),
+  (select results + 3 from pg_temp.submit_baseline),
+  'rejected requests leave no partial results beyond the global baseline and three legitimate submissions'
+);
+select is(
+  (select count(*)::integer from public.eventos_auditoria),
+  (select events + 3 from pg_temp.submit_baseline),
+  'rejected requests leave no partial audit events beyond the global baseline and three legitimate submissions'
+);
 
 select * from finish();
 rollback;
