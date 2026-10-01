@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../app/App";
-import type { PilotContext } from "../../lib/types";
+import type { PilotContext, PilotEntry } from "../../lib/types";
 import { pendingEntryStorageKey, savePendingEntry } from "./pendingEntry";
 
 const authMocks = vi.hoisted(() => ({
@@ -12,10 +12,13 @@ const authMocks = vi.hoisted(() => ({
   signOut: vi.fn(),
 }));
 
+const readModelMocks = vi.hoisted(() => ({ loadPilotEntries: vi.fn() }));
+
 vi.mock("../auth/auth", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../auth/auth")>();
   return { ...actual, ...authMocks };
 });
+vi.mock("./pilotReadModel", () => readModelMocks);
 
 const technicalContext: PilotContext = {
   actorId: "d3mo0000-0000-4000-8000-000000000001",
@@ -35,7 +38,7 @@ type DemoRow = {
   indicador_id: string;
   escopo_id: string;
   autor_id: string;
-  valor: number;
+  valor: string;
   estado: string;
   revisao: number;
   operation_id: string;
@@ -47,18 +50,60 @@ type DemoRow = {
   }>;
 };
 
-function makeQuery(rows: DemoRow[]) {
-  const builder = {
-    select: () => builder,
-    eq: () => builder,
-    order: () => builder,
-    then: <TResult1 = { data: DemoRow[]; error: null }, TResult2 = never>(
-      onfulfilled?: ((value: { data: DemoRow[]; error: null }) => TResult1 | PromiseLike<TResult1>) | null,
-      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
-    ) => Promise.resolve({ data: rows, error: null }).then(onfulfilled, onrejected),
-  };
+const clientRows = new WeakMap<object, DemoRow[]>();
 
-  return builder;
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function projectReadEntries(rows: DemoRow[], context: PilotContext): PilotEntry[] {
+  return rows.map((row) => {
+    const submittedAt = "2026-09-30T13:45:00.000Z";
+    return {
+      id: row.id,
+      competenciaId: row.competencia_id,
+      competenciaCodigo: context.competenciaCodigo,
+      indicadorId: row.indicador_id,
+      indicadorCodigo: context.indicadorCodigo,
+      escopoId: row.escopo_id,
+      escopoCodigo: context.escopoCodigo,
+      inputValue: row.valor,
+      state: row.estado as PilotEntry["state"],
+      revision: row.revisao,
+      operationId: row.operation_id,
+      results: row.resultados.map((result) => ({
+        entryId: row.id,
+        resultId: result.id,
+        competenciaId: row.competencia_id,
+        competenciaCodigo: context.competenciaCodigo,
+        indicadorId: row.indicador_id,
+        indicadorCodigo: context.indicadorCodigo,
+        escopoId: row.escopo_id,
+        escopoCodigo: context.escopoCodigo,
+        inputValue: row.valor,
+        resultValue: result.valor,
+        state: row.estado as PilotEntry["state"],
+        revision: row.revisao,
+        operationId: row.operation_id,
+        ruleId: result.regra_id,
+        ruleVersion: Number(result.memoria.ruleVersion),
+        factor: String(result.memoria.factor),
+      })),
+      auditEvents: [{
+        id: `audit-${row.id}`,
+        entryId: row.id,
+        action: "demo.entry.submitted",
+        occurredAt: submittedAt,
+      }],
+      submittedAt,
+    };
+  });
 }
 
 function createClient() {
@@ -72,7 +117,7 @@ function createClient() {
       indicador_id: technicalContext.indicadorId,
       escopo_id: technicalContext.escopoId,
       autor_id: technicalContext.actorId,
-      valor: Number(args.p_valor_texto),
+      valor: args.p_valor_texto,
       estado: "pendente",
       revisao: 1,
       operation_id: args.p_operation_id,
@@ -83,7 +128,7 @@ function createClient() {
           valor: "8",
           memoria: {
             input: 10,
-            factor: 0.8,
+            factor: "0.800000",
             ruleVersion: 1,
             competenceId: technicalContext.competenciaId,
             indicatorId: technicalContext.indicadorId,
@@ -112,16 +157,21 @@ function createClient() {
       }),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
     },
-    from: vi.fn(() => makeQuery(rows)),
     rpc,
   };
 
-  return { client: client as unknown as SupabaseClient, rpc, rows };
+  const typedClient = client as unknown as SupabaseClient;
+  clientRows.set(typedClient as object, rows);
+
+  return { client: typedClient, rpc, rows };
 }
 
 describe("SR1 entry form in the authenticated application", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    readModelMocks.loadPilotEntries.mockImplementation(async (client: SupabaseClient, context: PilotContext) => {
+      return projectReadEntries(clientRows.get(client as object) ?? [], context);
+    });
     const { client } = createClient();
     authMocks.getAuthClient.mockReturnValue(client);
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
@@ -130,18 +180,26 @@ describe("SR1 entry form in the authenticated application", () => {
   afterEach(() => {
     cleanup();
     window.localStorage.clear();
+    window.history.replaceState({}, "", "/");
     vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
+  async function openEntriesForm() {
+    await screen.findByRole("heading", { level: 1, name: "Visão geral" });
+    fireEvent.click(screen.getByRole("link", { name: "Entradas" }));
+    await screen.findByRole("heading", { level: 1, name: "Entradas" });
+    return screen.findByLabelText("Valor para o indicador");
+  }
+
   it("restores the local session and shows the synthetic entry form for area técnica", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { level: 1, name: "Entrada do indicador" })).toBeTruthy();
-    expect(screen.getByLabelText("Valor para o indicador")).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Contexto sintético autorizado" })).toBeTruthy();
-    expect(screen.getByText("DEMO-2026-09")).toBeTruthy();
-    expect(screen.getByText("DEMO-01")).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Visão geral" })).toBeTruthy();
+    expect(await openEntriesForm()).toBeTruthy();
+    const contextSummary = screen.getByRole("group", { name: "Contexto sintético autorizado" });
+    expect(within(contextSummary).getByText("DEMO-2026-09")).toBeTruthy();
+    expect(within(contextSummary).getByText("DEMO-01")).toBeTruthy();
   });
 
   it("renders the persisted result and memory returned by the server", async () => {
@@ -150,7 +208,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+    fireEvent.change(await openEntriesForm(), {
       target: { value: "10" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
@@ -158,11 +216,40 @@ describe("SR1 entry form in the authenticated application", () => {
     expect(await screen.findByRole("status").then((node) => node.textContent)).toContain(
       "Resultado sintético persistido: 8",
     );
-    const persistedMemory = await screen.findByRole("article", {
-      name: /entrada de 10.*resultado persistido de 8/i,
-    });
-    expect(within(persistedMemory).getByText("Escopo")).toBeTruthy();
+    const submittedRow = await screen.findByRole("row", { name: /d3mo0000/ });
+    expect(within(submittedRow).getByText("8")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /ver detalhe da entrada d3mo0000/i }));
+    const persistedMemory = await screen.findByRole("region", { name: /detalhe da entrada d3mo0000/i });
+    expect(within(persistedMemory).getByText("Escopo autorizado")).toBeTruthy();
     expect(within(persistedMemory).getByText("DEMO-ESCOPO-01")).toBeTruthy();
+    expect(within(persistedMemory).getByText("0.800000")).toBeTruthy();
+  });
+
+  it("keeps an in-flight submit mounted through navigation and applies its persisted result", async () => {
+    const { client, rpc } = createClient();
+    const responseGate = deferred<void>();
+    const originalRpc = rpc.getMockImplementation();
+    rpc.mockImplementationOnce(async (name, args) => {
+      await responseGate.promise;
+      return originalRpc!(name, args);
+    });
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    const input = await openEntriesForm();
+    fireEvent.change(input, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+    expect(await screen.findByRole("button", { name: "Enviando…" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("link", { name: "Histórico e auditoria" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Entradas" }));
+    expect(await screen.findByRole("button", { name: "Enviando…" })).toBeTruthy();
+
+    await act(async () => responseGate.resolve(undefined));
+    expect((await screen.findByRole("status")).textContent).toContain("Resultado sintético persistido: 8");
+    expect(await screen.findByRole("row", { name: /d3mo0000/ })).toBeTruthy();
   });
 
   it.each([
@@ -188,7 +275,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    const input = await screen.findByLabelText("Valor para o indicador");
+    const input = await openEntriesForm();
     fireEvent.change(input, { target: { value } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
 
@@ -214,7 +301,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    const input = await screen.findByLabelText("Valor para o indicador");
+    const input = await openEntriesForm();
     expect((input as HTMLInputElement).value).toBe("1e2");
     fireEvent.click(await screen.findByRole("button", { name: "Repetir mesma operação" }));
 
@@ -233,7 +320,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+    fireEvent.change(await openEntriesForm(), {
       target: { value: " 10 " },
     });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
@@ -253,7 +340,8 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(camContext);
     render(<App />);
 
-    expect(await screen.findByText(/perfil CAM.*não envia/i)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("link", { name: "Entradas" }));
+    expect(await screen.findByText(/perfil CAM.*somente leitura/i)).toBeTruthy();
     expect(screen.queryByLabelText("Valor para o indicador")).toBeNull();
   });
 
@@ -267,7 +355,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValueOnce(technicalContext).mockResolvedValueOnce(nextContext);
 
     const firstApp = render(<App />);
-    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+    fireEvent.change(await openEntriesForm(), {
       target: { value: "10" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
@@ -293,7 +381,7 @@ describe("SR1 entry form in the authenticated application", () => {
     });
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+    fireEvent.change(await openEntriesForm(), {
       target: { value: "10" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
@@ -311,9 +399,9 @@ describe("SR1 entry form in the authenticated application", () => {
     });
     render(<App />);
 
-    await screen.findByRole("heading", { level: 1, name: "Entrada do indicador" });
+    const input = await openEntriesForm();
     expect((await screen.findByRole("alert")).textContent).toMatch(/estado pendente.*não pôde ser lido/i);
-    expect((screen.getByLabelText("Valor para o indicador") as HTMLInputElement).disabled).toBe(true);
+    expect((input as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Registrar entrada" }) as HTMLButtonElement).disabled).toBe(true);
     expect(rpc).not.toHaveBeenCalled();
   });
@@ -329,7 +417,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+    fireEvent.change(await openEntriesForm(), {
       target: { value: "10" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
@@ -348,7 +436,7 @@ describe("SR1 entry form in the authenticated application", () => {
     authMocks.getPilotContext.mockResolvedValue(technicalContext);
     render(<App />);
 
-    const valueInput = await screen.findByLabelText("Valor para o indicador");
+    const valueInput = await openEntriesForm();
     fireEvent.change(valueInput, { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
     fireEvent.click(await screen.findByRole("button", { name: "Repetir mesma operação" }));
