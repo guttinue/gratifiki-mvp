@@ -21,15 +21,14 @@ function readString(value: unknown, field: string): string {
 }
 
 function readDecimal(value: unknown, field: string): string {
-  if (typeof value !== "string" && (typeof value !== "number" || !Number.isFinite(value))) {
+  if (typeof value !== "string") {
     throw new Error(`Persisted pilot data has an invalid ${field}`);
   }
 
-  const decimal = String(value);
-  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(decimal)) {
+  if (!/^[0-9]+(?:\.[0-9]+)?$/.test(value)) {
     throw new Error(`Persisted pilot data has an invalid ${field}`);
   }
-  return decimal;
+  return value;
 }
 
 function readState(value: unknown): EntryState {
@@ -74,7 +73,7 @@ function readResult(value: unknown, entry: Omit<PilotEntry, "results" | "auditEv
     operationId: entry.operationId,
     ruleId: readString(result.regra_id, "rule id"),
     ruleVersion: readPositiveInteger(memory.ruleVersion, "rule version"),
-    factor: readDecimal(memory.factor, "rule factor"),
+    factor: readDecimal(result.factor, "rule factor"),
   };
 }
 
@@ -84,7 +83,7 @@ async function readEntryRows(client: SupabaseClient, context: PilotContext): Pro
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await client
       .from("entradas")
-      .select("id, competencia_id, indicador_id, escopo_id, valor, estado, revisao, operation_id, resultados(id, regra_id, valor, memoria)")
+      .select("id, competencia_id, indicador_id, escopo_id, valor::text, estado, revisao, operation_id, resultados(id, regra_id, valor::text, memoria, factor:memoria->>factor)")
       .eq("competencia_id", context.competenciaId)
       .eq("indicador_id", context.indicadorId)
       .eq("escopo_id", context.escopoId)

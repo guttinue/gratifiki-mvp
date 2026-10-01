@@ -28,6 +28,7 @@ type EntryFixture = {
     id: string;
     regra_id: string;
     valor: string | number;
+    factor: string | number;
     memoria: unknown;
   }> | null;
 };
@@ -161,7 +162,8 @@ function resultFixture(id: string, value: string): NonNullable<EntryFixture["res
     id,
     regra_id: `rule-${id}`,
     valor: value,
-    memoria: { factor: "0.800000", ruleVersion: 2 },
+    factor: "0.800000",
+    memoria: { factor: 0.8, ruleVersion: 2 },
   };
 }
 
@@ -223,6 +225,9 @@ describe("loadPilotEntries", () => {
     expect(result[1]).toMatchObject({ id: "entry-empty", results: [], auditEvents: [], submittedAt: null });
 
     const entryQuery = records.find((query) => query.table === "entradas");
+    expect(entryQuery?.selection).toBe(
+      "id, competencia_id, indicador_id, escopo_id, valor::text, estado, revisao, operation_id, resultados(id, regra_id, valor::text, memoria, factor:memoria->>factor)",
+    );
     expect(entryQuery?.equals).toEqual([
       ["competencia_id", context.competenciaId],
       ["indicador_id", context.indicadorId],
@@ -242,6 +247,27 @@ describe("loadPilotEntries", () => {
 
     await expect(loadPilotEntries(client, context)).resolves.toEqual([]);
     expect(records.map(({ table }) => table)).toEqual(["entradas"]);
+  });
+
+  it("preserves trailing decimal scale and maximum-size decimal text from the persisted projections", async () => {
+    const persisted = entryFixture({
+      id: "entry-maximum",
+      valor: "99999999.9999",
+      resultados: [{
+        id: "result-maximum",
+        regra_id: "rule-maximum",
+        valor: "99999999.99990",
+        factor: "0.800000",
+        memoria: { factor: 0.8, ruleVersion: 2 },
+      }],
+    });
+    const { client } = createClient({ entries: [persisted] });
+
+    const [entry] = await loadPilotEntries(client, context);
+
+    expect(entry?.inputValue).toBe("99999999.9999");
+    expect(entry?.results[0]?.resultValue).toBe("99999999.99990");
+    expect(entry?.results[0]?.factor).toBe("0.800000");
   });
 
   it("fails the read when entries or scoped audit events fail", async () => {
@@ -322,9 +348,23 @@ describe("loadPilotEntries", () => {
     ["result memory", entryFixture({ resultados: [resultFixture("result-invalid", "1.2")] })],
   ])("rejects an invalid persisted %s value", async (_field, entry) => {
     const invalid = entry.resultados?.[0];
-    if (invalid && _field === "result memory") invalid.memoria = { factor: "not-a-decimal", ruleVersion: 1 };
+    if (invalid && _field === "result memory") invalid.memoria = { factor: 0.8, ruleVersion: 0 };
     const { client } = createClient({ entries: [entry] });
 
     await expect(loadPilotEntries(client, context)).rejects.toThrow();
+  });
+
+  it.each([
+    ["entry value", entryFixture({ valor: 10.12 })],
+    ["result value", entryFixture({
+      resultados: [{ ...resultFixture("numeric-result", "8.00000"), valor: 8 }],
+    })],
+    ["rule factor", entryFixture({
+      resultados: [{ ...resultFixture("numeric-factor", "8.00000"), factor: 0.8 }],
+    })],
+  ])("rejects a numeric JSON %s rather than coercing it to text", async (_field, entry) => {
+    const { client } = createClient({ entries: [entry] });
+
+    await expect(loadPilotEntries(client, context)).rejects.toThrow(/invalid (entry value|result value|rule factor)/i);
   });
 });
