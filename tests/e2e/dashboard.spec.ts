@@ -33,22 +33,84 @@ test("hash navigation supports fallback, back and forward while search filters c
 
   await page.getByRole("link", { name: "Entradas" }).click();
   await expect(page).toHaveURL(/#entries$/);
-  const previousIds = await entryIds(page);
+  const entryTableRows = page.locator('table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id]');
+  let previousIds = await entryIds(page);
+  if (previousIds.length === 0) {
+    await page.getByLabel("Valor para o indicador").fill("0");
+    await page.getByRole("button", { name: "Registrar entrada" }).click();
+    await expect(page.locator(".entry-card .success-message")).toContainText("Resultado sintético persistido: 0");
+    await expect(entryTableRows).toHaveCount(1);
+    previousIds = await entryIds(page);
+  }
+
+  const stateRows = await entryTableRows.evaluateAll((rows) => rows.map((row) => {
+    const stateClass = row.querySelector(".status-badge")?.className
+      .split(/\s+/)
+      .find((className) => className.startsWith("status-") && className !== "status-badge");
+    return { id: row.getAttribute("data-entry-id") ?? "", state: stateClass?.slice("status-".length) ?? "" };
+  }));
+  const stateValues = ["pendente", "validada", "corrigida", "fechada", "invalidada"];
+  const presentState = stateValues.find((state) => stateRows.some((row) => row.state === state));
+  expect(presentState).toBeTruthy();
+  const matchingPresentIds = stateRows.filter((row) => row.state === presentState).map((row) => row.id);
+  const stateFilter = page.getByLabel("Filtrar por estado");
+  await stateFilter.selectOption(presentState as string);
+  await expect(entryTableRows).toHaveCount(matchingPresentIds.length);
+  expect(await entryIds(page)).toEqual(matchingPresentIds);
+
+  const selectedState = stateValues.find((state) => {
+    const matches = stateRows.filter((row) => row.state === state).length;
+    return matches > 0 && matches < stateRows.length;
+  }) ?? stateValues.find((state) => stateRows.every((row) => row.state !== state));
+  expect(selectedState).toBeTruthy();
+  if (selectedState !== presentState) {
+    const matchingStateIds = stateRows.filter((row) => row.state === selectedState).map((row) => row.id);
+    await stateFilter.selectOption(selectedState as string);
+    if (matchingStateIds.length === 0) {
+      await expect(entryTableRows).toHaveCount(0);
+      await expect(page.getByText("Nenhuma entrada corresponde aos filtros aplicados.", { exact: true })).toBeVisible();
+    } else {
+      await expect(entryTableRows).toHaveCount(matchingStateIds.length);
+      expect(await entryIds(page)).toEqual(matchingStateIds);
+    }
+  }
+  await stateFilter.selectOption("all");
+  await expect(entryTableRows).toHaveCount(previousIds.length);
+  expect(await entryIds(page)).toEqual(previousIds);
+
   const search = page.getByRole("searchbox", { name: "Buscar por identificador ou valor" });
   await search.fill(`sem-correspondencia-${crypto.randomUUID()}`);
   await expect(page.getByText("Nenhuma entrada corresponde aos filtros aplicados.", { exact: true })).toBeVisible();
   await search.fill("");
 
-  const entryTableRows = page.locator('table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id]');
-  if (previousIds.length) {
-    await expect(entryTableRows).toHaveCount(previousIds.length);
-  } else {
-    await expect(page.getByText("Nenhuma entrada disponível neste contexto autorizado.", { exact: true })).toBeVisible();
-  }
+  await expect(entryTableRows).toHaveCount(previousIds.length);
+  expect(await entryIds(page)).toEqual(previousIds);
 
   await page.getByRole("link", { name: "Histórico e auditoria" }).click();
   await expect(page).toHaveURL(/#history$/);
   await expect(page.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeVisible();
+  const historyTableRows = page.locator('table[aria-label="Eventos de auditoria autorizados"] tbody tr');
+  await expect(page.getByText("Carregando os eventos autorizados…", { exact: true })).toHaveCount(0);
+  if (await historyTableRows.count() === 0) {
+    await page.getByRole("link", { name: "Entradas" }).click();
+    await page.getByLabel("Valor para o indicador").fill("0");
+    await page.getByRole("button", { name: "Registrar entrada" }).click();
+    await expect(page.locator(".entry-card .success-message")).toContainText("Resultado sintético persistido: 0");
+    await entryIds(page);
+    await page.getByRole("link", { name: "Histórico e auditoria" }).click();
+    await expect(page.getByText("Carregando os eventos autorizados…", { exact: true })).toHaveCount(0);
+  }
+  const previousEventIds = await historyTableRows.locator(".event-code").allTextContents();
+  const baselineEventIds = previousEventIds.map((id) => id.trim());
+  expect(baselineEventIds.length).toBeGreaterThan(0);
+  const historySearch = page.getByRole("searchbox", { name: "Buscar eventos por identificador ou ação" });
+  await historySearch.fill(`sem-correspondencia-${crypto.randomUUID()}`);
+  await expect(page.getByText("Nenhum evento de auditoria disponível para os filtros aplicados.", { exact: true })).toBeVisible();
+  await expect(historyTableRows).toHaveCount(0);
+  await historySearch.fill("");
+  await expect(historyTableRows).toHaveCount(baselineEventIds.length);
+  expect((await historyTableRows.locator(".event-code").allTextContents()).map((id) => id.trim())).toEqual(baselineEventIds);
+
   await page.goBack();
   await expect(page).toHaveURL(/#entries$/);
   await expect(page.getByRole("heading", { level: 1, name: "Entradas" })).toBeVisible();
@@ -74,7 +136,7 @@ test("login, all three pages, and persisted details fit desktop and narrow mobil
   const previousIds = await entryIds(page);
   await page.getByLabel("Valor para o indicador").fill("2");
   await page.getByRole("button", { name: "Registrar entrada" }).click();
-  await expect(page.getByRole("status")).toContainText("Resultado sintético persistido: 1,6");
+  await expect(page.locator(".entry-card .success-message")).toContainText("Resultado sintético persistido: 1,6");
   await expect(page.locator('table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id]')).toHaveCount(previousIds.length + 1);
   const entryId = (await entryIds(page)).find((id) => !previousIds.includes(id));
   expect(entryId).toBeTruthy();

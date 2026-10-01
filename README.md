@@ -53,7 +53,6 @@ run_local() {
     const { spawnSync } = require("node:child_process");
     const env = { ...process.env };
     delete env.NO_COLOR;
-    delete env.FORCE_COLOR;
     const result = spawnSync("npm", process.argv.slice(1), { encoding: "utf8", env, maxBuffer: 8 * 1024 * 1024 });
     const privateValues = Object.entries(env)
       .filter(([name, value]) => value && /PASSWORD|KEY|TOKEN|SECRET|EMAIL/i.test(name))

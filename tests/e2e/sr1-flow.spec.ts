@@ -70,31 +70,32 @@ test("area técnica submits 10 and zero, then reads persisted details, history, 
   await signIn(page, technicalEmail, technicalPassword, "technical");
   const baseline = await readDashboardMetrics(page);
 
-  for (const [index, { input, output }] of [
-    { input: "10", output: "8" },
-    { input: "0", output: "0" },
+  for (const [index, { submittedValue, expectedPersistedInput, output }] of [
+    { submittedValue: "10", expectedPersistedInput: "10.0000", output: "8" },
+    { submittedValue: "0", expectedPersistedInput: "0.0000", output: "0" },
   ].entries()) {
     await page.getByRole("link", { name: "Entradas" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Entradas" })).toBeVisible();
     const previousIds = await entryIds(page);
 
-    await page.getByLabel("Valor para o indicador").fill(input);
+    await page.getByLabel("Valor para o indicador").fill(submittedValue);
     await page.getByRole("button", { name: "Registrar entrada" }).click();
-    await expect(page.getByRole("status")).toContainText(`Resultado sintético persistido: ${output}`);
+    await expect(page.locator(".entry-card .success-message")).toContainText(`Resultado sintético persistido: ${output}`);
 
     const rows = page.locator('table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id]');
     await expect(rows).toHaveCount(previousIds.length + 1);
     const newEntryId = (await entryIds(page)).find((id) => !previousIds.includes(id));
     expect(newEntryId).toBeTruthy();
     const entryId = newEntryId as string;
-    const persistedInput = (await page.locator(`table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id="${entryId}"] td`).nth(1).textContent())?.trim() ?? "";
+    const persistedInputCell = page.locator(`table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id="${entryId}"] td`).nth(1);
+    await expect(persistedInputCell).toHaveText(expectedPersistedInput);
 
     const entrySearch = page.getByRole("searchbox", { name: "Buscar por identificador ou valor" });
     await entrySearch.fill(entryId);
     await expect(rows).toHaveCount(1);
     await expect(page.locator(`table[aria-label="Entradas autorizadas do contexto"] tbody tr[data-entry-id="${entryId}"]`)).toHaveCount(1);
     await page.getByRole("button", { name: `Ver detalhe da entrada ${entryId}` }).click();
-    await assertEntryDetail(page, entryId, persistedInput, output);
+    await assertEntryDetail(page, entryId, expectedPersistedInput, output);
     await entrySearch.fill("");
 
     await page.getByRole("link", { name: "Histórico e auditoria" }).click();
@@ -104,7 +105,7 @@ test("area técnica submits 10 and zero, then reads persisted details, history, 
     await expect(eventRow).toHaveCount(1);
     await expect(eventRow).toContainText("Entrada enviada");
     await page.getByRole("button", { name: `Ver detalhe da entrada ${entryId}` }).click();
-    await assertEntryDetail(page, entryId, persistedInput, output);
+    await assertEntryDetail(page, entryId, expectedPersistedInput, output);
     await expect(page.getByRole("region", { name: `Detalhe da entrada ${entryId}` })).toContainText("demo.entry.submitted");
 
     await page.reload();
@@ -113,7 +114,7 @@ test("area técnica submits 10 and zero, then reads persisted details, history, 
     await waitForHistoryReady(page);
     await expect(page.locator(`table[aria-label="Eventos de auditoria autorizados"] tbody tr[data-entry-id="${entryId}"]`)).toHaveCount(1);
     await page.getByRole("button", { name: `Ver detalhe da entrada ${entryId}` }).click();
-    await assertEntryDetail(page, entryId, persistedInput, output);
+    await assertEntryDetail(page, entryId, expectedPersistedInput, output);
     await expect(page.getByRole("region", { name: `Detalhe da entrada ${entryId}` })).toContainText("demo.entry.submitted");
 
     await page.getByRole("link", { name: "Visão geral" }).click();
@@ -168,7 +169,7 @@ test("client-side numeric guards reject invalid values without calling the submi
     await page.getByRole("button", { name: "Registrar entrada" }).click();
     await expect(valueInput).toHaveAttribute("aria-invalid", "true");
     await expect(page.getByRole("alert")).toContainText("Informe um número entre 0 e 99999999.9999");
-    await expect(page.getByRole("status")).toHaveCount(0);
+    await expect(page.locator(".entry-card .success-message")).toHaveCount(0);
   }
 
   expect(rpcCalls).toBe(0);
@@ -207,7 +208,7 @@ test("an expired-session response never appears as a successful entry", async ({
   await page.getByRole("button", { name: "Registrar entrada" }).click();
 
   await expect(page.getByRole("alert")).toContainText(/sessão.*expir/i);
-  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.locator(".entry-card .success-message")).toHaveCount(0);
 });
 
 test("lost response retry after navigation and reload reuses one operation and one persisted record", async ({ page }) => {
@@ -215,14 +216,21 @@ test("lost response retry after navigation and reload reuses one operation and o
   await page.getByRole("link", { name: "Entradas" }).click();
   const initialIds = await entryIds(page);
   let calls = 0;
-  let firstPayload: { p_operation_id: string; p_valor_texto: string } | undefined;
-  let retryPayload: { p_operation_id: string; p_valor_texto: string } | undefined;
+  type SubmitPayload = {
+    p_competencia_id: string;
+    p_indicador_id: string;
+    p_escopo_id: string;
+    p_valor_texto: string;
+    p_operation_id: string;
+  };
+  let firstPayload: SubmitPayload | undefined;
+  let retryPayload: SubmitPayload | undefined;
   let persisted: { entryId: string; resultId: string } | undefined;
   let retryResult: { entryId: string; resultId: string } | undefined;
 
   await page.route("**/rest/v1/rpc/submit_demo_entry", async (route) => {
     calls += 1;
-    const payload = route.request().postDataJSON() as { p_operation_id: string; p_valor_texto: string };
+    const payload = route.request().postDataJSON() as SubmitPayload;
     const response = await route.fetch();
     const result = (await response.json()) as { entryId: string; resultId: string };
 
@@ -272,6 +280,7 @@ test("lost response retry after navigation and reload reuses one operation and o
 
   expect(calls).toBe(2);
   expect(firstPayload?.p_operation_id).toBeTruthy();
+  expect(retryPayload).toEqual(firstPayload);
   expect(retryPayload?.p_operation_id).toBe(firstPayload?.p_operation_id);
   expect(firstPayload?.p_valor_texto).toBe("10");
   expect(retryPayload?.p_valor_texto).toBe(firstPayload?.p_valor_texto);
