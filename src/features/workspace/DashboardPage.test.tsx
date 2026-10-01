@@ -63,4 +63,31 @@ describe("DashboardPage", () => {
     expect(within(screen.getByRole("region", { name: "Atividade recente" })).getAllByText("Entrada enviada").length).toBe(2);
     expect(screen.queryByText(/%/)).toBeNull();
   });
+
+  it("keys duplicate persisted result values by result identity", () => {
+    const entry = pilotEntries[0]!;
+    const persistedResult = entry.results[0]!;
+    const entryWithEqualValues = {
+      ...entry,
+      results: [persistedResult, { ...persistedResult, resultId: "result-duplicate" }],
+    };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      render(
+        <DashboardPage
+          context={technicalContext}
+          entries={[entryWithEqualValues]}
+          errorMessage={null}
+          isLoading={false}
+          onNavigate={vi.fn()}
+        />,
+      );
+
+      expect(screen.getAllByText("8.096000", { selector: ".result-code" })).toHaveLength(2);
+      expect(consoleError.mock.calls.some(([message]) => /same key/i.test(String(message)))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });

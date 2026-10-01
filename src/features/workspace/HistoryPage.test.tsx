@@ -38,7 +38,7 @@ describe("HistoryPage", () => {
     expect(within(detail).getByText("demo.entry.submitted")).toBeTruthy();
   });
 
-  it("states when no persisted audit event is available", () => {
+  it("states that the context has no events when entries exist without audit events", () => {
     render(
       <HistoryPage
         entries={[pilotEntries[1]!]}
@@ -50,7 +50,26 @@ describe("HistoryPage", () => {
       />,
     );
 
-    expect(screen.getByText(/nenhum evento de auditoria disponível/i)).toBeTruthy();
+    expect(screen.getByText("Nenhum evento de auditoria disponível para este contexto.")).toBeTruthy();
+  });
+
+  it("blames active filters only when persisted audit events exist", () => {
+    render(
+      <HistoryPage
+        entries={pilotEntries}
+        errorMessage={null}
+        isLoading={false}
+        onRetry={vi.fn()}
+        onSelectEntry={vi.fn()}
+        selectedEntryId={null}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Buscar eventos por identificador ou ação" }), {
+      target: { value: "event-that-does-not-exist" },
+    });
+
+    expect(screen.getByText("Nenhum evento de auditoria disponível para os filtros aplicados.")).toBeTruthy();
   });
 
   it("does not show a detail when the selected entry is absent from current events", () => {

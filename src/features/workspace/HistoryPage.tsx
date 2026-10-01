@@ -20,6 +20,7 @@ export function HistoryPage({ entries, isLoading, errorMessage, onRetry, selecte
     .filter(({ entry, event }) => !searchText.trim() || `${event.id} ${event.action} ${formatAuditAction(event.action)} ${entry.id}`.toLocaleLowerCase("pt-BR").includes(searchText.trim().toLocaleLowerCase("pt-BR"))),
   [entries, searchText]);
   const selectedRecord = visibleEvents.find(({ entry }) => entry.id === selectedEntryId) ?? null;
+  const hasPersistedEvents = entries.some(({ auditEvents }) => auditEvents.length > 0);
 
   return (
     <section aria-labelledby="history-heading" className="workspace-page">
@@ -60,7 +61,7 @@ export function HistoryPage({ entries, isLoading, errorMessage, onRetry, selecte
           </div>
         ) : visibleEvents.length === 0 ? (
           <div className="table-state empty-state">
-            {entries.length === 0
+            {!hasPersistedEvents
               ? "Nenhum evento de auditoria disponível para este contexto."
               : "Nenhum evento de auditoria disponível para os filtros aplicados."}
           </div>

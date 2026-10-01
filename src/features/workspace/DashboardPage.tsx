@@ -146,7 +146,7 @@ export function DashboardPage({ context, entries, isLoading, errorMessage, onNav
                     <tr data-entry-id={entry.id} key={entry.id}>
                       <td><code className="entry-code">{entry.id}</code></td>
                       <td><code>{entry.inputValue}</code></td>
-                      <td>{entry.results.length ? entry.results.map(({ resultValue }) => <code className="result-code" key={resultValue}>{resultValue}</code>) : <span className="muted-value">Sem resultado</span>}</td>
+                      <td>{entry.results.length ? entry.results.map(({ resultId, resultValue }) => <code className="result-code" key={resultId}>{resultValue}</code>) : <span className="muted-value">Sem resultado</span>}</td>
                       <td><span className={`status-badge status-${entry.state}`}>{STATUS_LABELS[entry.state]}</span></td>
                       <td>{entry.submittedAt ? <time dateTime={entry.submittedAt}>{formatTimestamp(entry.submittedAt)}</time> : <span className="muted-value">Indisponível</span>}</td>
                     </tr>
