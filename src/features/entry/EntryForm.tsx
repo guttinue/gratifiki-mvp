@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PilotContext, SubmitResult } from "../../lib/types";
 import { entryErrorMessage, formatDemoDecimal, isDefinitelyRejectedEntry, isUncertainEntryError, submitDemoEntry } from "./entryApi";
 import { clearPendingEntry, loadPendingEntry, savePendingEntry } from "./pendingEntry";
+import { validateDemoValue } from "./valueValidation";
 
 interface EntryFormProps {
   client: SupabaseClient;
@@ -47,6 +48,7 @@ function getInitialOperation(context: PilotContext) {
 }
 
 export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
+  const valueInputRef = useRef<HTMLInputElement>(null);
   const [initialOperation] = useState(() => getInitialOperation(context));
   const [valueText, setValueText] = useState(initialOperation.valueText);
   const [operationId, setOperationId] = useState(initialOperation.operationId);
@@ -54,6 +56,7 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
   const [isRetryPending, setIsRetryPending] = useState(initialOperation.isRetryPending);
   const [isStorageUnavailable, setIsStorageUnavailable] = useState(initialOperation.isStorageUnavailable);
   const [errorMessage, setErrorMessage] = useState<string | null>(initialOperation.errorMessage);
+  const [valueError, setValueError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const operationIdRef = useRef(operationId);
   operationIdRef.current = operationId;
@@ -62,6 +65,7 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
     event.preventDefault();
     setIsSubmitting(true);
     setErrorMessage(null);
+    setValueError(null);
     setSuccessMessage(null);
 
     const submittedValue = valueText;
@@ -71,6 +75,16 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
       setErrorMessage("O envio permanece bloqueado porque o estado pendente não pôde ser lido neste navegador.");
       setIsSubmitting(false);
       return;
+    }
+
+    if (!isRetryPending) {
+      const validationMessage = validateDemoValue(submittedValue);
+      if (validationMessage) {
+        setValueError(validationMessage);
+        valueInputRef.current?.focus();
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     try {
@@ -167,10 +181,16 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
         <div className="input-row">
           <input
             autoComplete="off"
+            aria-describedby={valueError ? "demo-value-error" : "demo-value-hint"}
+            aria-invalid={valueError !== null}
             id="demo-value"
             inputMode="decimal"
-            onChange={(event) => setValueText(event.target.value)}
+            onChange={(event) => {
+              setValueText(event.target.value);
+              setValueError(null);
+            }}
             disabled={isSubmitting || isRetryPending || isStorageUnavailable}
+            ref={valueInputRef}
             type="text"
             value={valueText}
           />
@@ -178,7 +198,10 @@ export function EntryForm({ client, context, onSubmitted }: EntryFormProps) {
             {isSubmitting ? "Enviando…" : isRetryPending ? "Repetir mesma operação" : "Registrar entrada"}
           </button>
         </div>
-        <p className="field-hint">Envie um número não negativo. A validação e o resultado são produzidos pelo servidor local.</p>
+        <p className="field-hint" id="demo-value-hint">
+          Use ponto como separador, até quatro casas decimais e valor máximo 99999999.9999.
+        </p>
+        {valueError && <p className="inline-error" id="demo-value-error" role="alert">{valueError}</p>}
         {errorMessage && <p className="inline-error" role="alert">{errorMessage}</p>}
         {successMessage && <p className="success-message" role="status">{successMessage}</p>}
       </form>

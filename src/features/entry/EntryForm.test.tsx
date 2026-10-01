@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../app/App";
 import type { PilotContext } from "../../lib/types";
+import { pendingEntryStorageKey, savePendingEntry } from "./pendingEntry";
 
 const authMocks = vi.hoisted(() => ({
   getAuthClient: vi.fn(),
@@ -162,6 +163,87 @@ describe("SR1 entry form in the authenticated application", () => {
     });
     expect(within(persistedMemory).getByText("Escopo")).toBeTruthy();
     expect(within(persistedMemory).getByText("DEMO-ESCOPO-01")).toBeTruthy();
+  });
+
+  it.each([
+    "",
+    "   ",
+    "-1",
+    "-0",
+    "abc",
+    "NaN",
+    "Infinity",
+    "+1",
+    ".5",
+    "1.",
+    "1e2",
+    "1,5",
+    "0.00001",
+    "100000000",
+    "\t10",
+  ])("marks invalid fresh value %j and blocks persistence and RPC", async (value) => {
+    const { client, rpc } = createClient();
+    const pendingWrite = vi.spyOn(Storage.prototype, "setItem");
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    const input = await screen.findByLabelText("Valor para o indicador");
+    fireEvent.change(input, { target: { value } });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect((input as HTMLInputElement).getAttribute("aria-invalid")).toBe("true");
+    const describedBy = (input as HTMLInputElement).getAttribute("aria-describedby");
+    expect(describedBy).toBe("demo-value-error");
+    expect(document.getElementById(describedBy!)).toBeTruthy();
+    expect(window.localStorage.length).toBe(0);
+    expect(pendingWrite).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends an invalid payload recovered from storage unchanged so the server can reject it", async () => {
+    const operationId = "11111111-1111-4111-8111-111111111111";
+    savePendingEntry(technicalContext, { operationId, valueText: "1e2" });
+    const { client, rpc } = createClient();
+    rpc.mockRejectedValueOnce(Object.assign(new Error("invalid_demo_value"), {
+      code: "22023",
+      status: 400,
+    }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    const input = await screen.findByLabelText("Valor para o indicador");
+    expect((input as HTMLInputElement).value).toBe("1e2");
+    fireEvent.click(await screen.findByRole("button", { name: "Repetir mesma operação" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(rpc).toHaveBeenCalledWith("submit_demo_entry", expect.objectContaining({
+      p_valor_texto: "1e2",
+      p_operation_id: operationId,
+    }));
+    expect((input as HTMLInputElement).value).toBe("1e2");
+  });
+
+  it("preserves accepted outer spaces in the pending payload and RPC request", async () => {
+    const { client, rpc } = createClient();
+    rpc.mockRejectedValueOnce(Object.assign(new Error("network unavailable"), { status: 500 }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.getPilotContext.mockResolvedValue(technicalContext);
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Valor para o indicador"), {
+      target: { value: " 10 " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Registrar entrada" }));
+    await screen.findByRole("button", { name: "Repetir mesma operação" });
+
+    const operationId = rpc.mock.calls[0]?.[1]?.p_operation_id;
+    expect(rpc.mock.calls[0]?.[1]?.p_valor_texto).toBe(" 10 ");
+    const stored = window.localStorage.getItem(pendingEntryStorageKey(technicalContext));
+    expect(stored).toBeTruthy();
+    expect(JSON.parse(stored!)).toMatchObject({ valueText: " 10 ", operationId });
   });
 
   it("does not render the submission form for CAM", async () => {

@@ -45,6 +45,30 @@ export interface ResultMemory {
   factor: string;
 }
 
+export interface PilotAuditEvent {
+  id: string;
+  entryId: string;
+  action: string;
+  occurredAt: string;
+}
+
+export interface PilotEntry {
+  id: string;
+  competenciaId: string;
+  competenciaCodigo: string;
+  indicadorId: string;
+  indicadorCodigo: string;
+  escopoId: string;
+  escopoCodigo: string;
+  inputValue: string;
+  state: EntryState;
+  revision: number;
+  operationId: string;
+  results: ResultMemory[];
+  auditEvents: PilotAuditEvent[];
+  submittedAt: string | null;
+}
+
 export type SubmitResult = {
   entryId: string;
   resultId: string;
