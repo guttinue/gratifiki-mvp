@@ -14,9 +14,19 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 const readModelMocks = vi.hoisted(() => ({ loadPilotEntries: vi.fn() }));
+const contextMocks = vi.hoisted(() => ({ loadAuthorizedContexts: vi.fn() }));
 
 vi.mock("../features/auth/auth", () => authMocks);
 vi.mock("../features/entry/pilotReadModel", () => readModelMocks);
+vi.mock("../features/context/contextApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../features/context/contextApi")>(),
+  ...contextMocks,
+}));
+
+const legacyContext = {
+  key: "legacy-link", vinculoId: "legacy-link", ...technicalContext,
+  role: technicalContext.papel, mode: "legacy" as const,
+};
 
 function createAuthBoundary(hasSession = true) {
   const authListener = vi.fn();
@@ -25,6 +35,7 @@ function createAuthBoundary(hasSession = true) {
     user: { id: technicalContext.actorId },
   } : null;
   const client = {
+    rpc: vi.fn().mockResolvedValue({ data: { items: [], total: 0, page: 1, pageSize: 25 }, error: null }),
     auth: {
       getSession: vi.fn().mockResolvedValue({
         data: { session },
@@ -63,11 +74,188 @@ beforeEach(() => {
   const { client } = createAuthBoundary();
   authMocks.getAuthClient.mockReturnValue(client);
   authMocks.getPilotContext.mockResolvedValue(technicalContext);
+  contextMocks.loadAuthorizedContexts.mockResolvedValue([legacyContext]);
   authMocks.signOut.mockResolvedValue(undefined);
   readModelMocks.loadPilotEntries.mockResolvedValue(pilotEntries);
 });
 
 describe("App", () => {
+  it.each(["TOKEN_REFRESHED", "USER_UPDATED"])("preserves an authorized selected key through %s with multiple choices", async (event) => {
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      legacyContext, { ...legacyContext, key: "second", vinculoId: "second", mode: "academic", role: "cam" },
+    ]);
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: "legacy-link" } });
+    await screen.findByRole("heading", { name: "Visão geral" });
+    await act(async () => authListener(event, { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeTruthy();
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("legacy-link");
+  });
+
+  it.each(["TOKEN_REFRESHED", "USER_UPDATED"])("never auto-switches from a revoked selected key to the remaining role during %s", async (event) => {
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      { ...legacyContext, key: "remaining", vinculoId: "remaining", mode: "academic", role: "cam" },
+    ]);
+    await act(async () => authListener(event, { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+    expect(screen.queryByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeNull();
+  });
+
+  it.each([
+    ["success", "new-actor"], ["failure", "new-actor"],
+    ["success", technicalContext.actorId], ["failure", technicalContext.actorId],
+  ])("ignores delayed logout %s after a newer authentication establishes actor/context %s", async (outcome, nextActorId) => {
+    const logout = deferred<void>();
+    const { client, authListener } = createAuthBoundary();
+    let session = { access_token: "actor-a", user: { id: technicalContext.actorId } };
+    vi.mocked(client.auth.getSession).mockImplementation(async () => ({ data: { session: session as never }, error: null }));
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.signOut.mockReturnValueOnce(logout.promise);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    fireEvent.click(screen.getByRole("button", { name: "Sair" }));
+    const nextPilot = { ...technicalContext, actorId: nextActorId, escopoCodigo: "NEW-ACTOR-SCOPE" };
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      { ...legacyContext, ...nextPilot, key: "new-link", vinculoId: "new-link" },
+    ]);
+    authMocks.getPilotContext.mockResolvedValue(nextPilot);
+    authMocks.signIn.mockImplementationOnce(async () => {
+      session = { access_token: "actor-b", user: { id: nextPilot.actorId } };
+      authListener("SIGNED_IN", session);
+    });
+    fireEvent.change(await screen.findByLabelText("E-mail"), { target: { value: "new@example.invalid" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "synthetic-only" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await screen.findByRole("heading", { name: "Visão geral" });
+    expect(screen.getAllByText("NEW-ACTOR-SCOPE").length).toBeGreaterThan(0);
+    const contextReads = contextMocks.loadAuthorizedContexts.mock.calls.length;
+    await act(async () => {
+      if (outcome === "success") logout.resolve();
+      else logout.reject(new Error("old logout failed"));
+    });
+    expect(screen.queryByRole("heading", { name: "Visão geral" })).not.toBeNull();
+    expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(contextReads);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((screen.getByRole("button", { name: "Sair" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("retains selected intent across overlapping renewals without silently switching to the remaining role", async () => {
+    const pending = deferred<typeof legacyContext[]>();
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      { ...legacyContext, key: "remaining", vinculoId: "remaining", mode: "academic", role: "cam" },
+    ]);
+    await act(async () => authListener("USER_UPDATED", { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    await act(async () => pending.resolve([legacyContext]));
+    expect(screen.queryByRole("heading", { name: "Visão geral" })).toBeNull();
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+  });
+
+  it("does not keep a renewed session busy on behalf of an invalidated pending logout", async () => {
+    const logout = deferred<void>();
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    authMocks.signOut.mockReturnValueOnce(logout.promise);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    fireEvent.click(screen.getByRole("button", { name: "Sair" }));
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    await screen.findByRole("heading", { name: "Visão geral" });
+    expect((screen.getByRole("button", { name: "Sair" }) as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => logout.resolve());
+    expect(screen.queryByRole("heading", { name: "Visão geral" })).not.toBeNull();
+  });
+
+  it("does not start context recovery when an older session lookup resolves after logout", async () => {
+    const delayedSession = deferred<{ data: { session: { user: { id: string } } }; error: null }>();
+    const { client, authListener } = createAuthBoundary();
+    vi.mocked(client.auth.getSession).mockReturnValueOnce(delayedSession.promise as never);
+    authMocks.getAuthClient.mockReturnValue(client);
+    render(<App />);
+    await act(async () => {
+      authListener("SIGNED_OUT", null);
+      delayedSession.resolve({ data: { session: { user: { id: technicalContext.actorId } } }, error: null });
+    });
+    expect(await screen.findByLabelText("E-mail")).toBeTruthy();
+    expect(contextMocks.loadAuthorizedContexts).not.toHaveBeenCalled();
+  });
+
+  it("cancels a queued token recheck if logout occurs in the same turn", async () => {
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    contextMocks.loadAuthorizedContexts.mockClear();
+    await act(async () => {
+      authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } });
+      authListener("SIGNED_OUT", null);
+    });
+    expect(await screen.findByLabelText("E-mail")).toBeTruthy();
+    expect(contextMocks.loadAuthorizedContexts).not.toHaveBeenCalled();
+  });
+
+  it("returns to access denied when a legacy link is revoked between discovery and adapter", async () => {
+    authMocks.getPilotContext.mockResolvedValueOnce(null);
+    render(<App />);
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+  });
+  it("keeps two authorized links available instead of rejecting the session", async () => {
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      legacyContext,
+      { ...legacyContext, key: "academic-link", vinculoId: "academic-link", mode: "academic", role: "lideranca" },
+    ]);
+    render(<App />);
+    expect(await screen.findByLabelText("Contexto autorizado")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: "academic-link" } });
+    expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+    expect(screen.queryByText("Visão geral", { exact: true })).toBeNull();
+    expect(screen.queryByRole("button", { name: /registrar entrada/i })).toBeNull();
+    expect(readModelMocks.loadPilotEntries).not.toHaveBeenCalled();
+  });
+
+  it("clears visible data and ignores an older read when the context changes", async () => {
+    const delayedRead = deferred<PilotEntry[]>();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      legacyContext,
+      { ...legacyContext, key: "academic-link", vinculoId: "academic-link", mode: "academic", role: "cam" },
+    ]);
+    readModelMocks.loadPilotEntries.mockReturnValueOnce(delayedRead.promise);
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: "legacy-link" } });
+    await screen.findByRole("heading", { name: "Visão geral" });
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: "academic-link" } });
+    await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" });
+    await act(async () => delayedRead.resolve(pilotEntries));
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+    expect(screen.queryByText("entry-001")).toBeNull();
+  });
+
+  it("rechecks token refresh and clears a revoked context without reviving old choices", async () => {
+    const { client, authListener } = createAuthBoundary();
+    authMocks.getAuthClient.mockReturnValue(client);
+    render(<App />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
+    expect(screen.queryByRole("option", { name: /area_tecnica/ })).toBeNull();
+  });
   it("restores the authorized session into the operational overview", async () => {
     render(<App />);
 

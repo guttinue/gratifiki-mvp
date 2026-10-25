@@ -1,9 +1,21 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pilotEntries, technicalContext } from "./workspaceTestFixtures";
-import { DashboardPage } from "./DashboardPage";
+import { DashboardPage, AcademicDashboard } from "./DashboardPage";
+import { createClient } from '@supabase/supabase-js';
+import type { AuthorizedContext } from '../pilot/types';
 
 afterEach(cleanup);
+it('academic cards drill into the equivalent server filter and show the authorized denominator',async()=>{
+ const context:AuthorizedContext={key:'k',actorId:'a',role:'cam',vinculoId:'v',competenciaId:'c',indicadorId:'i',escopoId:'s',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic'};
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  if(String(url).includes('get_dashboard'))return new Response(JSON.stringify({expected:2,received:1,reviewed:1,unavailable:0,cards:[{id:'validada',label:'validada',count:1,filter:{status:'validada',page:1,pageSize:25}}]}),{headers:{'content-type':'application/json'}});
+  const body=JSON.parse(String(init?.body));return new Response(JSON.stringify({items:body.p_filters.status==='validada'?[{id:'p',escopoId:'s',escopoCodigo:'ALFA',escopoTipo:'unidade',aplicavel:true,status:'validada',estadoDado:'valor',version:5,revisionId:'r',inputValue:'10',resultValue:'8'}]:[],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}});
+ }}});
+ render(<AcademicDashboard client={client} context={context}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'validada: 1 de 2'}));
+ expect(await screen.findByText('ALFA · validada')).toBeTruthy();expect(screen.getByText('Posições no filtro: 1')).toBeTruthy();
+});
 
 describe("DashboardPage", () => {
   it("does not present loading values as confirmed zero metrics", () => {

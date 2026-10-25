@@ -19,6 +19,12 @@ vi.mock("../auth/auth", async (importOriginal) => {
   return { ...actual, ...authMocks };
 });
 vi.mock("./pilotReadModel", () => readModelMocks);
+vi.mock("../context/contextApi", () => ({
+  loadAuthorizedContexts: async () => [{
+    ...authorizedPilotContext, key: "legacy-test-link", vinculoId: "legacy-test-link",
+    role: authorizedPilotContext.papel, mode: "legacy",
+  }],
+}));
 
 const technicalContext: PilotContext = {
   actorId: "d3mo0000-0000-4000-8000-000000000001",
@@ -31,6 +37,7 @@ const technicalContext: PilotContext = {
   escopoId: "c0de0000-0000-4000-8000-000000000003",
   escopoCodigo: "DEMO-ESCOPO-01",
 };
+let authorizedPilotContext = technicalContext;
 
 type DemoRow = {
   id: string;
@@ -151,10 +158,10 @@ function createClient() {
 
   const client = {
     auth: {
-      getSession: vi.fn().mockResolvedValue({
-        data: { session: { access_token: "synthetic-test-session" } },
+      getSession: vi.fn().mockImplementation(async () => ({
+        data: { session: { access_token: "synthetic-test-session", user: { id: authorizedPilotContext.actorId } } },
         error: null,
-      }),
+      })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
     },
     rpc,
@@ -168,6 +175,7 @@ function createClient() {
 
 describe("SR1 entry form in the authenticated application", () => {
   beforeEach(() => {
+    authorizedPilotContext = technicalContext;
     window.localStorage.clear();
     readModelMocks.loadPilotEntries.mockImplementation(async (client: SupabaseClient, context: PilotContext) => {
       return projectReadEntries(clientRows.get(client as object) ?? [], context);
@@ -335,6 +343,7 @@ describe("SR1 entry form in the authenticated application", () => {
 
   it("does not render the submission form for CAM", async () => {
     const camContext = { ...technicalContext, papel: "cam" as const };
+    authorizedPilotContext = camContext;
     const { client } = createClient();
     authMocks.getAuthClient.mockReturnValue(client);
     authMocks.getPilotContext.mockResolvedValue(camContext);
@@ -364,6 +373,7 @@ describe("SR1 entry form in the authenticated application", () => {
     expect(window.localStorage.length).toBe(1);
     firstApp.unmount();
 
+    authorizedPilotContext = nextContext;
     render(<App />);
     const restoredInput = await screen.findByLabelText("Valor para o indicador");
     expect((restoredInput as HTMLInputElement).value).toBe("");

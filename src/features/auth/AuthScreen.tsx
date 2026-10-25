@@ -5,6 +5,7 @@ import { getAuthClient, getPilotContext, signIn, signOut } from "./auth";
 
 interface AuthScreenProps {
   client?: SupabaseClient;
+  onSessionAuthenticated?: (generation: number | undefined, isAttemptCurrent: () => boolean) => Promise<boolean>;
   onAuthenticationStarted?: () => number;
   onAuthenticationContextLoading?: (signOutGeneration: number) => number | null;
   isAuthenticationGenerationCurrent?: (generation: number) => boolean;
@@ -17,6 +18,7 @@ interface AuthScreenProps {
 
 export function AuthScreen({
   client = getAuthClient(),
+  onSessionAuthenticated,
   onAuthenticationStarted,
   onAuthenticationContextLoading,
   isAuthenticationGenerationCurrent,
@@ -55,6 +57,14 @@ export function AuthScreen({
         : undefined;
       if (generation === null) {
         setErrorMessage("A sessão mudou durante o acesso. Entre novamente.");
+        return;
+      }
+
+      if (onSessionAuthenticated) {
+        const accepted = await onSessionAuthenticated(generation, isAttemptCurrent);
+        if (!isAttemptCurrent()) return;
+        setPassword("");
+        if (!accepted) setErrorMessage("A sessão mudou ou não possui um vínculo autorizado. Entre novamente.");
         return;
       }
 

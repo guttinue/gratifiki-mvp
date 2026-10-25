@@ -1,0 +1,70 @@
+begin;
+select no_plan();
+\ir ../support/academic-fixture.psql
+insert into public.contas_demo(ator_id,rotulo) values(pg_temp.fixture('actor'),'Synthetic'),(pg_temp.fixture('reviewer'),'Synthetic reviewer');
+insert into public.escopos(id,codigo,tipo) values(pg_temp.fixture('submit_scope'),'SUBMIT-EMPTY','unidade');
+insert into public.posicoes_esperadas(id,competencia_id,indicador_id,alvo_id,regra_id,informante_id,revisor_id)
+values(pg_temp.fixture('submit_position'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('submit_scope'),'c0de0000-0000-4000-8000-000000000004',pg_temp.fixture('actor'),pg_temp.fixture('reviewer'));
+update public.vinculos set indicador_id='c0de0000-0000-4000-8000-000000000002',vigencia_inicio=current_date-1,escopo_id=pg_temp.fixture('submit_scope') where actor_id=pg_temp.fixture('actor');
+create function pg_temp.ctx() returns jsonb language sql security definer set search_path='' as $$ select jsonb_build_object('vinculoId',id,'competenciaId',pg_temp.fixture('competence'),'indicadorId',indicador_id) from public.vinculos where actor_id=pg_temp.fixture('actor') and papel='area_tecnica' and escopo_id=pg_temp.fixture('submit_scope'); $$;
+create function pg_temp.input(p_value text default '0.0001') returns jsonb language sql as $$ select jsonb_build_object('estadoDado','valor','valor',p_value,'fonte','synthetic origin','periodoFonte','2026-10-01','motivo',''); $$;
+select pg_temp.login_as('actor');
+set local role authenticated;
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('submit_position'),1,pg_temp.input(),pg_temp.fixture('save'))->>'version','2','draft saved');
+select is(public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),2,pg_temp.fixture('submit'))->>'resultValue','0.00008','tiny exact result uses pinned factor 0.8');
+select is(public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),2,pg_temp.fixture('submit'))->>'version','3','completed retry wins before stale version');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('submit_position'))->'memories'->0->>'resultValue','0.00008','memory exact');
+select throws_ok($$select public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),3,pg_temp.fixture('submit'))$$,'22023','operation_payload_mismatch','different expected version conflicts');
+select throws_ok($$select public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),3,pg_temp.fixture('save'))$$,'22023','operation_payload_mismatch','cross command key rejected');
+select throws_ok($$select public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),2,pg_temp.fixture('stale'))$$,'40001','version_conflict','stale fresh submit rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('submit_position'),3,pg_temp.input(),pg_temp.fixture('edit'))$$,'55000','invalid_state','sent payload not editable');
+select throws_ok($$select public.submit_demo_entry(pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('submit_scope'),'0.0001',pg_temp.fixture('submit'))$$,'42501','submit_demo_entry_scope_denied','legacy RPC cannot recover academic cached operation');
+reset role;
+-- Other numeric boundary cases and missing data have their own real positions.
+select is((select lock_version from public.competencias where id=pg_temp.fixture('competence')),3,'save and submit increment competence exactly once each');
+insert into public.escopos(id,codigo,tipo) select pg_temp.fixture(label),label,'unidade' from unnest(array['ten','zero','maximum','unavailable','invalid','not-applicable'])label;
+insert into public.vinculos(actor_id,papel,escopo_id,indicador_id,vigencia_inicio)
+select pg_temp.fixture('actor'),'area_tecnica',pg_temp.fixture(label),'c0de0000-0000-4000-8000-000000000002',current_date-1 from unnest(array['ten','zero','maximum','unavailable','invalid','not-applicable'])label;
+insert into public.posicoes_esperadas(id,competencia_id,indicador_id,alvo_id,regra_id,informante_id,revisor_id,aplicavel)
+select pg_temp.fixture(label||'-position'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture(label),'c0de0000-0000-4000-8000-000000000004',pg_temp.fixture('actor'),pg_temp.fixture('reviewer'),label<>'not-applicable' from unnest(array['ten','zero','maximum','unavailable','invalid','not-applicable'])label;
+create function pg_temp.variant_ctx(label text) returns jsonb language sql security definer set search_path='' as $$ select jsonb_build_object('vinculoId',id,'competenciaId',pg_temp.fixture('competence'),'indicadorId',indicador_id) from public.vinculos where actor_id=pg_temp.fixture('actor') and papel='area_tecnica' and escopo_id=pg_temp.fixture(label); $$;
+-- A later temporal rule must never replace the one fixed on each position.
+insert into public.regras(id,indicador_id,versao,fator,vigencia_inicio) values(pg_temp.fixture('later-rule'),'c0de0000-0000-4000-8000-000000000002',9,0.5,'2026-10-01');
+set local role authenticated;
+select is(public.save_position_draft(pg_temp.variant_ctx('ten'),pg_temp.fixture('ten-position'),1,pg_temp.input('10'),pg_temp.fixture('ten-save'))->>'version','2','ten draft persisted');
+select is(public.submit_position(pg_temp.variant_ctx('ten'),pg_temp.fixture('ten-position'),2,pg_temp.fixture('ten-send'))->>'resultValue','8','10 becomes 8 with pinned rule, not newer temporal rule');
+select is(public.save_position_draft(pg_temp.variant_ctx('zero'),pg_temp.fixture('zero-position'),1,pg_temp.input('0'),pg_temp.fixture('zero-save'))->>'version','2','zero draft persisted');
+select is(public.submit_position(pg_temp.variant_ctx('zero'),pg_temp.fixture('zero-position'),2,pg_temp.fixture('zero-send'))->>'resultValue','0','zero is a calculable value');
+select is(public.save_position_draft(pg_temp.variant_ctx('maximum'),pg_temp.fixture('maximum-position'),1,pg_temp.input('99999999.9999'),pg_temp.fixture('maximum-save'))->>'version','2','extreme draft persisted');
+select is(public.submit_position(pg_temp.variant_ctx('maximum'),pg_temp.fixture('maximum-position'),2,pg_temp.fixture('maximum-send'))->>'resultValue','79999999.99992','maximum exact product has five places');
+select is(public.save_position_draft(pg_temp.variant_ctx('unavailable'),pg_temp.fixture('unavailable-position'),1,'{"estadoDado":"indisponivel","valor":null,"fonte":"synthetic","periodoFonte":"2026-10-01","motivo":"Source temporarily unavailable"}',pg_temp.fixture('unavailable-save'))->>'version','2','unavailability draft persisted');
+select is(public.submit_position(pg_temp.variant_ctx('unavailable'),pg_temp.fixture('unavailable-position'),2,pg_temp.fixture('unavailable-send'))->>'resultValue',null,'unavailable returns null, never zero');
+select is(jsonb_array_length(public.get_position_detail(pg_temp.variant_ctx('unavailable'),pg_temp.fixture('unavailable-position'))->'memories'),0,'unavailable has no memory');
+select is(public.save_position_draft(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),1,pg_temp.input()||'{"fonte":""}',pg_temp.fixture('invalid-save'))->>'version','2','incomplete draft allowed');
+select throws_ok($$select public.submit_position(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),2,pg_temp.fixture('invalid-send'))$$,'22023','invalid_input','submission requires real source');
+select is(public.save_position_draft(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),2,pg_temp.input()||'{"periodoFonte":""}',pg_temp.fixture('invalid-save2'))->>'version','3','missing date draft allowed');
+select throws_ok($$select public.submit_position(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),3,pg_temp.fixture('invalid-send2'))$$,'22023','invalid_input','submission requires source date');
+select is(public.save_position_draft(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),3,pg_temp.input()||'{"valor":null}',pg_temp.fixture('invalid-save3'))->>'version','4','absent numeric draft allowed');
+select throws_ok($$select public.submit_position(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),4,pg_temp.fixture('invalid-send3'))$$,'22023','invalid_input','absence is not zero');
+select throws_ok($$select public.submit_position(pg_temp.variant_ctx('not-applicable'),pg_temp.fixture('not-applicable-position'),1,pg_temp.fixture('na-send'))$$,'55000','invalid_state','not applicable cannot be submitted');
+select throws_ok($$select public.submit_position(pg_temp.ctx(),pg_temp.fixture('other_position'),1,pg_temp.fixture('outside'))$$,'42501','access_denied','unauthorized position denied');
+select ok(not has_function_privilege('authenticated','private.run_academic_command(jsonb,text,jsonb,uuid)','execute'),'dispatcher remains private');
+select ok(not has_function_privilege('authenticated','private.save_academic_draft(jsonb,text,jsonb,uuid)','execute'),'renamed draft handler remains private');
+reset role;
+select is((select count(*)::integer from public.operacoes_dominio where operation_id in (pg_temp.fixture('invalid-send'),pg_temp.fixture('invalid-send2'),pg_temp.fixture('invalid-send3'))),0,'failed commands roll back operation identity');
+select is((select count(*)::integer from public.resultados r join public.entradas e on e.id=r.entrada_id where e.posicao_id=pg_temp.fixture('unavailable-position')),0,'unavailable persists no numeric result');
+update public.revisoes_entrada set periodo_fonte='2026-02-30' where entrada_id=(select id from public.entradas where posicao_id=pg_temp.fixture('invalid-position'));
+set local role authenticated;
+select throws_ok($$select public.submit_position(pg_temp.variant_ctx('invalid'),pg_temp.fixture('invalid-position'),4,pg_temp.fixture('invalid-date'))$$,'22023','invalid_input','submit independently rejects impossible calendar dates');
+reset role;
+select is((select count(*)::integer from public.resultados r join public.entradas e on e.id=r.entrada_id where e.posicao_id=pg_temp.fixture('submit_position')),1,'one result on retry');
+select is((select count(*)::integer from public.eventos_auditoria where recurso_id=pg_temp.fixture('submit_position')),2,'one save one submission event');
+select is((select lock_version from public.posicoes_esperadas where id=pg_temp.fixture('submit_position')),3,'one position increment per command');
+select is((select valor from public.entradas where posicao_id=pg_temp.fixture('submit_position')),null::numeric,'header stays NULL');
+select throws_ok($$update public.revisoes_entrada set origem='tampered' where id=(select revisao_atual_id from public.entradas where posicao_id=pg_temp.fixture('submit_position'))$$,'55000','sent_revision_is_immutable','sent source immutable');
+update public.vinculos set ativo=false where actor_id=pg_temp.fixture('actor');
+set local role authenticated;
+select throws_ok($$select public.submit_position(pg_temp.ctx(),pg_temp.fixture('submit_position'),2,pg_temp.fixture('submit'))$$,'42501','access_denied','revoked actor cannot recover completed command');
+reset role;
+select * from finish();
+rollback;

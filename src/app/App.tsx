@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { getAuthClient, getPilotContext, signOut } from "../features/auth/auth";
@@ -10,6 +10,12 @@ import { HistoryPage } from "../features/workspace/HistoryPage";
 import { WorkspaceShell } from "../features/workspace/WorkspaceShell";
 import { pageFromHash, pageHash, type WorkspacePage } from "../features/workspace/workspaceModel";
 import type { PilotContext, PilotEntry } from "../lib/types";
+import { useAuthorizedContext } from "../features/context/useAuthorizedContext";
+import { ContextPicker } from "../features/context/ContextPicker";
+import { AcademicLoadBoundary } from '../features/workspace/AcademicLoadBoundary';
+import { requestAcademicLeave } from '../features/workspace/academicNavigation';
+
+const AcademicWorkspace = lazy(() => import('../features/workspace/AcademicWorkspace').then(module => ({ default: module.AcademicWorkspace })));
 
 interface ReadState {
   contextKey: string | null;
@@ -31,6 +37,8 @@ function getContextKey(context: PilotContext | null): string | null {
 
 export function App() {
   const [client] = useState<SupabaseClient>(() => getAuthClient());
+  const authorized = useAuthorizedContext(client);
+  const { refresh: refreshContexts, clear: clearContexts } = authorized;
   const [context, setContext] = useState<PilotContext | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -46,11 +54,17 @@ export function App() {
   const contextKey = getContextKey(context);
   const contextRef = useRef<PilotContext | null>(context);
   const contextKeyRef = useRef(contextKey);
+  const authorizedContextRef = useRef(authorized.context);
   contextRef.current = context;
   contextKeyRef.current = contextKey;
+  // Selection intent survives revalidation's temporary null state. This ref
+  // only supplies a preferred key, never authorization or data visibility.
+  if (authorized.context) authorizedContextRef.current = authorized.context;
+  const sessionGeneration = authGeneration.current;
 
   useEffect(() => {
     function syncPageFromHash() {
+      if(window.location.hash.startsWith('#academico/'))return;
       const nextPage = pageFromHash(window.location.hash);
       if (window.location.hash !== pageHash(nextPage)) {
         window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${pageHash(nextPage)}`);
@@ -72,16 +86,21 @@ export function App() {
         authGeneration.current += 1;
         signOutGeneration.current += 1;
         authActorId.current = null;
+        authorizedContextRef.current = null;
         readGeneration.current += 1;
+        clearContexts();
         setContext(null);
         setReadState({ contextKey: null, status: "idle", entries: [] });
         setSelectedEntryId(null);
         setSessionError(null);
         setSignOutError(null);
+        setIsSigningOut(false);
         return;
       }
 
       const nextActorId = session.user.id;
+      const selectedKey = authorizedContextRef.current?.actorId === nextActorId
+        ? authorizedContextRef.current.key : undefined;
       const previousActorId = authActorId.current;
       const activeActorId = contextRef.current?.actorId;
       if (
@@ -89,14 +108,31 @@ export function App() {
         || (activeActorId !== undefined && activeActorId !== nextActorId)
       ) {
         authGeneration.current += 1;
+        authorizedContextRef.current = null;
         readGeneration.current += 1;
+        clearContexts();
         setContext(null);
         setReadState({ contextKey: null, status: "idle", entries: [] });
         setSelectedEntryId(null);
         setSessionError(null);
         setSignOutError(null);
+        setIsSigningOut(false);
       }
       authActorId.current = nextActorId;
+      if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        authGeneration.current += 1;
+        const refreshGeneration = authGeneration.current;
+        setIsSigningOut(false);
+        readGeneration.current += 1;
+        clearContexts();
+        setContext(null);
+        setReadState({ contextKey: null, status: "idle", entries: [] });
+        setSelectedEntryId(null);
+        // Do not await Supabase operations inside its auth callback.
+        queueMicrotask(() => {
+          if (isMounted && authGeneration.current === refreshGeneration && authActorId.current === nextActorId) void refreshContexts(selectedKey);
+        });
+      }
     });
 
     void (async () => {
@@ -108,10 +144,12 @@ export function App() {
           return;
         }
 
-        const restoredContext = await getPilotContext(client);
+        if (!isMounted || authGeneration.current !== restoreGeneration) return;
+
+        authActorId.current = data.session.user.id;
+        const hasContexts = await refreshContexts();
         if (isMounted && authGeneration.current === restoreGeneration) {
-          setContext(restoredContext);
-          if (!restoredContext) {
+          if (!hasContexts) {
             setSessionError("Esta sessão não possui um vínculo autorizado para o piloto.");
           }
         }
@@ -129,7 +167,34 @@ export function App() {
       isMounted = false;
       authListener.subscription.unsubscribe();
     };
-  }, [client]);
+  }, [client, clearContexts, refreshContexts]);
+
+  // The old workspace can consume only legacy contexts. Selection changes
+  // synchronously hide it; the generation guard also rejects late adapters.
+  useEffect(() => {
+    let current = true;
+    const generation = authGeneration.current;
+    readGeneration.current += 1;
+    setContext(null);
+    setReadState({ contextKey: null, status: "idle", entries: [] });
+    setSelectedEntryId(null);
+    if (authorized.context?.mode === "legacy") {
+      void getPilotContext(client, authorized.context.key).then((legacy) => {
+        if (!current || authGeneration.current !== generation) return;
+        if (legacy?.actorId === authActorId.current) setContext(legacy);
+        else {
+          clearContexts();
+          setSessionError("Este contexto não está mais autorizado. Entre novamente.");
+        }
+      }).catch(() => {
+        if (current && authGeneration.current === generation) {
+          clearContexts();
+          setSessionError("Não foi possível verificar o contexto legado.");
+        }
+      });
+    }
+    return () => { current = false; readGeneration.current += 1; };
+  }, [client, authorized.context, clearContexts, sessionGeneration]);
 
   const refreshEntries = useCallback(async (activeContext: PilotContext) => {
     const activeKey = getContextKey(activeContext);
@@ -180,29 +245,53 @@ export function App() {
   }
 
   async function handleSignOut() {
-    if (!context || !contextKey) return;
-    const activeContext = context;
-    const activeKey = contextKey;
     authGeneration.current += 1;
     signOutGeneration.current += 1;
+    const requestGeneration = authGeneration.current;
+    const requestSignOutGeneration = signOutGeneration.current;
+    const actorId = authActorId.current;
+    const isCurrent = () => authGeneration.current === requestGeneration
+      && signOutGeneration.current === requestSignOutGeneration && authActorId.current === actorId;
     readGeneration.current += 1;
-    setReadState({ contextKey: activeKey, status: "loading", entries: [] });
+    const selectedKey = authorizedContextRef.current?.key;
+    clearContexts();
+    setContext(null);
+    setReadState({ contextKey: null, status: "idle", entries: [] });
     setSelectedEntryId(null);
     setIsSigningOut(true);
     setSignOutError(null);
 
     try {
       await signOut(client);
+      if (!isCurrent()) return;
+      authorizedContextRef.current = null;
       readGeneration.current += 1;
       setContext(null);
       setReadState({ contextKey: null, status: "idle", entries: [] });
       setSessionError(null);
     } catch {
+      if (!isCurrent()) return;
       setSignOutError("Não foi possível encerrar a sessão agora. Você pode tentar novamente.");
-      if (contextKeyRef.current === activeKey) void refreshEntries(activeContext);
+      // Recovery is also a generation-owned request; a new login clears the
+      // context hook before starting, invalidating any late recovery response.
+      await refreshContexts(selectedKey);
     } finally {
-      setIsSigningOut(false);
+      if (isCurrent()) setIsSigningOut(false);
     }
+  }
+
+  function beginAuthentication(): number {
+    authGeneration.current += 1;
+    signOutGeneration.current += 1;
+    readGeneration.current += 1;
+    authorizedContextRef.current = null;
+    clearContexts();
+    setContext(null);
+    setReadState({ contextKey: null, status: "idle", entries: [] });
+    setSelectedEntryId(null);
+    setIsSigningOut(false);
+    setSignOutError(null);
+    return signOutGeneration.current;
   }
 
   function getAuthenticationGenerationAfterSignIn(startedSignOutGeneration: number): number | null {
@@ -215,7 +304,6 @@ export function App() {
   }
 
   async function handleAuthenticated(
-    authorizedContext: PilotContext,
     generation: number | undefined,
     isAttemptCurrent: () => boolean,
   ): Promise<boolean> {
@@ -230,10 +318,10 @@ export function App() {
       if (
         error
         || !data.session
-        || data.session.user.id !== authorizedContext.actorId
         || !isAttemptCurrent()
         || authGeneration.current !== generation
       ) return false;
+      authActorId.current = data.session.user.id;
     } catch {
       return false;
     }
@@ -242,8 +330,7 @@ export function App() {
     setSignOutError(null);
     window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}${pageHash("overview")}`);
     setPage("overview");
-    setContext(authorizedContext);
-    return true;
+    return refreshContexts();
   }
 
   function handleRetry() {
@@ -267,16 +354,46 @@ export function App() {
     );
   }
 
-  if (!context) {
+  const choices = <ContextPicker contexts={authorized.contexts} selectedKey={authorized.context?.key ?? null}
+    onSelect={(key) => {
+      if(key===authorized.context?.key||!requestAcademicLeave())return;
+      const candidate = authorized.contexts.find((choice) => choice.key === key);
+      if (candidate) authorizedContextRef.current = candidate;
+      void authorized.selectContext(key);
+    }} />;
+
+  if (authorized.status === "loading" || (authorized.context?.mode === "legacy" && !context && !sessionError)) {
+    return <main className="auth-screen"><section className="auth-card" role="status">Verificando contexto autorizado…</section></main>;
+  }
+
+  if (authorized.context?.mode === 'academic') {
+    return <AcademicLoadBoundary key={authorized.context.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
+      <AcademicWorkspace client={client} context={authorized.context} contextPicker={choices}
+        onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
+    </Suspense></AcademicLoadBoundary>;
+  }
+
+  if (!authorized.context && authorized.contexts.length > 0) {
+    return <main className="auth-screen"><section className="auth-card">
+      <h1>Selecione seu contexto</h1>
+      {choices}
+      {signOutError && <p role="alert">{signOutError}</p>}
+      <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
+    </section></main>;
+  }
+
+  if (!context || !authorized.context) {
     return (
       <>
         {sessionError && <p className="session-error" role="alert">{sessionError}</p>}
+        {(authorized.error || (authorized.status === "ready" && authorized.contexts.length === 0 && !sessionError)) &&
+          <p role="alert">{authorized.error ?? "Esta sessão não possui um vínculo autorizado para o piloto."}</p>}
         <AuthScreen
           client={client}
           isAuthenticationGenerationCurrent={isAuthenticationGenerationCurrent}
           onAuthenticationContextLoading={getAuthenticationGenerationAfterSignIn}
-          onAuthenticationStarted={() => signOutGeneration.current}
-          onAuthenticated={handleAuthenticated}
+          onAuthenticationStarted={beginAuthentication}
+          onSessionAuthenticated={handleAuthenticated}
         />
       </>
     );
@@ -296,6 +413,8 @@ export function App() {
       page={page}
       signOutError={signOutError}
     >
+      <aside aria-label="Leitura histórica legada"><strong>Baseline legada</strong><p>Registros históricos: pendente não significa aprovação. Este espaço não executa o ciclo acadêmico atual.</p></aside>
+      {authorized.contexts.length > 1 && choices}
       {page === "overview" && (
         <DashboardPage
           context={context}

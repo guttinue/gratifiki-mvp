@@ -1,6 +1,6 @@
 begin;
 
-select plan(51);
+select plan(53);
 
 create temporary table submit_baseline as
 select
@@ -171,13 +171,12 @@ select is(
 );
 
 reset role;
-update public.regras
-set versao = 2
-where id = 'c0de0000-0000-4000-8000-000000000004';
+select throws_ok($$update public.regras set versao = 2 where id = 'c0de0000-0000-4000-8000-000000000004'$$,
+ '55000', null, 'a used rule version cannot be edited');
 set local role authenticated;
 select is(
   ((select r.memoria->>'ruleVersion' from public.resultados r join public.entradas e on e.id = r.entrada_id where e.operation_id = 'd4e00000-0000-4000-8000-000000000201')::integer),
-  1, 'existing result memory retains its rule version after the catalog row changes'
+  1, 'existing result memory retains its rule version after the rejected catalog edit'
 );
 
 insert into pg_temp.submit_calls values (
@@ -202,53 +201,66 @@ select is(
   (select outcome->'response'->>'resultValue' from pg_temp.submit_calls where call_name = 'ten'),
   'retry returns the original exact result value'
 );
-select is(((select outcome->'response'->>'ruleVersion' from pg_temp.submit_calls where call_name = 'retry')::integer), 1, 'retry returns the version from persisted result memory after the rule row changes');
+select is(((select outcome->'response'->>'ruleVersion' from pg_temp.submit_calls where call_name = 'retry')::integer), 1, 'retry returns the version from persisted result memory after the rejected rule edit');
 select is((select count(*)::integer from public.eventos_auditoria where actor_id = auth.uid() and acao = 'demo.entry.submitted'), 3, 'same operation id does not create another audit event');
 
 reset role;
-update public.resultados r
-set memoria = pg_catalog.jsonb_set(r.memoria, '{ruleVersion}', '"not-an-integer"'::jsonb)
-from public.entradas e
-where e.id = r.entrada_id
-  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+-- Construct historical corruption on INSERT in a rollback-only fixture. Product
+-- immutability triggers remain enabled; legitimate submissions are never altered.
+create function pg_temp.corrupt_legacy_memory(p_memory jsonb) returns void language plpgsql as $$
+declare v_entry uuid;
+begin
+ insert into public.entradas (competencia_id,indicador_id,escopo_id,autor_id,valor,estado,revisao,operation_id)
+ select competencia_id,indicador_id,escopo_id,autor_id,valor,estado,revisao,'d4e00000-0000-4000-8000-000000000301'
+ from public.entradas where operation_id='d4e00000-0000-4000-8000-000000000201' returning id into v_entry;
+ insert into public.resultados (entrada_id,regra_id,valor,memoria)
+ select v_entry,r.regra_id,r.valor,p_memory from public.resultados r join public.entradas e on e.id=r.entrada_id
+ where e.operation_id='d4e00000-0000-4000-8000-000000000201';
+end;
+$$;
+savepoint historical_version_fixture;
+select pg_temp.corrupt_legacy_memory('{"ruleVersion":7}');
+set local role authenticated;
+select is((pg_temp.capture_submit('c0de0000-0000-4000-8000-000000000001','c0de0000-0000-4000-8000-000000000002','c0de0000-0000-4000-8000-000000000003','10','d4e00000-0000-4000-8000-000000000301')->'response'->>'ruleVersion')::integer,7,'retry reads historical memory version, not the current rule catalog version');
+rollback to savepoint historical_version_fixture;
+savepoint malformed_fixture;
+select pg_temp.corrupt_legacy_memory('{"ruleVersion":"not-an-integer"}');
 set local role authenticated;
 insert into pg_temp.submit_calls values (
   'malformed-snapshot', pg_temp.capture_submit(
     'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
-    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000301'
   )
 );
 select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'malformed-snapshot'), '55000', 'retry rejects a nonnumeric rule version in persisted memory');
+rollback to savepoint malformed_fixture;
 
 reset role;
-update public.resultados r
-set memoria = pg_catalog.jsonb_set(r.memoria, '{ruleVersion}', '2147483648'::jsonb)
-from public.entradas e
-where e.id = r.entrada_id
-  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+savepoint overflow_fixture;
+select pg_temp.corrupt_legacy_memory('{"ruleVersion":2147483648}');
 set local role authenticated;
 insert into pg_temp.submit_calls values (
   'overflow-snapshot', pg_temp.capture_submit(
     'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
-    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000301'
   )
 );
 select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'overflow-snapshot'), '55000', 'retry converts an out-of-range persisted rule version to a controlled error');
+rollback to savepoint overflow_fixture;
 
 reset role;
-update public.resultados r
-set memoria = r.memoria - 'ruleVersion'
-from public.entradas e
-where e.id = r.entrada_id
-  and e.operation_id = 'd4e00000-0000-4000-8000-000000000201';
+savepoint missing_version_fixture;
+select pg_temp.corrupt_legacy_memory('{}');
 set local role authenticated;
 insert into pg_temp.submit_calls values (
   'missing-version-snapshot', pg_temp.capture_submit(
     'c0de0000-0000-4000-8000-000000000001', 'c0de0000-0000-4000-8000-000000000002',
-    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000201'
+    'c0de0000-0000-4000-8000-000000000003', '10', 'd4e00000-0000-4000-8000-000000000301'
   )
 );
 select is((select outcome->>'sqlstate' from pg_temp.submit_calls where call_name = 'missing-version-snapshot'), '55000', 'retry rejects a missing rule version in persisted memory');
+rollback to savepoint missing_version_fixture;
+set local role authenticated;
 
 insert into pg_temp.submit_calls values (
   'changed-payload', pg_temp.capture_submit(

@@ -1,6 +1,7 @@
 import { createSupabaseClient } from "../../lib/supabase";
 import type { PilotContext } from "../../lib/types";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadAuthorizedContexts } from "../context/contextApi";
 
 let authClient: SupabaseClient | undefined;
 
@@ -29,7 +30,8 @@ export async function signOut(client: SupabaseClient = getAuthClient()): Promise
   }
 }
 
-export async function getPilotContext(client: SupabaseClient): Promise<PilotContext | null> {
+// Compatibility adapter only. Academic commands never consume PilotContext.
+export async function getPilotContext(client: SupabaseClient, selectedKey?: string): Promise<PilotContext | null> {
   const { data: userData, error: userError } = await client.auth.getUser();
 
   if (userError) {
@@ -42,61 +44,37 @@ export async function getPilotContext(client: SupabaseClient): Promise<PilotCont
     return null;
   }
 
-  const { data: links, error: linkError } = await client
-    .from("vinculos")
-    .select("actor_id, papel, escopo_id")
-    .eq("actor_id", actor.id)
-    .in("papel", ["area_tecnica", "cam"]);
+  const contexts = await loadAuthorizedContexts(client);
+  const context = selectedKey === undefined
+    ? contexts.length === 1 ? contexts[0] : null
+    : contexts.find(({ key }) => key === selectedKey);
+  if (!context || context.mode !== "legacy" || context.actorId !== actor.id
+    || (context.role !== "area_tecnica" && context.role !== "cam")) return null;
 
-  if (linkError) {
-    throw linkError;
-  }
-
-  if (links?.length !== 1) {
-    return null;
-  }
-
-  const link = links[0];
-
-  if (
-    link.actor_id !== actor.id ||
-    (link.papel !== "area_tecnica" && link.papel !== "cam") ||
-    typeof link.escopo_id !== "string"
-  ) {
-    return null;
-  }
-
-  const [scopeResult, competenceResult, indicatorResult] = await Promise.all([
-    client.from("escopos").select("id, codigo").eq("id", link.escopo_id).maybeSingle(),
-    client
-      .from("competencias")
-      .select("id, codigo, referencia")
-      .eq("codigo", "DEMO-2026-09")
-      .maybeSingle(),
-    client.from("indicadores").select("id, codigo").eq("codigo", "DEMO-01").maybeSingle(),
+  const [competenceResult, indicatorResult] = await Promise.all([
+    client.from("competencias").select("id, referencia").eq("id", context.competenciaId).maybeSingle(),
+    client.from("indicadores").select("id, codigo").eq("id", context.indicadorId).maybeSingle(),
   ]);
 
-  if (scopeResult.error) throw scopeResult.error;
   if (competenceResult.error) throw competenceResult.error;
   if (indicatorResult.error) throw indicatorResult.error;
 
-  const scope = scopeResult.data;
   const competence = competenceResult.data;
   const indicator = indicatorResult.data;
 
-  if (!scope || !competence || !indicator) {
+  if (!competence || !indicator) {
     return null;
   }
 
   return {
     actorId: actor.id,
-    papel: link.papel,
+    papel: context.role,
     competenciaId: competence.id,
-    competenciaCodigo: competence.codigo,
+    competenciaCodigo: context.competenciaCodigo,
     referencia: competence.referencia,
     indicadorId: indicator.id,
     indicadorCodigo: indicator.codigo,
-    escopoId: scope.id,
-    escopoCodigo: scope.codigo,
+    escopoId: context.escopoId,
+    escopoCodigo: context.escopoCodigo,
   };
 }

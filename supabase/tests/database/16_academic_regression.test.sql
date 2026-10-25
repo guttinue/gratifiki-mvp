@@ -1,0 +1,16 @@
+begin;
+select plan(12);
+select ok((select bool_and(relrowsecurity) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('posicoes_esperadas','revisoes_entrada','decisoes_entrada','operacoes_dominio','fechamentos','itens_fechamento','publicacoes','contas_demo','ativacoes_regra','territorios_competencia')),'all academic tables retain RLS');
+select ok(not has_table_privilege('anon','public.revisoes_entrada','select'),'anonymous cannot read academic revision');
+select ok(not has_table_privilege('authenticated','public.itens_fechamento','select'),'snapshot direct read not granted');
+select ok(not has_table_privilege('authenticated','public.operacoes_dominio','select'),'idempotent payload cache not exposed');
+select ok(not has_function_privilege('anon','public.get_snapshot_export(jsonb,uuid,uuid)','execute'),'anonymous export denied');
+select ok(has_function_privilege('authenticated','public.get_snapshot_export(jsonb,uuid,uuid)','execute'),'scoped export RPC retained');
+select ok(not has_function_privilege('authenticated','private.administer_academic_metadata(jsonb,text,jsonb,uuid)','execute'),'private admin handler not exposed');
+select ok(not has_function_privilege('service_role','private.configure_academic_cycle(jsonb,text,jsonb,uuid)','execute'),'private configuration handler not exposed');
+select has_column('public','entradas','claim_revisao_atual_id','explicit current claim retained');
+select has_column('public','fechamentos','competencia_codigo','frozen export competence metadata retained');
+select has_column('public','itens_fechamento','unidade_medida','frozen unit metadata retained');
+select ok(not exists(select 1 from pg_trigger t join pg_class c on c.oid=t.tgrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and not t.tgisinternal and t.tgenabled<>'O'),'academic safety triggers enabled');
+select * from finish();
+rollback;

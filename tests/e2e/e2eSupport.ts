@@ -1,8 +1,23 @@
 import { expect, type Page } from "@playwright/test";
+import { validateOwnedTarget, type OwnedTarget } from "../../scripts/verification/runtime.ts";
+import type { Role } from "../../src/features/pilot/types";
 
 type DemoProfile = "technical" | "cam";
 
+export function academicCredential(profile: Role | 'southTechnical' | 'southReviewer' | 'partialCam') {
+  assertLocalE2eConfiguration();
+  const email = process.env[`ACADEMIC_${profile.toUpperCase()}_EMAIL`];
+  const password = process.env[`ACADEMIC_${profile.toUpperCase()}_PASSWORD`];
+  if (!email || !password) throw new Error('Academic E2E requires the owned academic fixture');
+  return { email, password };
+}
+
 export function assertLocalE2eConfiguration(...profiles: DemoProfile[]) {
+  if (process.env.VERIFICATION_OWNED_TARGET !== undefined) {
+    const owned = JSON.parse(process.env.VERIFICATION_OWNED_TARGET) as OwnedTarget;
+    validateOwnedTarget(owned);
+    if (process.env.VITE_SUPABASE_URL !== owned.url) throw new Error("E2E target does not match the owned project");
+  }
   let target: URL;
   try {
     target = new URL(process.env.VITE_SUPABASE_URL ?? "");

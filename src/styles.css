@@ -33,12 +33,12 @@
 }
 
 html {
-  min-width: 320px;
+  min-width: 0;
   scroll-behavior: smooth;
 }
 
 body {
-  min-width: 320px;
+  min-width: 0;
   min-height: 100vh;
   margin: 0;
   background: var(--canvas);
@@ -1709,3 +1709,75 @@ td code,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Academic journeys share the neutral/blue language, not the login card's
+   narrow dimensions. Local scrolling is confined to content, never the page. */
+.academic-app {
+  min-height: 100vh;
+  padding: clamp(12px, 3vw, 32px);
+  background: #f3f5f8;
+  color: #29364b;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.academic-header, .academic-content {
+  width: 100%;
+  max-width: 1120px;
+  min-width: 0;
+  margin: 0 auto 20px;
+  padding: clamp(12px, 3vw, 28px);
+  border: 1px solid #dce2ec;
+  border-radius: 12px;
+  background: white;
+}
+.academic-app h1 { font-size: clamp(22px, 3vw, 30px); line-height: 1.25; }
+.academic-app h2 { font-size: 21px; }
+.academic-app h3 { font-size: 17px; }
+.academic-app h4 { font-size: 16px; }
+.academic-app nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.academic-app button {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 40px;
+  margin: 4px;
+  padding: 8px 12px;
+  border: 1px solid #c4d0e2;
+  border-radius: 6px;
+  background: #f5f8fe;
+  color: #294c83;
+  font-size: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.academic-app button[aria-current="page"], .academic-app button[aria-pressed="true"] {
+  border-color: #375e9c;
+  background: #e9effa;
+}
+.academic-app button:disabled { color: #677284; background: #f2f3f5; cursor: not-allowed; }
+.academic-app :focus-visible { outline: 3px solid #3568bd; outline-offset: 3px; }
+.academic-app label { display: grid; min-width: 0; gap: 5px; margin: 12px 0; }
+.academic-app input, .academic-app select, .academic-app textarea {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px;
+  border: 1px solid #becadd;
+  border-radius: 6px;
+  background: #fff;
+  color: #29364b;
+  font: inherit;
+}
+.academic-app input[type="checkbox"] { width: 20px; min-height: 20px; }
+.academic-app textarea { min-height: 88px; resize: vertical; }
+.academic-app fieldset { min-inline-size: 0; margin: 16px 0; border: 1px solid #dce2ec; border-radius: 6px; }
+.academic-app legend { max-width: 100%; white-space: normal; }
+.academic-app li { margin: 10px 0; }
+.academic-app dl, .academic-app dd { min-width: 0; margin-left: 0; }
+.academic-app [role="alert"] { padding: 12px; border-left: 4px solid #a13b36; background: #fff1f0; color: #7e2925; }
+.academic-app [role="status"] { padding: 8px; border-left: 3px solid #375e9c; }
+.academic-app dialog { max-width: min(90vw, 540px); border: 1px solid #becadd; border-radius: 12px; padding: 24px; color: #29364b; }
+.academic-app dialog::backdrop { background: rgb(20 30 50 / 45%); }
+.academic-app .skip-link { max-width: calc(100% - 20px); white-space: normal; }

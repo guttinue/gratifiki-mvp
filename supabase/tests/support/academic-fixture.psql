@@ -1,0 +1,27 @@
+-- Transaction-local synthetic roots only. Does not provision an application session
+-- or grant bypasses; access assertions must explicitly SET LOCAL ROLE authenticated.
+create function pg_temp.fixture(label text) returns uuid language sql immutable as $$
+ select md5('academic-test:' || label)::uuid;
+$$;
+create function pg_temp.login_as(label text) returns void language plpgsql as $$
+begin
+ perform set_config('request.jwt.claim.sub',pg_temp.fixture(label)::text,true);
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',pg_temp.fixture(label),'role','authenticated')::text,true);
+end;
+$$;
+insert into auth.users (id,email,aud,role) values
+ (pg_temp.fixture('actor'),'academic-actor@example.invalid','authenticated','authenticated'),
+ (pg_temp.fixture('reviewer'),'academic-reviewer@example.invalid','authenticated','authenticated');
+insert into public.competencias (id,codigo,referencia,estado,modelo) values (pg_temp.fixture('competence'),'DEMO-2026-10',date '2026-10-01','aberta',2);
+insert into public.escopos (id,codigo,tipo) values (pg_temp.fixture('district'),'TEST-DISTRICT','distrito');
+insert into public.escopos (id,codigo,tipo,distrito_id) values (pg_temp.fixture('unit'),'TEST-UNIT','unidade',pg_temp.fixture('district'));
+insert into public.vinculos (actor_id,papel,escopo_id) values (pg_temp.fixture('actor'),'area_tecnica',pg_temp.fixture('unit'));
+insert into public.posicoes_esperadas (id,competencia_id,indicador_id,alvo_id,regra_id,informante_id,revisor_id) values
+ (pg_temp.fixture('position'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('unit'),'c0de0000-0000-4000-8000-000000000004',pg_temp.fixture('actor'),pg_temp.fixture('reviewer')),
+ (pg_temp.fixture('other_position'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('district'),'c0de0000-0000-4000-8000-000000000004',pg_temp.fixture('actor'),pg_temp.fixture('reviewer'));
+insert into public.entradas (id,competencia_id,indicador_id,escopo_id,autor_id,valor,estado,revisao,operation_id,posicao_id) values
+ (pg_temp.fixture('entry'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('unit'),pg_temp.fixture('actor'),null,'rascunho',1,pg_temp.fixture('operation'),pg_temp.fixture('position')),
+ (pg_temp.fixture('other_entry'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('district'),pg_temp.fixture('actor'),null,'rascunho',1,pg_temp.fixture('other_operation'),pg_temp.fixture('other_position'));
+insert into public.revisoes_entrada (id,entrada_id,numero,autor_id,estado_dado,valor,origem,periodo_fonte,motivo,enviada_em) values
+ (pg_temp.fixture('revision'),pg_temp.fixture('entry'),1,pg_temp.fixture('actor'),'valor',0.0001,'synthetic fixture','2026-10-01','test',now()),
+ (pg_temp.fixture('draft'),pg_temp.fixture('entry'),2,pg_temp.fixture('actor'),'valor',null,'','','',null);

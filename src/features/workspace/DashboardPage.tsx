@@ -2,6 +2,23 @@ import type { PilotContext, PilotEntry } from "../../lib/types";
 import { formatAuditAction, formatTimestamp, PAGE_LABELS, STATUS_LABELS } from "./workspaceModel";
 import { getWorkspaceMetrics } from "./workspaceModel";
 import type { WorkspacePage } from "./workspaceModel";
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuthorizedContext,DashboardData,Page,PositionFilter,PositionSummary } from '../pilot/types';
+import { useEffect,useState } from 'react';
+import { toCommandContext } from '../context/contextApi';
+import { loadDashboard } from './academicDashboardApi';
+import { listPositions } from '../submission/positionApi';
+type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
+export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
+function ContextDashboard({client,context}:AcademicDashboardProps){
+ const [data,setData]=useState<DashboardData|null>(null);const [filter,setFilter]=useState<PositionFilter|null>(null);const [rows,setRows]=useState<Page<PositionSummary>|null>(null);const [error,setError]=useState(false);const [listError,setListError]=useState(false);const [retry,setRetry]=useState(0);
+ useEffect(()=>{let current=true;setData(null);setError(false);void loadDashboard(client,toCommandContext(context)).then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,context,retry]);
+ useEffect(()=>{let current=true;setRows(null);setListError(false);if(filter)void listPositions(client,toCommandContext(context),filter).then(value=>{if(current)setRows(value);}).catch(()=>{if(current)setListError(true);});return()=>{current=false;};},[client,context,filter,retry]);
+ return <section aria-label="Painel autorizado"><h2>Andamento autorizado</h2>
+ {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>:<><p>Universo: {data.expected} · Recebidas: {data.received} · Conferidas: {data.reviewed} · Indisponíveis: {data.unavailable}</p><p>Indisponíveis são subconjunto de recebidas, não valores zero. Denominador: {data.expected} posições autorizadas.</p><div>{data.cards.map(card=>card.filter?<button key={card.id} type="button" onClick={()=>setFilter(card.filter)}>{card.label}: {card.count} de {data.expected}</button>:<p key={card.id}>{card.label}: {card.count} de {data.expected}</p>)}</div></>}
+ {filter&&<section aria-label="Posições do cartão">{listError?<p role="alert">Não foi possível confirmar o filtro do cartão.</p>:!rows?<p role="status">Carregando posições do cartão…</p>:<><p>Posições no filtro: {rows.total}</p><ul>{rows.items.map(row=><li key={row.id}>{row.escopoCodigo} · {row.status}</li>)}</ul><button type="button" disabled={filter.page===1} onClick={()=>setFilter({...filter,page:filter.page-1})}>Página anterior do cartão</button><span> Página {filter.page} </span><button type="button" disabled={filter.page*filter.pageSize>=rows.total} onClick={()=>setFilter({...filter,page:filter.page+1})}>Próxima página do cartão</button></>}</section>}
+ <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
+}
 
 interface DashboardPageProps {
   context: PilotContext;
@@ -27,6 +44,10 @@ function ErrorPanel({ message, onRetry }: { message: string; onRetry?: () => voi
 }
 
 export function DashboardPage({ context, entries, isLoading, errorMessage, onNavigate, onRetry }: DashboardPageProps) {
+  // Explicit legacy adapter: these entries and metrics never serve academic roles.
+  return <LegacyDashboardPage context={context} entries={entries} isLoading={isLoading} errorMessage={errorMessage} onNavigate={onNavigate} onRetry={onRetry}/>;
+}
+function LegacyDashboardPage({ context, entries, isLoading, errorMessage, onNavigate, onRetry }: DashboardPageProps) {
   const metrics = getWorkspaceMetrics(entries);
   const stateCounts = states.map((state) => ({
     state,

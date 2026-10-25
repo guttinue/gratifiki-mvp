@@ -28,6 +28,16 @@ function deferred<T>() {
 }
 
 describe("AuthScreen", () => {
+  it("allows the app to discover multiple authorized contexts after login without the legacy adapter", async () => {
+    const onSessionAuthenticated = vi.fn().mockResolvedValue(true);
+    vi.mocked(signIn).mockResolvedValueOnce();
+    render(<AuthScreen client={{} as SupabaseClient} onSessionAuthenticated={onSessionAuthenticated} />);
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "area@example.invalid" } });
+    fireEvent.change(screen.getByLabelText("Senha"), { target: { value: "test-only-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await waitFor(() => expect(onSessionAuthenticated).toHaveBeenCalledOnce());
+    expect(getPilotContext).not.toHaveBeenCalled();
+  });
   it("shows an invalid-credentials error without revealing protected UI", async () => {
     vi.mocked(signIn).mockRejectedValueOnce(new Error("Invalid login credentials"));
 

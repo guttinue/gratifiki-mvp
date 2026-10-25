@@ -1,0 +1,71 @@
+begin;
+select no_plan();
+\ir ../support/academic-fixture.psql
+insert into public.contas_demo(ator_id,rotulo) values(pg_temp.fixture('actor'),'Synthetic'),(pg_temp.fixture('reviewer'),'Synthetic reviewer');
+update public.vinculos set indicador_id='c0de0000-0000-4000-8000-000000000002',vigencia_inicio=current_date-1 where actor_id=pg_temp.fixture('actor');
+-- Empty position, separate from immutable sent fixture history.
+create function pg_temp.ctx(p_role text default 'area_tecnica') returns jsonb language sql security definer set search_path='' as $$
+select jsonb_build_object('vinculoId',id,'competenciaId',pg_temp.fixture('competence'),'indicadorId',indicador_id) from public.vinculos where actor_id=pg_temp.fixture('actor') and papel=p_role;
+$$;
+create function pg_temp.input(p_value text default '0.0001') returns jsonb language sql as $$ select jsonb_build_object('estadoDado','valor','valor',p_value,'fonte','  synthetic origin  ','periodoFonte','2026-10-01','motivo',''); $$;
+insert into public.escopos(id,codigo,tipo) values(pg_temp.fixture('empty_scope'),'DRAFT-EMPTY','unidade');
+insert into public.posicoes_esperadas(id,competencia_id,indicador_id,alvo_id,regra_id,informante_id,revisor_id)
+values(pg_temp.fixture('empty_position'),pg_temp.fixture('competence'),'c0de0000-0000-4000-8000-000000000002',pg_temp.fixture('empty_scope'),'c0de0000-0000-4000-8000-000000000004',pg_temp.fixture('actor'),pg_temp.fixture('reviewer'));
+update public.vinculos set escopo_id=pg_temp.fixture('empty_scope') where actor_id=pg_temp.fixture('actor');
+insert into public.vinculos(actor_id,papel,escopo_id,indicador_id,vigencia_inicio)
+select pg_temp.fixture('actor'),role,pg_temp.fixture('empty_scope'),'c0de0000-0000-4000-8000-000000000002',current_date-1
+from unnest(array['cam','gestor_unidade','administrador','revisor_tecnico']) role;
+select pg_temp.login_as('actor');
+set local role authenticated;
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input(),pg_temp.fixture('save-1'))->>'version','2','first persisted draft advances position version');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'revisions'->0->>'value','0.0001','exact decimal persisted');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'revisions'->0->>'source','synthetic origin','origin trimmed and persisted');
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input('0,0001'),pg_temp.fixture('save-1'))->>'version','2','canonical duplicate returns completed response before stale version');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input('0'),pg_temp.fixture('save-1'))$$,'22023','operation_payload_mismatch','same operation with another canonical input rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),2,pg_temp.input(),pg_temp.fixture('save-1'))$$,'22023','operation_payload_mismatch','expected version is part of canonical payload');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input(),pg_temp.fixture('stale'))$$,'40001','version_conflict','stale new operation cannot mutate');
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),2,pg_temp.input('99999999.9999'),pg_temp.fixture('max'))->>'version','3','maximum exact input accepted');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'position'->>'inputValue','99999999.9999','maximum round-trips without loss');
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),3,pg_temp.input('0'),pg_temp.fixture('zero'))->>'version','4','zero is a numeric value');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'position'->>'estadoDado','valor','zero is not unavailable');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'position'->>'inputValue','0','zero round-trips');
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),4,'{"estadoDado":"indisponivel","valor":null,"fonte":"","periodoFonte":"","motivo":""}',pg_temp.fixture('unavailable'))->>'version','5','unavailable incomplete draft accepted');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'position'->>'inputValue',null,'unavailable never invents a number');
+select is(public.get_position_detail(pg_temp.ctx(),pg_temp.fixture('empty_position'))->'revisions'->0->>'source','','empty source not invented');
+select is(public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),5,'{"estadoDado":"valor","valor":null,"fonte":"","periodoFonte":"","motivo":""}',pg_temp.fixture('incomplete'))->>'version','6','incomplete numeric draft accepted');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('1.234,56'),pg_temp.fixture('bad-group'))$$,'22023','invalid_input','group separator rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('0.00001'),pg_temp.fixture('bad-scale'))$$,'22023','invalid_input','excess scale rejected before numeric coercion');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('1e2'),pg_temp.fixture('bad-exp'))$$,'22023','invalid_input','exponent rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('100000000'),pg_temp.fixture('bad-max'))$$,'22023','invalid_input','above maximum rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('-1'),pg_temp.fixture('bad-negative'))$$,'22023','invalid_input','negative rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input('Infinity'),pg_temp.fixture('bad-infinite'))$$,'22023','invalid_input','infinity rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input()||'{"periodoFonte":"2026-02-30"}',pg_temp.fixture('bad-date'))$$,'22023','invalid_input','invalid real calendar date rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input()||jsonb_build_object('fonte',repeat('x',501)),pg_temp.fixture('bad-source'))$$,'22023','invalid_input','source limit enforced by backend');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input()||jsonb_build_object('motivo',repeat('x',1001)),pg_temp.fixture('bad-reason'))$$,'22023','invalid_input','reason limit enforced by backend');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),6,pg_temp.input()||'{"estadoDado":"indisponivel"}',pg_temp.fixture('bad-unavailable'))$$,'22023','invalid_input','unavailable with number rejected');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx('cam'),pg_temp.fixture('empty_position'),6,pg_temp.input(),pg_temp.fixture('cam-write'))$$,'42501','access_denied','CAM cannot draft');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx('gestor_unidade'),pg_temp.fixture('empty_position'),6,pg_temp.input(),pg_temp.fixture('manager-write'))$$,'42501','access_denied','manager cannot draft');
+select throws_ok($$select public.get_position_detail(pg_temp.ctx('gestor_unidade'),pg_temp.fixture('empty_position'))$$,'42501','access_denied','manager cannot inspect draft');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx('administrador'),pg_temp.fixture('empty_position'),6,pg_temp.input(),pg_temp.fixture('admin-write'))$$,'42501','access_denied','administrator cannot draft');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx('revisor_tecnico'),pg_temp.fixture('empty_position'),6,pg_temp.input(),pg_temp.fixture('reviewer-write'))$$,'42501','access_denied','reviewer cannot draft');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx()||'{"actorId":"spoof"}',pg_temp.fixture('empty_position'),6,pg_temp.input(),pg_temp.fixture('spoof'))$$,'42501','access_denied','client actor is never trusted');
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('other_position'),1,pg_temp.input(),pg_temp.fixture('outside'))$$,'42501','access_denied','another target denied');
+select ok(not has_function_privilege('authenticated','private.run_academic_command(jsonb,text,jsonb,uuid)','execute'),'private dispatcher cannot be called by browser');
+select throws_ok($$update public.revisoes_entrada set origem='direct'$$,'42501',null,'direct writes denied');
+reset role;
+select is((select valor from public.entradas where posicao_id=pg_temp.fixture('empty_position')),null::numeric,'academic header never duplicates numeric payload');
+select is((select count(*)::integer from public.revisoes_entrada where entrada_id=(select id from public.entradas where posicao_id=pg_temp.fixture('empty_position'))),1,'saves mutate only the unsent draft revision');
+select is((select count(*)::integer from public.eventos_auditoria where recurso_id=pg_temp.fixture('empty_position')),5,'duplicate and rejected operations create no extra event');
+select is((select lock_version from public.competencias where id=pg_temp.fixture('competence')),6,'each draft mutation increments competence exactly once');
+select is((select count(*)::integer from public.resultados r join public.entradas e on e.id=r.entrada_id where e.posicao_id=pg_temp.fixture('empty_position')),0,'draft creates no calculation');
+update public.vinculos set ativo=false where actor_id=pg_temp.fixture('actor') and papel='area_tecnica';
+set local role authenticated;
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input(),pg_temp.fixture('save-1'))$$,'42501','access_denied','revoked link cannot recover cached success');
+reset role;
+update public.vinculos set ativo=true where actor_id=pg_temp.fixture('actor') and papel='area_tecnica';
+update public.posicoes_esperadas set informante_id=pg_temp.fixture('reviewer'),revisor_id=pg_temp.fixture('actor'),lock_version=lock_version+1 where id=pg_temp.fixture('empty_position');
+set local role authenticated;
+select throws_ok($$select public.save_position_draft(pg_temp.ctx(),pg_temp.fixture('empty_position'),1,pg_temp.input(),pg_temp.fixture('save-1'))$$,'42501','access_denied','reassigned informant cannot retrieve cached success');
+reset role;
+select * from finish();
+rollback;

@@ -1,4 +1,5 @@
 import type { PilotContext } from "../../lib/types";
+import type { CommandContext } from '../pilot/types';
 
 export type PendingEntryOperation = {
   operationId: string;
@@ -142,4 +143,42 @@ export function clearPendingEntry(
   } catch {
     throw new PendingEntryStorageError();
   }
+}
+
+// Academic submission is separate from the legacy v1 entry key. No migration
+// between them: a position/link cannot inherit another operation's identity.
+export type AcademicPendingScope=CommandContext & {actorId:string;positionId:string};
+export type AcademicPendingSubmit={operationId:string;expectedVersion:number};
+export function academicPendingStorageKey(scope:AcademicPendingScope):string {
+ return 'gratifiki:pending-submit:v2:'+ [scope.actorId,scope.vinculoId,scope.competenciaId,scope.indicadorId,scope.positionId].map(encodeURIComponent).join(':');
+}
+function parseAcademicPending(raw:string,scope:AcademicPendingScope):AcademicPendingSubmit {
+ let value:unknown;
+ try{value=JSON.parse(raw);}catch{throw new PendingEntryStorageError();}
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new PendingEntryStorageError();
+ const row=value as Record<string,unknown>;
+ if(row.version!==2||Object.entries(scope).some(([key,value])=>row[key]!==value)||
+  typeof row.operationId!=='string'||!UUID_PATTERN.test(row.operationId)||typeof row.expectedVersion!=='number'||!Number.isSafeInteger(row.expectedVersion)||row.expectedVersion<1)throw new PendingEntryStorageError();
+ return {operationId:row.operationId,expectedVersion:row.expectedVersion};
+}
+export function loadAcademicPending(scope:AcademicPendingScope,storage?:PendingEntryStorage):AcademicPendingSubmit|null {
+ try{const raw=getStorage(storage).getItem(academicPendingStorageKey(scope));return raw===null?null:parseAcademicPending(raw,scope);}catch{throw new PendingEntryStorageError();}
+}
+export function saveAcademicPending(scope:AcademicPendingScope,operation:AcademicPendingSubmit,storage?:PendingEntryStorage):void {
+ try{
+  const target=getStorage(storage);const existing=loadAcademicPending(scope,target);
+  if(existing){if(existing.operationId!==operation.operationId||existing.expectedVersion!==operation.expectedVersion)throw new PendingEntryStorageError();return;}
+  const record=JSON.stringify({...scope,...operation,version:2});parseAcademicPending(record,scope);
+  target.setItem(academicPendingStorageKey(scope),record);
+  const persisted=loadAcademicPending(scope,target);
+  if(!persisted||persisted.operationId!==operation.operationId||persisted.expectedVersion!==operation.expectedVersion)throw new PendingEntryStorageError();
+ }catch{throw new PendingEntryStorageError();}
+}
+export function clearAcademicPending(scope:AcademicPendingScope,operationId:string,storage?:PendingEntryStorage):void {
+ try{
+  const target=getStorage(storage);const existing=loadAcademicPending(scope,target);
+  if(!existing)return;
+  if(existing.operationId!==operationId)throw new PendingEntryStorageError();
+  target.removeItem(academicPendingStorageKey(scope));
+ }catch{throw new PendingEntryStorageError();}
 }

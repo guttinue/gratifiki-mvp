@@ -1,5 +1,8 @@
 project_id = "gratifiki-mvp-local"
 
+[auth]
+enable_signup = false
+
 [db.seed]
 enabled = true
 sql_paths = ["./seed.sql"]

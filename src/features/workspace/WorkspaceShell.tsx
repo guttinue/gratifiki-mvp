@@ -1,6 +1,11 @@
 import { useRef, type ReactNode } from "react";
 import type { PilotContext } from "../../lib/types";
 import { PAGE_LABELS, pageHash, WORKSPACE_PAGES, type WorkspacePage } from "./workspaceModel";
+import type { Role } from '../pilot/types';
+import { getAcademicDestinations } from './academicNavigation';
+export function AcademicNavigation({role,page,onNavigate}:{role:Role;page:string;onNavigate:(page:string)=>void}){
+ return <nav aria-label="Navegação acadêmica">{getAcademicDestinations(role).map(destination=><button key={destination.id} type="button" aria-current={page===destination.id?'page':undefined} aria-pressed={page===destination.id} onClick={()=>onNavigate(destination.id)}>{destination.label}</button>)}</nav>;
+}
 
 interface WorkspaceShellProps {
   context: PilotContext;

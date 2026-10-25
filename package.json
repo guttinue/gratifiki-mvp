@@ -8,12 +8,16 @@
   },
   "scripts": {
     "dev": "vite",
+    "preview": "vite preview",
     "build": "vite build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:e2e": "playwright test",
     "db:test": "supabase test db",
+    "verify:isolated": "node --experimental-strip-types scripts/verification/run.ts",
+    "verify:restore": "node --experimental-strip-types scripts/verification/restore-run.ts",
+    "demo:academic": "node --experimental-strip-types scripts/bootstrap/academicDemo-run.ts",
     "demo:users": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/create-demo-users.ts"
   },
   "dependencies": {

@@ -8,3 +8,7 @@ supabase/.branches/
 .env*
 !.env.example
 .DS_Store
+.verification/
+*.local-backup
+*.local-backup.*
+/.superpowers/

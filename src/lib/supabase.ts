@@ -1,21 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-
-function requirePublicSetting(name: string, value: string | undefined): string {
-  const setting = value?.trim();
-
-  if (!setting) {
-    throw new Error(`Missing required public Supabase configuration: ${name}`);
-  }
-
-  return setting;
-}
+import { validateRuntimeConfig } from './runtimeConfig';
 
 export function createSupabaseClient(): SupabaseClient {
-  const url = requirePublicSetting("VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL);
-  const publishableKey = requirePublicSetting(
-    "VITE_SUPABASE_PUBLISHABLE_KEY",
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-  );
-
+  const { url, publishableKey } = validateRuntimeConfig({
+    mode: import.meta.env.VITE_RUNTIME_MODE ?? 'local',
+    url: import.meta.env.VITE_SUPABASE_URL ?? '',
+    publishableKey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '',
+    allowedDemoHosts: (import.meta.env.VITE_ALLOWED_DEMO_HOSTS ?? '').split(',').map((host: string) => host.trim()).filter(Boolean),
+  });
   return createClient(url, publishableKey);
 }
