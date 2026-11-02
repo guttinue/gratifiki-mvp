@@ -17,6 +17,7 @@ it('follows authorized history hashes and canonicalizes forged admin navigation 
  expect(await screen.findByRole('heading',{name:'Histórico autorizado'})).toBeTruthy();
  act(()=>{window.location.hash='#academico/cadastros';window.dispatchEvent(new HashChangeEvent('hashchange'));});
  await waitFor(()=>expect(window.location.hash).toBe('#academico/painel'));
+ expect(await screen.findByRole('heading',{name:'Avaliações autorizadas'})).toBeTruthy();
  expect(screen.queryByRole('heading',{name:'Histórico autorizado'})).toBeNull();
  expect(calls.some(url=>url.includes('get_admin_catalog'))).toBe(false);
 });
@@ -44,9 +45,11 @@ it('loads actual list/detail boundary and offers only a draft action',async()=>{
  expect((screen.getByRole('button',{name:'Enviar'}) as HTMLButtonElement).disabled).toBe(true);
 });
 it('keeps non-area roles on context confirmation without operational reads',()=>{
- const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{throw new Error('should not read');}}});
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>{calls.push(String(url));throw new Error('should not read');}}});
  render(<AcademicWorkspace client={client} context={{...context,role:'gestor_unidade'}} onSignOut={()=>{}} />);
  expect(screen.getByText(/Perfil gestor_unidade/)).toBeTruthy();
+ expect(calls.some(url=>url.includes('get_dashboard'))).toBe(false);
  expect(screen.queryByRole('button',{name:'Salvar rascunho'})).toBeNull();
 });
 it('mounts real manager evaluations and sanitized history in authenticated workspace',async()=>{
@@ -58,7 +61,6 @@ it('mounts real manager evaluations and sanitized history in authenticated works
  expect(await screen.findByText('Nenhum evento autorizado neste filtro.')).toBeTruthy();
 });
 it('integrates catalogue and business links without operational reads for admin',async()=>{
- openAcademicPage('vinculos');
  const calls:string[]=[];
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>{
   calls.push(String(url));return new Response(JSON.stringify({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-01'}]}),{headers:{'content-type':'application/json'}});
@@ -108,4 +110,18 @@ it('shows the published aggregates as the leadership painel without the academic
  expect(await screen.findByRole('heading',{name:'Agregados de unidades publicadas'})).toBeTruthy();
  expect(window.location.hash).toBe('#academico/painel');
  expect(calls.some(url=>url.includes('get_dashboard'))).toBe(false);
+});
+it.each([
+ ['gestor_unidade','Avaliações autorizadas'],['administrador','Administração de metadados sintéticos, sem acesso a valores de avaliação.'],
+] as const)('keeps the model-2 landing page for %s on painel without a dashboard read or alert',async(role,landing)=>{
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>{
+  calls.push(String(url));return new Response(JSON.stringify({items:[],total:0,page:1,pageSize:25,scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-01'}]}),{headers:{'content-type':'application/json'}});
+ }}});
+ render(<AcademicWorkspace client={client} context={{...context,role}} onSignOut={()=>{}}/>);
+ expect(await screen.findByText(landing,{selector:role==='administrador'?'p':'h2'})).toBeTruthy();
+ await waitFor(()=>expect(calls.length).toBeGreaterThan(0));
+ expect(window.location.hash).toBe('#academico/painel');
+ expect(calls.some(url=>url.includes('get_dashboard'))).toBe(false);
+ expect(screen.queryByRole('alert')).toBeNull();
 });
