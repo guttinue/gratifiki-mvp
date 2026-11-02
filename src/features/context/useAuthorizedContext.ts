@@ -15,7 +15,7 @@ export function useAuthorizedContext(client: SupabaseClient): {
   contexts: AuthorizedContext[]; context: AuthorizedContext | null;
   status: Status; error: string | null;
   refresh: (preferredKey?: string) => Promise<boolean>;
-  revalidate: () => Promise<boolean>;
+  revalidate: (options?: { visible?: boolean }) => Promise<boolean>;
   selectContext: (key: string) => Promise<boolean>; clear: () => void;
 } {
   const [state, setState] = useState<{
@@ -56,12 +56,13 @@ export function useAuthorizedContext(client: SupabaseClient): {
 
   // Rechecks the selected context without unmounting it. Only a discovery that
   // still lists the identical context reveals it again; absence drops it, and
-  // an unknown answer keeps it hidden until a later positive recheck.
-  const revalidate = useCallback(async () => {
+  // an unknown answer keeps it hidden until a later positive recheck. `visible`
+  // skips the hiding while asking (a denied read may be no revocation at all).
+  const revalidate = useCallback(async ({ visible = false }: { visible?: boolean } = {}) => {
     const current = selected.current;
     if (!current) return false;
     const request = ++generation.current;
-    setState((previous) => ({ ...previous, status: "revalidating", error: null }));
+    if (!visible) setState((previous) => ({ ...previous, status: "revalidating", error: null }));
     // Hidden synchronously; discovery starts after the caller's turn, so it is
     // never awaited inside a Supabase auth callback and a same-turn logout wins.
     await Promise.resolve();

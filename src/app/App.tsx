@@ -44,9 +44,10 @@ export function App() {
   const academicKeyRef = useRef<string | null>(null);
   academicKeyRef.current = authorized.context?.mode === "academic" ? authorized.context.key : null;
   // An explicit denial from any context-bound read or command rechecks the
-  // selection; only discovery decides whether it was revoked.
+  // selection; only discovery decides whether it was revoked. A denial may be
+  // an out-of-scope read, so the workspace stays visible while asking.
   const handleAccessDenied = useCallback(() => {
-    if (academicKeyRef.current) void revalidateContext();
+    if (academicKeyRef.current) void revalidateContext({ visible: true });
   }, [revalidateContext]);
   const academicClient = useMemo(() => withAccessDeniedSignal(client, handleAccessDenied), [client, handleAccessDenied]);
   const [context, setContext] = useState<PilotContext | null>(null);

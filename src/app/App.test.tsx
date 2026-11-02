@@ -580,6 +580,31 @@ describe("App academic access boundary", () => {
     expect(await screen.findByRole("button", { name: /NORTE-1 · ausente/ })).toBeTruthy();
   });
 
+  it("keeps the workspace visible while a denied read rechecks access", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    const pending = deferred<typeof academicTechnical[]>();
+    contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+    overrides.set("get_position_detail", denied);
+    acceptLeave();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /NORTE-1 · ausente/ })));
+    expect(workspaceHeading()).not.toBeNull();
+    expect(screen.queryByText(/Verificando o acesso/)).toBeNull();
+    await act(async () => pending.resolve([academicTechnical]));
+    expect(workspaceHeading()).not.toBeNull();
+  });
+
+  it("hides the workspace when a denied read cannot be rechecked", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockRejectedValueOnce(new Error("offline"));
+    overrides.set("get_position_detail", denied);
+    acceptLeave();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /NORTE-1 · ausente/ })));
+    expect(await screen.findByRole("button", { name: "Verificar acesso novamente" })).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+  });
+
   it("does not let a delayed read restore content after the context is revoked", async () => {
     const { authListener, overrides } = academicBoundary();
     render(<App />);
