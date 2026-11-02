@@ -2,17 +2,22 @@ import { expect, it } from 'vitest';
 import { academicPageFromHash, getAcademicDestinations } from './academicNavigation';
 import type { Role } from '../pilot/types';
 
+const pair = (id: string, label: string) => [id, label];
 it.each([
-  ['area_tecnica', 'preenchimento'], ['revisor_tecnico', 'conferencia'],
-  ['cam', 'ciclo'], ['gestor_unidade', 'avaliacoes'],
-  ['gestor_distrital', 'avaliacoes'], ['administrador', 'cadastros'],
-  ['lideranca', 'agregados'],
-] as const)('uses only the %s primary journey and canonicalizes forged destinations', (role: Role, primary) => {
-  expect(getAcademicDestinations(role)[0].id).toBe(primary);
-  expect(academicPageFromHash(role, '#academico/not-authorized')).toBe(primary);
+  ['area_tecnica', [pair('painel', 'Painel'), pair('preenchimento', 'Preenchimento'), pair('historico', 'Histórico')]],
+  ['revisor_tecnico', [pair('painel', 'Painel'), pair('conferencia', 'Conferência'), pair('historico', 'Histórico')]],
+  ['cam', [pair('painel', 'Painel'), pair('ciclo', 'Ciclo e fechamento'), pair('resultados', 'Resultados'),
+    pair('entradas', 'Todas as entradas'), pair('historico', 'Auditoria')]],
+  ['gestor_unidade', [pair('painel', 'Painel'), pair('resultados', 'Resultados'), pair('historico', 'Histórico')]],
+  ['gestor_distrital', [pair('painel', 'Painel'), pair('resultados', 'Resultados'), pair('historico', 'Histórico')]],
+  ['lideranca', [pair('painel', 'Painel')]],
+  ['administrador', [pair('painel', 'Painel'), pair('regras', 'Indicadores e regras'),
+    pair('vinculos', 'Usuários e vínculos'), pair('historico', 'Auditoria')]],
+] as const)('lists the V3 destinations for %s', (role: Role, expected) => {
+  expect(getAcademicDestinations(role).map(d => [d.id, d.label])).toEqual(expected);
 });
-it('never gives leadership operational input, history or administrative navigation', () => {
-  expect(getAcademicDestinations('lideranca').map(destination => destination.id)).toEqual(['agregados', 'painel']);
-  expect(getAcademicDestinations('lideranca').map(destination => destination.id)).not.toContain('preenchimento');
-  expect(academicPageFromHash('gestor_unidade', '#academico/cadastros')).toBe('avaliacoes');
+it('falls back to painel for unknown or forged destinations', () => {
+  expect(academicPageFromHash('cam', '#academico/inexistente')).toBe('painel');
+  expect(academicPageFromHash('gestor_unidade', '#academico/cadastros')).toBe('painel');
+  expect(academicPageFromHash('lideranca', '#academico/historico')).toBe('painel');
 });

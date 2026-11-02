@@ -511,6 +511,7 @@ describe("App academic access boundary", () => {
   const workspaceHeading = () => screen.queryByRole("heading", { name: "Contexto acadêmico autorizado" });
   // Refreshing a list with an unsaved draft asks before leaving; accept it.
   const acceptLeave = () => vi.spyOn(window, "confirm").mockReturnValue(true);
+  beforeEach(() => window.history.replaceState({}, "", "/#academico/preenchimento"));
   afterEach(() => vi.restoreAllMocks());
 
   it("hides the workspace while a valid renewal revalidates and then restores the same unsaved edit", async () => {

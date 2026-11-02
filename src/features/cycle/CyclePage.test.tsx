@@ -5,6 +5,7 @@ import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import { CyclePage } from './CyclePage';
 import { loadCycleChecklist } from './cycleApi';
 import type { AuthorizedContext, CycleChecklist } from '../pilot/types';
+const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 const originalShowModal=Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'showModal');
 const originalClose=Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype,'close');
 // jsdom lacks these native methods. This narrowly scoped shim only enables
@@ -35,6 +36,7 @@ it.each(['cancel-repeat','A-B-A'])('executes each checklist intent for the same 
   }
   return response({items:[a,b],total:2,page:1,pageSize:25});
  });
+ openAcademicPage('ciclo');
  render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}}/>);
  const open=await screen.findByRole('button',{name:'Ver pendência de NORTE-A'});
  if(scenario==='cancel-repeat'){
@@ -62,6 +64,7 @@ it('identifies an authorized blocker and opens its real detail without inventing
   if(name.includes('get_position_detail')){expect(JSON.parse(String(options?.body)).p_position_id).toBe('visible');return response({position,revisions:[],decisions:[],memories:[]});}
   return response({items:[position],total:1,page:1,pageSize:25});
  });
+ openAcademicPage('ciclo');
  render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'Ver pendência de NORTE-1'}));
  expect(await screen.findByRole('heading',{name:'NORTE-1'})).toBeTruthy();
@@ -96,6 +99,7 @@ it('uses persisted checklist metadata on reload and requires distinct confirmati
   if(path.includes('transition_cycle')){current={...current,version:21,state:'fechada',canClose:false,snapshotId:'snapshot'} as typeof current;return response({resourceId:'snapshot',version:21,revisionId:null,status:'fechada',resultValue:null});}
   current={...current,version:22,publication:'publicada_demo',publicationId:'publication'} as typeof current;return response({resourceId:'snapshot',version:22,revisionId:null,status:'publicada_demo',resultValue:null});
  });
+ openAcademicPage('ciclo');
  const view=render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
  await screen.findByText('Esperadas: 6 · Recebidas: 6 · Conferidas: 6');
  fireEvent.change(screen.getByLabelText('Referência do ciclo'),{target:{value:'DEMO-DECISAO- A'}});
@@ -105,6 +109,7 @@ it('uses persisted checklist metadata on reload and requires distinct confirmati
  expect(document.activeElement).toBe(screen.getByRole('heading',{name:'Ciclo da demonstração acadêmica'}));
  expect(calls[0].body).toMatchObject({p_expected_version:20,p_action:'close',p_reference:'DEMO-DECISAO- A'});
  view.unmount();
+ openAcademicPage('ciclo');
  render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
  await screen.findByText('Snapshot fechado: snapshot');
  expect(screen.queryByRole('button',{name:'Fechar ciclo'})).toBeNull();
@@ -128,6 +133,7 @@ it.each(['close','publish'] as const)('returns %s confirmation focus on native c
   if(String(url).includes('get_operational_positions'))return response({items:[],total:0,page:1,pageSize:25});
   calls.push(String(url));return response(null);
  });
+ openAcademicPage('ciclo');
  render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
  const trigger=await screen.findByRole('button',{name:action==='close'?'Fechar ciclo':'Publicar demonstração'});
  trigger.focus();fireEvent.click(trigger);
