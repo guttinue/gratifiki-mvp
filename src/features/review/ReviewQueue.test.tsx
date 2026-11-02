@@ -70,3 +70,46 @@ it('does not describe absent evidence as a pending CAM unavailability decision',
  expect(screen.queryByText(/decisão CAM pendente/)).toBeNull();
  expect(screen.queryByRole('button',{name:'Iniciar revisão'})).toBeNull();
 });
+const camContext:AuthorizedContext={...context,key:'cam-queue',actorId:'cam',role:'cam'};
+function paged(count:number){
+ const all=Array.from({length:count},(_,i)=>({...position,id:`pos-${i+1}`,escopoCodigo:`ALVO-${String(i+1).padStart(2,'0')}`,status:'ausente',estadoDado:null,revisionId:null,inputValue:null,resultValue:null}));
+ const filters:Record<string,unknown>[]=[];
+ const api=client(async(url,options)=>{
+  const body=JSON.parse(String(options?.body??'{}'));
+  if(String(url).includes('get_operational_positions')){
+   const f=body.p_filters as {page:number;pageSize:number;search?:string};filters.push(f);
+   const matching=all.filter(p=>!f.search||p.escopoCodigo.includes(f.search));
+   return response({items:matching.slice((f.page-1)*f.pageSize,f.page*f.pageSize),total:matching.length,page:f.page,pageSize:f.pageSize});
+  }
+  if(String(url).includes('get_position_detail')){const p=all.find(row=>row.id===body.p_position_id)!;return response({position:p,revisions:[],decisions:[],memories:[]});}
+  if(String(url).includes('get_cycle_checklist'))return response({version:1,state:'aberta',expected:count,received:0,reviewed:0,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,blockers:[{positionId:'pos-26',code:'missing_submission',message:'Envio ausente.'}]});
+  return response(null);
+ });
+ return {api,filters};
+}
+it('pages the CAM queue beyond the first 25 authorized targets and opens the 26th',async()=>{
+ const {api,filters}=paged(26);
+ render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ expect(await screen.findByRole('button',{name:/ALVO-25/})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/ALVO-26/})).toBeNull();
+ expect(screen.getByText(/Página 1 de 2/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Próxima página'}));
+ fireEvent.click(await screen.findByRole('button',{name:/ALVO-26 · ausente/}));
+ expect(await screen.findByRole('heading',{name:'ALVO-26'})).toBeTruthy();
+ expect(filters.at(-1)).toMatchObject({page:2,pageSize:25});
+});
+it('searches the authorized queue on the server instead of filtering only the loaded page',async()=>{
+ const {api,filters}=paged(30);
+ render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ await screen.findByRole('button',{name:/ALVO-01/});
+ fireEvent.change(screen.getByLabelText('Buscar alvo'),{target:{value:'ALVO-30'}});
+ fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
+ expect(await screen.findByRole('button',{name:/ALVO-30/})).toBeTruthy();
+ expect(filters.at(-1)).toEqual({page:1,pageSize:25,search:'ALVO-30'});
+});
+it('opens a cycle blocker that is outside the loaded queue page through the authorized detail read',async()=>{
+ const {api}=paged(26);
+ render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ fireEvent.click(await screen.findByRole('button',{name:'Ver pendência: Envio ausente.'}));
+ expect(await screen.findByRole('heading',{name:'ALVO-26'})).toBeTruthy();
+});

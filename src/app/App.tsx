@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { getAuthClient, getPilotContext, signOut } from "../features/auth/auth";
@@ -12,6 +12,7 @@ import { pageFromHash, pageHash, type WorkspacePage } from "../features/workspac
 import type { PilotContext, PilotEntry } from "../lib/types";
 import { useAuthorizedContext } from "../features/context/useAuthorizedContext";
 import { ContextPicker } from "../features/context/ContextPicker";
+import { withAccessDeniedSignal } from "../features/context/accessSignal";
 import { AcademicLoadBoundary } from '../features/workspace/AcademicLoadBoundary';
 import { requestAcademicLeave } from '../features/workspace/academicNavigation';
 
@@ -38,7 +39,16 @@ function getContextKey(context: PilotContext | null): string | null {
 export function App() {
   const [client] = useState<SupabaseClient>(() => getAuthClient());
   const authorized = useAuthorizedContext(client);
-  const { refresh: refreshContexts, clear: clearContexts } = authorized;
+  const { refresh: refreshContexts, clear: clearContexts, revalidate: revalidateContext } = authorized;
+  // Live academic selection (unlike the intent ref below, cleared with it).
+  const academicKeyRef = useRef<string | null>(null);
+  academicKeyRef.current = authorized.context?.mode === "academic" ? authorized.context.key : null;
+  // An explicit denial from any context-bound read or command rechecks the
+  // selection; only discovery decides whether it was revoked.
+  const handleAccessDenied = useCallback(() => {
+    if (academicKeyRef.current) void revalidateContext();
+  }, [revalidateContext]);
+  const academicClient = useMemo(() => withAccessDeniedSignal(client, handleAccessDenied), [client, handleAccessDenied]);
   const [context, setContext] = useState<PilotContext | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -123,6 +133,12 @@ export function App() {
         authGeneration.current += 1;
         const refreshGeneration = authGeneration.current;
         setIsSigningOut(false);
+        if (academicKeyRef.current) {
+          // Same actor: keep the academic subtree (and its unsaved edits)
+          // mounted but hidden until discovery confirms the same context.
+          void revalidateContext();
+          return;
+        }
         readGeneration.current += 1;
         clearContexts();
         setContext(null);
@@ -167,7 +183,7 @@ export function App() {
       isMounted = false;
       authListener.subscription.unsubscribe();
     };
-  }, [client, clearContexts, refreshContexts]);
+  }, [client, clearContexts, refreshContexts, revalidateContext]);
 
   // The old workspace can consume only legacy contexts. Selection changes
   // synchronously hide it; the generation guard also rejects late adapters.
@@ -367,15 +383,28 @@ export function App() {
   }
 
   if (authorized.context?.mode === 'academic') {
-    return <AcademicLoadBoundary key={authorized.context.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
-      <AcademicWorkspace client={client} context={authorized.context} contextPicker={choices}
-        onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
-    </Suspense></AcademicLoadBoundary>;
+    // The wrapper keeps one tree position, so hiding never remounts the
+    // workspace; `hidden` removes it from display and the accessibility tree.
+    const verifying = authorized.status === "revalidating" || authorized.status === "unverified";
+    return <>
+      {verifying && <main className="auth-screen"><section className="auth-card">
+        {authorized.status === "revalidating"
+          ? <p role="status">Verificando o acesso a este contexto…</p>
+          : <><p role="alert">{authorized.error}</p>
+            <button type="button" onClick={() => void revalidateContext()}>Verificar acesso novamente</button></>}
+        <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
+      </section></main>}
+      <div hidden={verifying}><AcademicLoadBoundary key={authorized.context.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
+        <AcademicWorkspace client={academicClient} context={authorized.context} contextPicker={choices}
+          onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
+      </Suspense></AcademicLoadBoundary></div>
+    </>;
   }
 
   if (!authorized.context && authorized.contexts.length > 0) {
     return <main className="auth-screen"><section className="auth-card">
       <h1>Selecione seu contexto</h1>
+      {authorized.error && <p role="alert">{authorized.error}</p>}
       {choices}
       {signOutError && <p role="alert">{signOutError}</p>}
       <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>

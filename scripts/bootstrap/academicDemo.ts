@@ -19,8 +19,20 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   // Refuse incompatible roots; never rewrite a rule/version already in use.
   const { data: rule, error: rootError } = await client.from('regras').select('id,indicador_id,versao,fator').eq('id',academicRule).single();
   if (rootError || !rule || rule.indicador_id!==academicIndicator || rule.versao!==1 || String(rule.fator)!=='0.8') throw new Error('Academic synthetic rule roots missing or incompatible');
-  async function insertOnly(table: string, rows: object[], conflict = 'id') {
-    const { error } = await client.from(table).upsert(rows,{ onConflict: conflict, ignoreDuplicates: true });
+  // Only rows that are really absent are sent. Closed-cycle guards run BEFORE
+  // INSERT, ahead of ON CONFLICT, so resending existing rows would fail; the
+  // conflict policy stays only to absorb a concurrent bootstrap.
+  async function missingRows<T extends Record<string, unknown>>(table: string, rows: T[], conflict: string): Promise<T[]> {
+    const keys = conflict.split(',');
+    const { data, error } = await client.from(table).select(conflict).in(keys[0], [...new Set(rows.map(row => String(row[keys[0]])))]);
+    if (error || !data) throw new Error(`Academic bootstrap could not inspect ${table}; existing state was not reset`);
+    const saved = data as unknown as Record<string, unknown>[];
+    return rows.filter(row => !saved.some(existing => keys.every(key => String(existing[key]) === String(row[key]))));
+  }
+  async function insertOnly<T extends Record<string, unknown>>(table: string, rows: T[], conflict = 'id') {
+    const missing = await missingRows(table, rows, conflict);
+    if (!missing.length) return;
+    const { error } = await client.from(table).upsert(missing as object[],{ onConflict: conflict, ignoreDuplicates: true });
     if (error) throw new Error(`Academic bootstrap could not initialize ${table}; existing state was not reset`);
   }
   const actors = {} as Record<Role,string>;
@@ -48,10 +60,19 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   await insertOnly('escopos',academicScopes.slice(2));
   await insertOnly('competencias',academicMonths);
   const north = new Set([academicId(10),academicId(12),academicId(13)]);
+  const { data: closures, error: closureError } = await client.from('fechamentos').select('competencia_id').in('competencia_id',academicMonths.map(m=>m.id));
+  if (closureError || !closures) throw new Error('Academic bootstrap could not inspect closed competences; existing state was not reset');
+  const closed = new Set(closures.map(c=>String(c.competencia_id)));
   for (const [monthIndex,month] of academicMonths.entries()) {
     await insertOnly('territorios_competencia',academicScopes.filter(s=>s.tipo==='unidade').map(s=>({competencia_id:month.id,unidade_id:s.id,distrito_id:s.distrito_id})),'competencia_id,unidade_id');
-    await insertOnly('posicoes_esperadas',academicScopes.map((scope,index)=>({id:academicId(100+monthIndex*10+index),competencia_id:month.id,indicador_id:academicIndicator,alvo_id:scope.id,regra_id:academicRule,
-      informante_id:north.has(scope.id)?actors.area_tecnica:southTechnical,revisor_id:north.has(scope.id)?actors.revisor_tecnico:southReviewer})));
+    const positions = academicScopes.map((scope,index)=>({id:academicId(100+monthIndex*10+index),competencia_id:month.id,indicador_id:academicIndicator,alvo_id:scope.id,regra_id:academicRule,
+      informante_id:north.has(scope.id)?actors.area_tecnica:southTechnical,revisor_id:north.has(scope.id)?actors.revisor_tecnico:southReviewer}));
+    // A closed competence is history: a gap there is reported, never repaired.
+    if (closed.has(month.id)) {
+      if ((await missingRows('posicoes_esperadas',positions,'id')).length) throw new Error(`Academic bootstrap found the closed competence ${month.codigo} inconsistent: expected positions are missing and were not recreated`);
+      continue;
+    }
+    await insertOnly('posicoes_esperadas',positions);
   }
   const links: {actor_id:string;papel:Role;escopo_id:string;indicador_id:string;vigencia_inicio:string}[]=[];
   function link(actor:string,role:Role,scope:string) { links.push({actor_id:actor,papel:role,escopo_id:scope,indicador_id:academicIndicator,vigencia_inicio:'2026-01-01'}); }

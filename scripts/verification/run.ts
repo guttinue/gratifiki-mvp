@@ -12,6 +12,7 @@ import { inlineSqlSupport, writeStagedSql } from "./sqlSupport.ts";
 import { runSuiteBatch, type VerificationRequest } from './suites.ts';
 import { runClosureConcurrency } from './concurrency.ts';
 import { runAdminConcurrency } from './adminConcurrency.ts';
+import { verifyBootstrapAfterClosure } from './bootstrapAfterClosure.ts';
 
 
 // Do not inherit app credentials, SUPABASE_ACCESS_TOKEN, NODE_OPTIONS or env-file options.
@@ -95,6 +96,7 @@ async function runSingleVerification(request: VerificationRequest): Promise<{ ex
     })).exitCode) throw new Error("Owned synthetic seed failed");
     let serviceStatus: Record<string,string> | undefined;
     let academicCredentials:AcademicCredentials|undefined;
+    let academicActors:unknown;
     if (request.fixture === 'academic' || request.suite !== 'db') {
       const result = await supabase(["status", "--output", "json"], true);
       if (result.exitCode) throw new Error("Could not read disposable service credentials");
@@ -110,6 +112,7 @@ async function runSingleVerification(request: VerificationRequest): Promise<{ ex
       const first = await bootstrapAcademicDemo(admin,credentials);
       const second = await bootstrapAcademicDemo(admin,credentials);
       if (JSON.stringify(first)!==JSON.stringify(second)) throw new Error('Owned academic bootstrap identity mismatch');
+      academicActors=first;
       for (const [role,credential] of Object.entries(credentials)) {
         env[`ACADEMIC_${role.toUpperCase()}_EMAIL`]=credential.email;
         env[`ACADEMIC_${role.toUpperCase()}_PASSWORD`]=credential.password;
@@ -130,7 +133,10 @@ async function runSingleVerification(request: VerificationRequest): Promise<{ ex
       }
       const files = testFile ? [join(target.workdir, relative(repositoryRoot, testFile))] : [];
       exitCode = (await supabase(["test", "db", "--local", ...files])).exitCode;
-      if(exitCode===0&&request.fixture==='academic'&&academicCredentials&&serviceStatus&&(!testFile||testFile.endsWith('/11_academic_closure.test.sql')))await runClosureConcurrency(target,serviceStatus.ANON_KEY,academicCredentials);
+      if(exitCode===0&&request.fixture==='academic'&&academicCredentials&&serviceStatus&&(!testFile||testFile.endsWith('/11_academic_closure.test.sql'))){
+        const status=serviceStatus,credentials=academicCredentials;
+        await runClosureConcurrency(target,status.ANON_KEY,credentials,()=>verifyBootstrapAfterClosure(target,status.SERVICE_ROLE_KEY,credentials,academicActors));
+      }
       if(exitCode===0&&request.fixture==='academic'&&academicCredentials&&serviceStatus&&(!testFile||testFile.endsWith('/16_academic_regression.test.sql')))await runAdminConcurrency(target,serviceStatus.ANON_KEY,academicCredentials);
     }
     if (request.suite === "e2e" || (request.suite === "all" && exitCode === 0)) {

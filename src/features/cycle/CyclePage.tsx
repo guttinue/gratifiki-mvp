@@ -71,8 +71,10 @@ export function CyclePage({client,context,renderExport,authorizedPositions=[],on
   {checklist&&<><p>Estado do ciclo: {checklist.state}</p><p>Esperadas: {checklist.expected} · Recebidas: {checklist.received} · Conferidas: {checklist.reviewed}</p>
    <p>Indisponíveis: {checklist.unavailable} · Decididas: {checklist.decidedUnavailable} · Não aplicáveis: {checklist.notApplicable}</p>
    <ul>{checklist.blockers.map((b,i)=>{
-    const target=authorizedPositions.find(position=>position.id===b.positionId);
-    return <li key={`${b.positionId}-${b.code}-${i}`}>{target&&<strong>{target.escopoCodigo}: </strong>}{b.message}{target&&onOpenPosition&&<button type="button" onClick={()=>onOpenPosition(target.id)}>Ver pendência de {target.escopoCodigo}</button>}</li>;
+    // A blocker outside the loaded queue page is still opened by id through the
+    // authorized detail read; its code is not invented while it is unknown.
+    const positionId=b.positionId;const target=authorizedPositions.find(position=>position.id===positionId);
+    return <li key={`${positionId}-${b.code}-${i}`}>{target&&<strong>{target.escopoCodigo}: </strong>}{b.message}{positionId&&onOpenPosition&&<button type="button" onClick={()=>onOpenPosition(positionId)}>{target?`Ver pendência de ${target.escopoCodigo}`:`Ver pendência: ${b.message}`}</button>}</li>;
    })}</ul>
    {checklist.snapshotId&&<p>Snapshot fechado: {checklist.snapshotId}</p>}<p>Publicação: {checklist.publication}</p>
    <label>Motivo do ciclo<textarea maxLength={1000} disabled={busy||!!pending} value={reason} onChange={e=>setReason(e.target.value)} /></label>

@@ -477,6 +477,124 @@ describe("App", () => {
   });
 });
 
+describe("App academic access boundary", () => {
+  const academicTechnical = {
+    ...legacyContext, key: "academic-technical", vinculoId: "academic-technical", mode: "academic" as const,
+    role: "area_tecnica" as const, escopoCodigo: "NORTE", competenciaCodigo: "2026-10",
+  };
+  const position = {
+    id: "pos", escopoId: "scope", escopoCodigo: "NORTE-1", escopoTipo: "unidade", aplicavel: true, status: "ausente",
+    estadoDado: null, version: 1, revisionId: null, inputValue: null, resultValue: null,
+  };
+  const editedSource = "Fonte sintética em edição";
+  type RpcResult = { data: unknown; error: unknown };
+  function academicBoundary() {
+    const boundary = createAuthBoundary();
+    const overrides = new Map<string, () => Promise<RpcResult>>();
+    vi.mocked(boundary.client.rpc).mockImplementation(((name: string) => {
+      const override = overrides.get(name);
+      if (override) { overrides.delete(name); return override(); }
+      if (name === "get_operational_positions") return Promise.resolve({ data: { items: [position], total: 1, page: 1, pageSize: 25 }, error: null });
+      if (name === "get_position_detail") return Promise.resolve({ data: { position, revisions: [], decisions: [], memories: [] }, error: null });
+      return Promise.resolve({ data: null, error: null });
+    }) as never);
+    authMocks.getAuthClient.mockReturnValue(boundary.client);
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    return { ...boundary, overrides };
+  }
+  async function openDraftAndEdit() {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /NORTE-1 · ausente/ }));
+    fireEvent.change(await screen.findByLabelText("Fonte"), { target: { value: editedSource } });
+  }
+  const denied = () => Promise.resolve({ data: null, error: { code: "42501", message: "access_denied" } });
+  const workspaceHeading = () => screen.queryByRole("heading", { name: "Contexto acadêmico autorizado" });
+  // Refreshing a list with an unsaved draft asks before leaving; accept it.
+  const acceptLeave = () => vi.spyOn(window, "confirm").mockReturnValue(true);
+  afterEach(() => vi.restoreAllMocks());
+
+  it("hides the workspace while a valid renewal revalidates and then restores the same unsaved edit", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    const pending = deferred<typeof academicTechnical[]>();
+    contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Fonte" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/Verificando o acesso/);
+    await act(async () => pending.resolve([academicTechnical]));
+    expect(workspaceHeading()).not.toBeNull();
+    expect((screen.getByRole("textbox", { name: "Fonte" }) as HTMLInputElement).value).toBe(editedSource);
+  });
+
+  it("discards the hidden edit when the renewal shows the context was revoked", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByDisplayValue(editedSource)).toBeNull();
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+  });
+
+  it("keeps content hidden while authorization is unknown and restores it only after a positive recheck", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    const retry = await screen.findByRole("button", { name: "Verificar acesso novamente" });
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Fonte" })).toBeNull();
+    await act(async () => fireEvent.click(retry));
+    expect(workspaceHeading()).not.toBeNull();
+    expect((screen.getByRole("textbox", { name: "Fonte" }) as HTMLInputElement).value).toBe(editedSource);
+  });
+
+  it("removes previously loaded detail after a read is denied and discovery confirms the revocation", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    acceptLeave();
+    expect(screen.getByRole("heading", { name: "NORTE-1" })).toBeTruthy();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+    expect(screen.queryByDisplayValue(editedSource)).toBeNull();
+  });
+
+  it("keeps the workspace when a denial is not a revocation and treats network failures as non-revoking", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    acceptLeave();
+    const discoveryCalls = contextMocks.loadAuthorizedContexts.mock.calls.length;
+    overrides.set("get_operational_positions", () => Promise.resolve({ data: null, error: { message: "Failed to fetch" } }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(discoveryCalls);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    await waitFor(() => expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(discoveryCalls + 1));
+    expect(workspaceHeading()).not.toBeNull();
+    expect(await screen.findByRole("button", { name: /NORTE-1 · ausente/ })).toBeTruthy();
+  });
+
+  it("does not let a delayed read restore content after the context is revoked", async () => {
+    const { authListener, overrides } = academicBoundary();
+    render(<App />);
+    const late = deferred<RpcResult>();
+    overrides.set("get_position_detail", () => late.promise);
+    fireEvent.click(await screen.findByRole("button", { name: /NORTE-1 · ausente/ }));
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    await screen.findByRole("alert");
+    await act(async () => late.resolve({ data: { position, revisions: [], decisions: [], memories: [] }, error: null }));
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+    expect(screen.queryByLabelText("Fonte")).toBeNull();
+  });
+});
+
 describe("createSupabaseClient", () => {
   it("fails fast when the public Supabase URL is missing", () => {
     vi.stubEnv("VITE_SUPABASE_URL", "");

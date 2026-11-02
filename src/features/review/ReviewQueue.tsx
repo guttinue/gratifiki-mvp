@@ -8,6 +8,7 @@ import { reviewPosition, startReview } from './reviewApi';
 import { CamDecisionForm } from './CorrectionForm';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { requestAcademicLeave } from '../workspace/academicNavigation';
+const queuePageSize=25;
 interface ReviewQueueProps {client:SupabaseClient;context:AuthorizedContext;requestedPositionId?:string;positionRequestKey?:number;onPositionsLoaded?:(positions:PositionSummary[])=>void}
 export function ReviewQueue(props:ReviewQueueProps) {
  return <ContextReviewQueue key={props.context.key} {...props} />;
@@ -18,15 +19,26 @@ function ContextReviewQueue({client,context,requestedPositionId,positionRequestK
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState<string|null>(null);
  const [reload,setReload]=useState(0);
+ // CAM coverage spans every linked target, so the queue pages and searches on
+ // the server; the first page is not the whole authorized universe.
+ const [page,setPage]=useState(1);const [total,setTotal]=useState(0);
+ const [searchInput,setSearchInput]=useState('');const [search,setSearch]=useState('');
  const listGeneration=useRef(0);const detailGeneration=useRef(0);
  const detailHeading=useRef<HTMLHeadingElement>(null);
  useEffect(()=>{
   const request=++listGeneration.current;setLoading(true);setError(null);
-  void listPositions(client,toCommandContext(context),{page:1,pageSize:25}).then(page=>{if(listGeneration.current===request){setPositions(page.items);onPositionsLoaded?.(page.items);}})
+  void listPositions(client,toCommandContext(context),{page,pageSize:queuePageSize,...(search?{search}:{})}).then(loaded=>{if(listGeneration.current===request){setPositions(loaded.items);setTotal(loaded.total);onPositionsLoaded?.(loaded.items);}})
    .catch(()=>{if(listGeneration.current===request)setError('Não foi possível carregar a fila autorizada.');})
    .finally(()=>{if(listGeneration.current===request)setLoading(false);});
   return()=>{listGeneration.current++;detailGeneration.current++;};
- },[client,context,reload,onPositionsLoaded]);
+ },[client,context,reload,onPositionsLoaded,page,search]);
+ const pages=Math.max(1,Math.ceil(total/queuePageSize));
+ function changeList(next:{page?:number;search?:string}){
+  if(!requestAcademicLeave())return;
+  detailGeneration.current++;setDetail(null);
+  if(next.search!==undefined)setSearch(next.search);
+  setPage(next.page??1);
+ }
  const selectPosition=useCallback(async(id:string)=>{
   if(!requestAcademicLeave())return;
   const request=++detailGeneration.current;setDetail(null);setError(null);
@@ -38,8 +50,16 @@ function ContextReviewQueue({client,context,requestedPositionId,positionRequestK
  return <section aria-label="Fila de conferência técnica">
   <h2>{context.role==='cam'?'Acompanhamento CAM':'Conferência técnica'}</h2><p>Aceite de evidência sintética; não é aprovação de gratificação ou decisão de indisponibilidade pela CAM.</p>
   <button type="button" onClick={()=>{if(requestAcademicLeave()){detailGeneration.current++;setDetail(null);setReload(n=>n+1);}}}>Atualizar fila</button>
+  <form role="search" onSubmit={event=>{event.preventDefault();changeList({search:searchInput.trim()});}}>
+   <label>Buscar alvo<input type="search" maxLength={100} value={searchInput} onChange={event=>setSearchInput(event.target.value)} /></label>
+   <button type="submit">Buscar</button>
+  </form>
   {loading&&<p role="status">Carregando fila…</p>}
   <ul>{positions.map(position=><li key={position.id}><button type="button" onClick={()=>void selectPosition(position.id)}>{position.escopoCodigo} · {position.status}</button></li>)}</ul>
+  <nav aria-label="Páginas da fila"><p>Página {page} de {pages} · {total} {total===1?'posição':'posições'}</p>
+   <button type="button" disabled={loading||page<=1} onClick={()=>changeList({page:page-1})}>Página anterior</button>
+   <button type="button" disabled={loading||page>=pages} onClick={()=>changeList({page:page+1})}>Próxima página</button>
+  </nav>
   {!loading&&!positions.length&&!error&&<p>Nenhuma posição autorizada.</p>}
   {error&&<p role="alert">{error}</p>}
   {detail&&(context.role==='cam'?<section><h3 ref={detailHeading} tabIndex={-1}>{detail.position.escopoCodigo}</h3><ul>{detail.decisions.map(d=><li key={d.id}>{d.type}: {d.reason}</li>)}</ul><CamDecisionForm key={detail.position.id} client={client} context={context} detail={detail} onConfirmed={receipt=>{
