@@ -215,7 +215,8 @@ it('V3 reviewer: a return without a reason is refused before any command',async(
 it('V3 CAM entries: read-only list of every entry, including the ones still absent, with no action',async()=>{
  await queue('cam');
  expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Todas (5)','Pendentes (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)']);
- expect(screen.getByRole('heading',{name:'Todas as entradas'})).toBeTruthy();
+ // The shell's page head names it too until the queue drops its own h2 (Tasks 4–8).
+ expect(screen.getAllByRole('heading',{name:'Todas as entradas'}).length).toBeGreaterThan(0);
  fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
  expect(await screen.findByText('Painel sintético')).toBeTruthy();
  expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo|Autorizar retificação|Decidir/})).toBeNull();

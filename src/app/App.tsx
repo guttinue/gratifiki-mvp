@@ -379,13 +379,14 @@ export function App() {
     );
   }
 
-  const choices = <ContextPicker groups={authorized.groups} selectedKey={authorized.group?.key ?? null}
-    onSelect={(key) => {
-      if(key===authorized.group?.key||!requestAcademicLeave())return;
-      const candidate = authorized.groups.find((choice) => choice.key === key);
-      if (candidate) authorizedContextRef.current = candidate;
-      void authorized.selectContext(key);
-    }} />;
+  // The picker and the model-3 header switch groups only after the unsaved-edit guard agrees.
+  function selectGroup(key: string) {
+    if (key === authorized.group?.key || !requestAcademicLeave()) return;
+    const candidate = authorized.groups.find((choice) => choice.key === key);
+    if (candidate) authorizedContextRef.current = candidate;
+    void authorized.selectContext(key);
+  }
+  const choices = <ContextPicker groups={authorized.groups} selectedKey={authorized.group?.key ?? null} onSelect={selectGroup} />;
 
   if (authorized.status === "loading" || (authorized.context?.mode === "legacy" && !context && !sessionError)) {
     return <main className="auth-screen"><section className="auth-card" role="status">Verificando contexto autorizado…</section></main>;
@@ -405,13 +406,14 @@ export function App() {
       </section></main>}
       <div hidden={verifying}><AcademicLoadBoundary key={authorized.group.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
         <AcademicWorkspace client={academicClient} group={authorized.group} contexts={authorized.contexts} contextPicker={choices}
+          groups={authorized.groups} onSelectGroup={selectGroup}
           onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
       </Suspense></AcademicLoadBoundary></div>
     </>;
   }
 
   if (!authorized.group && authorized.groups.length > 0) {
-    return <main className="auth-screen"><section className="auth-card">
+    return <main className="auth-screen"><section className="auth-card v3-picker">
       <h1>Selecione seu contexto</h1>
       {authorized.error && <p role="alert">{authorized.error}</p>}
       {choices}

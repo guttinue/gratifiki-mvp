@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { academicPageFromHash, getAcademicDestinations } from './academicNavigation';
+import { academicPageFromHash, academicPageHeading, getAcademicDestinations } from './academicNavigation';
 import type { Role } from '../pilot/types';
 
 const pair = (id: string, label: string) => [id, label];
@@ -20,4 +20,12 @@ it('falls back to painel for unknown or forged destinations', () => {
   expect(academicPageFromHash('cam', '#academico/inexistente')).toBe('painel');
   expect(academicPageFromHash('gestor_unidade', '#academico/cadastros')).toBe('painel');
   expect(academicPageFromHash('lideranca', '#academico/historico')).toBe('painel');
+});
+it('names each model-3 page like the prototype', () => {
+  const view = { competence: 'ACADEMIC-V3-2026-10', scopes: ['ACADEMIC-NORTE-1', 'ACADEMIC-NORTE-2'] };
+  expect(academicPageHeading('area_tecnica', 'painel', view)).toEqual({ title: 'Painel', subtitle: 'Outubro/2026 · você informa os indicadores de Unidade Alfa e Unidade Beta.' });
+  expect(academicPageHeading('gestor_unidade', 'painel', { ...view, scopes: ['ACADEMIC-NORTE-1'] }).title).toBe('Resultado da Unidade Alfa');
+  expect(academicPageHeading('cam', 'painel', view).title).toBe('Ciclo de Outubro/2026');
+  expect(academicPageHeading('cam', 'historico', view).title).toBe('Auditoria');
+  expect(academicPageHeading('revisor_tecnico', 'historico', view).title).toBe('Histórico');
 });

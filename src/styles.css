@@ -1701,6 +1701,14 @@ td code,
   .auth-card { padding: 21px 18px; }
 }
 
+/* "Selecione seu contexto": the V3 card with the prototype's .field and select.input. */
+.v3-picker { display: grid; gap: 16px; width: min(100%, 480px); padding: 24px; color: #172033; font-family: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.v3-picker h1 { margin: 0; color: #172033; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.v3-picker .field { display: grid; gap: 6px; color: #172033; font-size: 14px; font-weight: 600; }
+.v3-picker select.input { width: 100%; min-height: 42px; padding: 8px 12px; border: 1px solid #b4c0d2; border-radius: 6px; background: #fff; color: #172033; font: inherit; font-weight: 400; }
+.v3-picker button { justify-self: start; min-height: 42px; padding: 9px 16px; border: 1px solid #b4c0d2; border-radius: 6px; background: #fff; color: #172033; font-weight: 600; }
+.v3-picker [role="alert"] { font-size: 14px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
@@ -1736,8 +1744,8 @@ td code,
   --r-sm: 6px; --r: 10px;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
 }
-/* Menu lateral, as in the V3 prototype; below 768px it becomes a top bar whose
-   items scroll sideways inside the bar, never the page. */
+/* Menu lateral, as in the V3 prototype; below 768px it is closed behind the
+   "Menu" button and opens over the content. */
 .academic-side {
   position: sticky;
   top: 0;
@@ -1766,6 +1774,7 @@ td code,
   color: #fff;
   font-weight: 700;
 }
+.academic-side-foot { margin: auto 0 0; padding: 0 8px; color: var(--faint); font-size: 12px; }
 .academic-app .academic-nav { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 2px; margin: 0; }
 .academic-app .academic-nav button {
   display: flex;
@@ -1812,6 +1821,20 @@ td code,
 .academic-app .academic-top label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0; }
 .academic-app .academic-top select { width: auto; min-width: 0; max-width: 100%; flex: 1 1 220px; font-weight: 600; }
 .academic-app .academic-signout { margin: 0 0 0 auto; }
+.academic-app .academic-menu-toggle { display: none; }
+.academic-spacer { flex: 1; }
+.academic-person { display: flex; align-items: center; gap: 8px; }
+.academic-avatar { display: grid; width: 34px; height: 34px; flex: none; place-items: center; border-radius: 50%; background: var(--blue-soft); color: var(--blue-dark); font-weight: 700; }
+.academic-person strong, .academic-person > span > span { display: block; line-height: 1.2; }
+.academic-person > span > span { color: var(--muted); font-size: 13px; }
+.academic-other-contexts { padding: 0 clamp(12px, 3vw, 32px) 12px; }
+.academic-page-head { margin-bottom: 24px; }
+.academic-app .academic-page-head h2 { margin: 0; font-size: clamp(22px, 3vw, 26px); font-weight: 700; line-height: 1.25; }
+.academic-page-head p { max-width: 66ch; margin: 4px 0 0; color: var(--muted); }
+/* Keep focused or linked content clear of the sticky header (WCAG 2.4.11). */
+@media (min-width: 768px) {
+  html:has(.academic-app) { scroll-padding-top: 120px; }
+}
 .academic-content {
   width: auto;
   max-width: 1120px;
@@ -1823,23 +1846,24 @@ td code,
   background: var(--surface);
 }
 @media (max-width: 767px) {
-  .academic-app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .academic-app { grid-template-columns: minmax(0, 1fr); }
   .academic-side {
-    position: static;
+    position: fixed;
+    z-index: 20;
+    inset: 0 auto 0 0;
+    width: min(260px, 85vw);
     height: auto;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    overflow: visible;
-    padding: 8px 12px;
-    border-right: 0;
-    border-bottom: 1px solid #dce2ec;
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition: transform 0.15s ease, visibility 0.15s;
   }
-  .academic-brand { padding: 0; }
-  .academic-brand > span:last-child { display: none; }
-  .academic-app .academic-nav { min-width: 0; flex: 1; flex-direction: row; overflow-x: auto; }
-  .academic-app .academic-nav button { width: auto; flex: none; white-space: nowrap; }
+  .academic-side[data-open="true"] { visibility: visible; transform: none; box-shadow: 12px 0 32px rgb(23 32 51 / 18%); }
+  .academic-app .academic-menu-toggle { display: inline-flex; }
+  .academic-person > span > span { display: none; }
   .academic-top { position: static; }
+}
+@media (max-width: 559px) {
+  .academic-top .academic-label { position: fixed; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
 .academic-app h1 { font-size: clamp(22px, 3vw, 30px); line-height: 1.25; }
 .academic-app h2 { font-size: 21px; }
@@ -1927,9 +1951,9 @@ td code,
 .v3-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .v3-st-ausente, .v3-st-invalidada { background: var(--surface-muted); color: var(--muted); }
 .v3-st-rascunho { background: var(--blue-soft); color: var(--blue-dark); }
-.v3-st-enviada, .v3-st-em_revisao { background: var(--warning-soft); color: var(--warning); }
+.v3-st-enviada, .v3-st-em_revisao, .v3-st-em_consolidacao { background: var(--warning-soft); color: var(--warning); }
 .v3-st-devolvida { background: var(--danger-soft); color: var(--danger); }
-.v3-st-validada { background: var(--success-soft); color: var(--success); }
+.v3-st-aberta, .v3-st-fechada, .v3-st-validada { background: var(--success-soft); color: var(--success); }
 .v3-badge-valor { background: var(--success-soft); color: var(--success); }
 .v3-badge-sem_envio, .v3-badge-decisao_pendente { background: var(--warning-soft); color: var(--warning); }
 .v3-explainer { padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--blue-soft); }

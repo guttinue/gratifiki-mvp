@@ -237,15 +237,18 @@ describe("App", () => {
     ]);
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
-    expect(screen.getByText("Perfil area_tecnica · DEMO-ESCOPO-01 · DEMO-2026-09")).toBeTruthy();
+    expect((screen.getByLabelText("Competência") as HTMLSelectElement).value).toBe(`area_tecnica:${technicalContext.competenciaId}`);
+    expect(screen.queryByLabelText("Contexto autorizado")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Outros contextos" }));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "Selecione um contexto", "Área técnica · Setembro/2026", "cam · DISTRITO · DEMO-2026-09 · acadêmico",
+      "Setembro/2026", "Selecione um contexto", "Área técnica · Setembro/2026", "cam · DISTRITO · DEMO-2026-09 · acadêmico",
     ]);
     fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("cam") } });
     expect(await screen.findByText("Perfil cam · DISTRITO · DEMO-2026-09")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: `area_tecnica:${technicalContext.competenciaId}` } });
-    expect(await screen.findByText("Perfil area_tecnica · DEMO-ESCOPO-01 · DEMO-2026-09")).toBeTruthy();
-    expect(screen.getAllByRole("option")).toHaveLength(3);
+    expect(await screen.findByLabelText("Competência")).toBeTruthy();
+    expect(screen.queryByText(/Perfil /)).toBeNull();
+    expect(screen.getByRole("button", { name: "Outros contextos" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("clears visible data and ignores an older read when the context changes", async () => {
@@ -674,6 +677,30 @@ describe("App academic access boundary", () => {
     }
     fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
     expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+  });
+
+  it("asks before a header month change discards an unsaved edit", async () => {
+    const boundary = createAuthBoundary();
+    const month = (id: string, estado: "aberta" | "fechada") => ({
+      ...academicTechnical, key: `m3-${id}`, vinculoId: `m3-${id}`, modelo: 3 as const, competenciaId: id,
+      competenciaCodigo: `ACADEMIC-V3-2026-${id}`, competenciaEstado: estado, escopoId: "scope", escopoCodigo: "ACADEMIC-NORTE-1",
+    });
+    const batch = { unitId: "scope", unitCode: "ACADEMIC-NORTE-1", mode: "zero", items: [{ positionId: "pos", indicatorCode: "DEMO-V1-01",
+      name: "Registros conferidos", meta: "95", direction: "maior_melhor", weight: "30", decimals: 2, max: "100", unit: "%", status: "ausente",
+      version: 1, estadoDado: null, valor: null, fonte: null, motivo: null, periodoFonte: null, returnReason: null, revisionNumber: null }] };
+    vi.mocked(boundary.client.rpc).mockImplementation(((name: string) => Promise.resolve({
+      data: name === "get_unit_batch" ? batch : { items: [position], total: 1, page: 1, pageSize: 100 }, error: null,
+    })) as never);
+    authMocks.getAuthClient.mockReturnValue(boundary.client);
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([month("10", "aberta"), month("09", "fechada")]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("Fonte do dado"), { target: { value: editedSource } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "area_tecnica:09" } });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText("Competência") as HTMLSelectElement).value).toBe("area_tecnica:10");
+    expect((screen.getByLabelText("Fonte do dado") as HTMLInputElement).value).toBe(editedSource);
+    expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(1);
   });
 
   it("does not let a delayed read restore content after the context is revoked", async () => {

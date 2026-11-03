@@ -17,10 +17,14 @@ describe("workspace responsive stylesheet", () => {
     expect(/\.input-row\s+button\s*\{[^}]*background:\s*var\(--blue\);/s.test(stylesheet)).toBe(true);
   });
 
-  it("turns the academic side menu into a top bar that scrolls inside itself below 768px", () => {
+  it("hides the closed side menu below 768px and shows it when open", () => {
     const narrow = /@media \(max-width: 767px\)\s*\{(.*?)\n\}/s.exec(stylesheet)?.[1] ?? "";
-    expect(/\.academic-app\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(narrow)).toBe(true);
-    expect(/\.academic-app \.academic-nav\s*\{[^}]*flex-direction:\s*row;[^}]*overflow-x:\s*auto/s.test(narrow)).toBe(true);
+    expect(/\.academic-side\s*\{[^}]*visibility:\s*hidden/s.test(narrow)).toBe(true);
+    expect(/\.academic-side\[data-open="true"\]\s*\{[^}]*visibility:\s*visible/s.test(narrow)).toBe(true);
+  });
+
+  it("pads scrolling under the sticky header", () => {
+    expect(stylesheet).toContain("scroll-padding-top");
   });
 
   const academic = /\n\.academic-app\s*\{([^}]*)\}/.exec(stylesheet)?.[1] ?? "";

@@ -134,7 +134,7 @@ it('shows the V3 shell: the CAM destinations in a navigation, and the synthetic-
  const navigation=screen.getByRole('navigation',{name:'Navegação acadêmica'});
  expect(Array.from(navigation.querySelectorAll('button')).map(button=>button.textContent)).toEqual(['Painel','Ciclo e fechamento','Resultados','Todas as entradas','Auditoria']);
  const banner=screen.getByRole('banner');
- expect(banner.textContent).toContain('Regra fictícia');
+ expect(banner.textContent).toContain('baseline do modelo 2');
  expect(banner.textContent).toContain('2026-10');
  expect(banner.textContent).toContain('NORTE');
  expect(within(banner).getByLabelText('Contexto autorizado')).toBeTruthy();
@@ -151,10 +151,13 @@ it('discards the loaded detail when the same group comes back narrowed to other 
  view.rerender(<AcademicWorkspace client={client} group={groupContexts([second])[0]} onSignOut={()=>{}}/>);
  expect(screen.queryByLabelText('Valor')).toBeNull();
 });
-it('shows the competence state next to its code in the header',()=>{
+it('shows the competence state next to its code in the model-2 header, with the picker visible',()=>{
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{throw new Error('should not read');}}});
- const view=render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'em_consolidacao'})} onSignOut={()=>{}} />);
+ const view=render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'em_consolidacao'})} onSignOut={()=>{}} contextPicker={<label>Contexto autorizado<select/></label>}/>);
  expect(screen.getByText('Perfil gestor_unidade · NORTE · 2026-10')).toBeTruthy();
+ expect(within(screen.getByRole('banner')).getByLabelText('Contexto autorizado')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Outros contextos'})).toBeNull();
+ expect(screen.getByRole('banner').textContent).toContain('Dados sintéticos · baseline do modelo 2 · sem efeito institucional');
  expect(screen.getByText('Em consolidação').textContent).toBe('· Situação da competência: Em consolidação');
  view.unmount();
  render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'aberta'})} onSignOut={()=>{}} />);
@@ -279,7 +282,8 @@ it('model-3 CAM: Ciclo shows the cycle and its decisions only; "Ver entrada" ope
  expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
  expect(screen.queryByRole('tablist',{name:'Filtrar entradas'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3'}));
- expect(await screen.findByRole('heading',{name:'Todas as entradas',level:2})).toBeTruthy();
+ // The shell's page head names it too until the queue drops its own h2 (Tasks 4–8).
+ expect((await screen.findAllByRole('heading',{name:'Todas as entradas',level:2})).length).toBeGreaterThan(0);
  expect(window.location.hash).toBe('#academico/entradas');
  expect(await screen.findByText('Unidade sem este serviço.')).toBeTruthy();
  expect(screen.getByRole('heading',{name:'ACADEMIC-NORTE-3',level:3})).toBeTruthy();
@@ -304,4 +308,93 @@ it('model-3 reviewer: the Conferência page mounts the tabbed queue; a model-2 r
  render(<AcademicWorkspace client={client} group={grp({...context,role:'revisor_tecnico'})} onSignOut={()=>{}}/>);
  expect(await screen.findByRole('navigation',{name:'Páginas da fila'})).toBeTruthy();
  expect(screen.queryByRole('tablist',{name:'Filtrar entradas'})).toBeNull();
+});
+
+// ---- Telas V3, Task 3: model-3 header, collapsible menu and page heading ----
+const tech=(n:number,month:string,extra:Partial<AuthorizedContext>={})=>v3('area_tecnica',{key:`t-${month}-${n}`,vinculoId:`t-${month}-${n}`,
+ competenciaId:month,competenciaCodigo:`ACADEMIC-V3-2026-${month}`,competenciaEstado:month==='10'?'aberta':'fechada',escopoId:`scope-${n}`,escopoCodigo:`ACADEMIC-NORTE-${n}`,...extra});
+const headerGroups=(...more:AuthorizedContext[])=>groupContexts([tech(1,'10'),tech(2,'10'),tech(1,'09'),...more]);
+const camMonth=(month:string)=>v3('cam',{key:`cam-${month}`,vinculoId:`cam-${month}`,competenciaId:month,competenciaCodigo:`ACADEMIC-V3-2026-${month}`,competenciaEstado:'aberta'});
+const dashboardClient=()=>rpc(name=>name==='get_dashboard'?{expected:2,received:0,reviewed:0,unavailable:0,cards:[{id:'todas',label:'todas',count:2,filter:null},{id:'ausente',label:'ausente',count:2,filter:null}]}:{items:[],total:0,page:1,pageSize:25}).client;
+it('shows competence, state, role and scope instead of codes, and no person',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ expect(within(screen.getByLabelText('Competência')).getAllByRole('option').map(option=>option.textContent)).toEqual(['Outubro/2026','Setembro/2026']);
+ expect(screen.getByText('Aberta').className).toBe('academic-competence-state v3-badge v3-st-aberta');
+ expect(screen.getByText('Aberta').textContent).toBe('Situação da competência: Aberta');
+ const person=document.querySelector('.academic-person') as HTMLElement;
+ expect(person.textContent).toContain('Área técnica');
+ expect(person.textContent).toContain('Unidade Alfa e Unidade Beta');
+ expect(document.body.textContent).not.toMatch(/@|ACADEMIC-NORTE-1|Perfil area_tecnica/);
+ expect(screen.getByRole('heading',{level:1,name:'Contexto acadêmico autorizado'}).className).toBe('sr-only');
+ expect(screen.getByRole('banner').textContent).toContain('Regra fictícia DEMO-v1 · dados sintéticos · sem efeito institucional');
+ expect(screen.getByText('Regra fictícia DEMO-v1 com 4 indicadores. Sem efeito institucional.')).toBeTruthy();
+ expect(screen.queryByLabelText('Papel')).toBeNull();
+});
+it('changes month through onSelectGroup',()=>{
+ const groups=headerGroups();const onSelectGroup=vi.fn();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSelectGroup={onSelectGroup} onSignOut={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText('Competência'),{target:{value:groups[1].key}});
+ expect(onSelectGroup).toHaveBeenCalledWith(groups[1].key);
+ // Controlled: until the parent switches the group, the select shows the current month.
+ expect((screen.getByLabelText('Competência') as HTMLSelectElement).value).toBe(groups[0].key);
+});
+it('offers other contexts only when they exist and opens the picker',()=>{
+ const picker=<label>Contexto autorizado<select/></label>;
+ const only=headerGroups();
+ const view=render(<AcademicWorkspace client={dashboardClient()} group={only[0]} groups={only} contextPicker={picker} onSignOut={()=>{}}/>);
+ expect(screen.queryByRole('button',{name:'Outros contextos'})).toBeNull();
+ expect(screen.queryByLabelText('Contexto autorizado')).toBeNull();
+ view.unmount();
+ const groups=headerGroups({...context,key:'m2',vinculoId:'m2',role:'cam'});
+ render(<AcademicWorkspace client={dashboardClient()} group={groups.find(g=>g.modelo===3)!} groups={groups} contextPicker={picker} onSignOut={()=>{}}/>);
+ const others=screen.getByRole('button',{name:'Outros contextos'});
+ expect(others.getAttribute('aria-expanded')).toBe('false');
+ expect(screen.queryByLabelText('Contexto autorizado')).toBeNull();
+ fireEvent.click(others);
+ expect(others.getAttribute('aria-expanded')).toBe('true');
+ expect(document.getElementById(others.getAttribute('aria-controls')!)).toBeTruthy();
+ expect(within(screen.getByRole('banner')).getByLabelText('Contexto autorizado')).toBeTruthy();
+});
+it('switches role keeping the month, or opens the default month of the new role',()=>{
+ const groups=headerGroups(camMonth('10'),camMonth('09'));const onSelectGroup=vi.fn();
+ const september=groups.find(g=>g.role==='area_tecnica'&&g.competenciaId==='09')!;
+ const view=render(<AcademicWorkspace client={dashboardClient()} group={september} groups={groups} onSelectGroup={onSelectGroup} onSignOut={()=>{}}/>);
+ expect(within(screen.getByLabelText('Papel')).getAllByRole('option').map(option=>option.textContent)).toEqual(['Área técnica','CAM']);
+ fireEvent.change(screen.getByLabelText('Papel'),{target:{value:'cam'}});
+ expect(onSelectGroup).toHaveBeenLastCalledWith('cam:09');
+ view.unmount();
+ const octoberOnly=headerGroups(camMonth('10'));
+ render(<AcademicWorkspace client={dashboardClient()} group={octoberOnly.find(g=>g.role==='area_tecnica'&&g.competenciaId==='09')!} groups={octoberOnly} onSelectGroup={onSelectGroup} onSignOut={()=>{}}/>);
+ fireEvent.change(screen.getByLabelText('Papel'),{target:{value:'cam'}});
+ expect(onSelectGroup).toHaveBeenLastCalledWith('cam:10');
+});
+it('renders the page heading',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const head=within(document.querySelector('.academic-page-head') as HTMLElement);
+ expect(head.getByRole('heading',{level:2,name:'Painel'})).toBeTruthy();
+ expect(head.getByText('Outubro/2026 · você informa os indicadores de Unidade Alfa e Unidade Beta.')).toBeTruthy();
+});
+it('menu toggle opens, Escape closes and returns focus',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ const menu=document.getElementById('academic-menu') as HTMLElement;
+ expect(toggle.getAttribute('aria-controls')).toBe('academic-menu');
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ expect(menu.dataset.open).toBe('false');
+ fireEvent.click(toggle);
+ expect(toggle.getAttribute('aria-expanded')).toBe('true');
+ expect(menu.dataset.open).toBe('true');
+ const item=within(menu).getByRole('button',{name:'Histórico'});
+ item.focus();
+ fireEvent.keyDown(item,{key:'Escape'});
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ expect(menu.dataset.open).toBe('false');
+ expect(document.activeElement).toBe(toggle);
+ fireEvent.click(toggle);
+ fireEvent.click(item);
+ expect(menu.dataset.open).toBe('false');
+ expect(document.activeElement).toBe(screen.getByRole('main'));
 });
