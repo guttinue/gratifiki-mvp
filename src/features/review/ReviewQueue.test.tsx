@@ -128,7 +128,8 @@ it('opens a model-3 position whose memory has no factor',async()=>{
  openAcademicPage('conferencia');
  render(<AcademicWorkspace client={api} group={groupContexts([{...context,modelo:3}])[0]} onSignOut={()=>{}} />);
  // T11: the model-3 queue labels a row with the situation in words ("Aguardando conferência"), not the raw status.
- fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · Aguardando conferência/}));
+ const line=await screen.findByRole('row',{name:/NORTE-1/});expect(line.textContent).toContain('Aguardando conferência');
+ fireEvent.click(within(line).getByRole('button',{name:'NORTE-1'}));
  expect(await screen.findByText('Synthetic origin')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Iniciar revisão'})).toBeTruthy();
  expect(screen.queryByRole('alert')).toBeNull();
@@ -136,18 +137,18 @@ it('opens a model-3 position whose memory has no factor',async()=>{
 
 // ---- Task 11: model-3 queue with tabs, local search, no bulk action, previous version and explanation ----
 const v3Reviewer=(n:number):AuthorizedContext=>({...context,key:`rev-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,escopoCodigo:'ACADEMIC-NORTE',competenciaCodigo:'ACADEMIC-V3-2026-10'});
-const v3Group=(role:'revisor_tecnico'|'cam'='revisor_tecnico')=>groupContexts([1,2].map(n=>({...v3Reviewer(n),role})))[0];
+const v3Group=(role:'revisor_tecnico'|'cam'='revisor_tecnico',count=2)=>groupContexts(Array.from({length:count},(_,n)=>({...v3Reviewer(n+1),role})))[0];
 const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoCodigo:code,status,revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos',...extra});
 const v3Rows:Record<string,ReturnType<typeof row>[]>={'indicator-1':[row('p1','ALFA','enviada'),row('p2','BETA','em_revisao'),row('p5','EPSILON','ausente',{revisionId:null,estadoDado:null,inputValue:null,resultValue:null})],
  'indicator-2':[row('p3','GAMA','devolvida'),row('p4','DELTA','validada',{resultValue:'28.42'})]};
 const v3Revision=(id:string,number:number,value:string,source:string,extra:object={})=>({id,number,authorId:'author',estadoDado:'valor',value,source,sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null,...extra});
-function v3Api(){
+function v3Api(rows=v3Rows){
  const calls:{name:string;body:{p_position_id:string;p_contexto:{indicadorId:string}}}[]=[];
  const api=client(async(url,options)=>{
   const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
-  if(name==='get_operational_positions')return response({items:v3Rows[body.p_contexto.indicadorId],total:v3Rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
+  if(name==='get_operational_positions')return response({items:rows[body.p_contexto.indicadorId],total:rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
   if(name==='get_position_detail'){
-   const found=Object.values(v3Rows).flat().find(p=>p.id===body.p_position_id)!;
+   const found=Object.values(rows).flat().find(p=>p.id===body.p_position_id)!;
    const returned=found.id==='p3';
    return response({indicator:{code:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',unit:'%'},previous:found.id==='p4'?null:{competencia:'ACADEMIC-V3-2026-09',valor:'88',estadoDado:'valor'},position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
     decisions:[],memories:[{revisionId:`rev-${found.id}`,ruleVersion:1,method:'meta_peso',factor:null,inputValue:returned?'40':'90',resultValue:returned?'25':'28.42'}]});
@@ -156,29 +157,78 @@ function v3Api(){
  });
  return {api,calls};
 }
-const queue=async(role:'revisor_tecnico'|'cam'='revisor_tecnico')=>{
- const view=v3Api();openAcademicPage(role==='cam'?'entradas':'conferencia');
- render(<AcademicWorkspace client={view.api} group={v3Group(role)} onSignOut={()=>{}}/>);
+const queue=async(role:'revisor_tecnico'|'cam'='revisor_tecnico',rows=v3Rows)=>{
+ const view=v3Api(rows);openAcademicPage(role==='cam'?'entradas':'conferencia');
+ render(<AcademicWorkspace client={view.api} group={v3Group(role,Object.keys(rows).length)} onSignOut={()=>{}}/>);
  await screen.findByRole('tablist',{name:'Filtrar entradas'});
  return view;
 };
 const tab=(name:RegExp)=>screen.getByRole('tab',{name});
-it('V3 reviewer: tabs with counts over every indicator context; Pendentes is the default',async()=>{
+const tabTexts=()=>screen.getAllByRole('tab').map(t=>t.textContent?.replace(/\s+/g,' ').trim());
+// The named fixture: the 4 DEMO units × the 4 DEMO indicators, one context per indicator.
+// Alfa · DEMO-V1-02 waits, Beta · DEMO-V1-01 is being reviewed, the other 14 are accepted.
+const demoIndicators=[['DEMO-V1-01','Registros conferidos'],['DEMO-V1-02','Rotinas concluídas'],['DEMO-V1-03','Tempo de resposta'],['DEMO-V1-04','Verificações realizadas']];
+const demoUnits=['ACADEMIC-NORTE-1','ACADEMIC-NORTE-2','ACADEMIC-SUL-1','ACADEMIC-SUL-2'];
+const demoStatus:Record<string,string>={'ACADEMIC-NORTE-1:DEMO-V1-02':'enviada','ACADEMIC-NORTE-2:DEMO-V1-01':'em_revisao'};
+const namedRows=Object.fromEntries(demoIndicators.map(([code,name],n)=>[`indicator-${n+1}`,demoUnits.map((unit,u)=>
+ row(`d${n}${u}`,unit,demoStatus[`${unit}:${code}`]??'validada',{indicatorCode:code,indicatorName:name,inputValue:'90',resultValue:'28.4'}))]));
+it('V3 reviewer: tabs in the V3 order, waiting first and selected',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (0)','Aceitas (14)','Todas (16)']);
+ expect(tab(/Aguardando você/).getAttribute('aria-selected')).toBe('true');
+ expect(screen.queryByRole('heading',{name:'Conferência técnica'})).toBeNull();
+});
+it('V3 reviewer: lists entries in a table with names and opens one',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ const table=screen.getByRole('table');
+ expect(within(table).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['Unidade','Indicador','Valor','Pontos','Situação']);
+ const line=screen.getByRole('row',{name:/DEMO-V1-02/});
+ expect(within(line).getAllByRole('cell').map(cell=>cell.textContent)).toEqual(['Unidade Alfa','DEMO-V1-02Rotinas concluídas','90','28,40','Aguardando conferência']);
+ expect(within(line).getByText('Aguardando conferência').className).toContain('v3-st-enviada');
+ expect(screen.getByText('1 de 16 entradas')).toBeTruthy();
+ fireEvent.click(within(line).getByRole('button',{name:'Unidade Alfa'}));
+ const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
+ expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
+ expect(within(evidence).getByText('DEMO-V1-02 · Rotinas concluídas')).toBeTruthy();
+ expect(screen.getByRole('row',{name:/DEMO-V1-02/}).getAttribute('aria-selected')).toBe('true');
+ expect(table.closest('.v3-split')).toBeTruthy();
+});
+it('V3 reviewer: searches by unit name, unit code and indicator, ignoring case',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/Todas/));
+ const search=(text:string)=>{fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:text}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));};
+ const units=()=>screen.getAllByRole('row').slice(1).map(line=>within(line).getAllByRole('cell')[0].textContent);
+ search('beta');expect(units()).toEqual(['Unidade Beta','Unidade Beta','Unidade Beta','Unidade Beta']);
+ search('academic-sul-2');expect(new Set(units())).toEqual(new Set(['Unidade Delta']));
+ search('TEMPO');expect(units()).toHaveLength(4);
+ search('demo-v1-04');expect(screen.getByText('4 de 16 entradas')).toBeTruthy();
+});
+it('V3 CAM reads every entry read-only',async()=>{
+ await queue('cam',namedRows);
+ expect(tab(/Todas/).getAttribute('aria-selected')).toBe('true');
+ expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (0)','Aceitas (14)','Todas (16)']);
+ expect(screen.getByText('16 de 16 entradas')).toBeTruthy();
+ expect(screen.getAllByRole('heading',{name:'Todas as entradas'})).toHaveLength(1);
+ fireEvent.click(within(screen.getByRole('row',{name:/Unidade Beta.*DEMO-V1-01/})).getByRole('button',{name:'Unidade Beta'}));
+ await screen.findByRole('region',{name:'Evidência da posição'});
+ expect(screen.queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
+});
+it('V3 reviewer: tabs with counts over every indicator context; Aguardando você is the default',async()=>{
  await queue();
- expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Pendentes (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)']);
- expect(tab(/Pendentes/).getAttribute('aria-selected')).toBe('true');
- expect(await screen.findByRole('button',{name:/ALFA · Aguardando conferência/})).toBeTruthy();
+ expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)','Todas (5)']);
+ expect(tab(/Aguardando você/).getAttribute('aria-selected')).toBe('true');
+ expect((await screen.findByRole('row',{name:/ALFA/})).textContent).toContain('Aguardando conferência');
  expect(screen.queryByRole('button',{name:/BETA/})).toBeNull();
- fireEvent.click(tab(/Em conferência/));expect(screen.getByRole('button',{name:/BETA · Em conferência/})).toBeTruthy();
- fireEvent.click(tab(/Devolvidas/));expect(screen.getByRole('button',{name:/GAMA · Devolvida/})).toBeTruthy();
- fireEvent.click(tab(/Aceitas/));expect(screen.getByRole('button',{name:/DELTA · Aceita/})).toBeTruthy();
+ fireEvent.click(tab(/Em conferência/));expect(screen.getByRole('row',{name:/BETA/}).textContent).toContain('Em conferência');
+ fireEvent.click(tab(/Devolvidas/));expect(screen.getByRole('row',{name:/GAMA/}).textContent).toContain('Devolvida');
+ fireEvent.click(tab(/Aceitas/));expect(screen.getByRole('row',{name:/DELTA/}).textContent).toContain('Aceita');
 });
 it('V3 reviewer: search narrows the list by unit and keeps no bulk action anywhere',async()=>{
  await queue();
  fireEvent.click(tab(/Devolvidas/));
- fireEvent.change(screen.getByLabelText('Buscar unidade'),{target:{value:'zzz'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
+ fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'zzz'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
  expect(screen.queryByRole('button',{name:/GAMA/})).toBeNull();
- fireEvent.change(screen.getByLabelText('Buscar unidade'),{target:{value:'gam'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
+ fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'gam'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
  fireEvent.click(await screen.findByRole('button',{name:/GAMA/}));
  expect(await screen.findByRole('heading',{name:'GAMA'})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/aceitar todos|em massa/i})).toBeNull();
@@ -202,8 +252,8 @@ it('V3 reviewer: starts and accepts one item with the context of its own indicat
  const commands=calls.filter(c=>['start_position_review','review_position'].includes(c.name));
  expect(commands.map(c=>c.name)).toEqual(['start_position_review','review_position']);
  expect(commands.every(c=>c.body.p_position_id==='p1'&&c.body.p_contexto.indicadorId==='indicator-1')).toBe(true);
- // The accepted item leaves Pendentes and the counts follow.
- expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Pendentes (0)','Em conferência (1)','Devolvidas (1)','Aceitas (2)']);
+ // The accepted item leaves Aguardando você and the counts follow.
+ expect(tabTexts()).toEqual(['Aguardando você (0)','Em conferência (1)','Devolvidas (1)','Aceitas (2)','Todas (5)']);
 });
 it('V3 reviewer: a return without a reason is refused before any command',async()=>{
  const {calls}=await queue();fireEvent.click(tab(/Em conferência/));
@@ -214,19 +264,18 @@ it('V3 reviewer: a return without a reason is refused before any command',async(
 });
 it('V3 CAM entries: read-only list of every entry, including the ones still absent, with no action',async()=>{
  await queue('cam');
- expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Todas (5)','Pendentes (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)']);
- // The shell's page head names it too until the queue drops its own h2 (Tasks 4–8).
- expect(screen.getAllByRole('heading',{name:'Todas as entradas'}).length).toBeGreaterThan(0);
+ expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)','Todas (5)']);
+ expect(tab(/Todas/).getAttribute('aria-selected')).toBe('true');
  fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
  expect(await screen.findByText('Painel sintético')).toBeTruthy();
  expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo|Autorizar retificação|Decidir/})).toBeNull();
  expect(screen.queryByLabelText('Motivo da conferência')).toBeNull();
- fireEvent.click(tab(/Todas/));expect(screen.getByRole('button',{name:/EPSILON · Não enviado/})).toBeTruthy();
+ expect(screen.getByRole('row',{name:/EPSILON/}).textContent).toContain('Não enviado');
 });
 
 it('V3 reviewer: queue rows name the indicator and the detail shows its target and last month\'s value',async()=>{
  await queue();
- expect((await screen.findByRole('button',{name:/ALFA · Aguardando conferência/})).textContent).toContain('DEMO-V1-01 Registros conferidos');
+ expect((await screen.findByRole('row',{name:/ALFA/})).textContent).toContain('DEMO-V1-01Registros conferidos');
  fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
  const facts=await screen.findByRole('group',{name:'Indicador e meta'});
  expect(facts.textContent).toContain('DEMO-V1-01 · Registros conferidos');
@@ -239,4 +288,15 @@ it('V3 reviewer: says so when there is no accepted value last month',async()=>{
  fireEvent.click(await screen.findByRole('button',{name:/DELTA/}));
  const facts=await screen.findByRole('group',{name:'Indicador e meta'});
  expect(within(facts).getByText('Mês anterior').nextElementSibling?.textContent).toBe('Sem valor aceito no mês anterior');
+});
+it('V3 reviewer: "Conferir agora" on the painel opens the first entry in the tab of its status',async()=>{
+ const rows={'indicator-1':[row('q1','ACADEMIC-NORTE-1','em_revisao'),row('q2','ACADEMIC-NORTE-2','enviada')]};
+ const view=v3Api(rows);openAcademicPage('painel');
+ render(<AcademicWorkspace client={view.api} group={v3Group('revisor_tecnico',1)} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Conferir agora'}));
+ expect(window.location.hash).toBe('#academico/conferencia');
+ const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
+ expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
+ expect(tab(/Em conferência/).getAttribute('aria-selected')).toBe('true');
+ expect(screen.getByRole('row',{name:/Unidade Alfa/}).getAttribute('aria-selected')).toBe('true');
 });

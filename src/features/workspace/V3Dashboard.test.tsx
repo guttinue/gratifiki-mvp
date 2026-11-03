@@ -110,19 +110,22 @@ describe('AcademicV3Dashboard', () => {
     expect(screen.queryByRole('button', { name: /Abrir (correção|preenchimento)/ })).toBeNull();
   });
 
-  it('shows the reviewer the pending entries per tab', async () => {
-    const onNavigate = vi.fn();
-    const { client, calls } = unitClient({ 'alfa:0': 'enviada', 'alfa:1': 'em_revisao', 'beta:0': 'enviada', 'beta:1': 'devolvida' });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={onNavigate} />);
-    expect(await screen.findByRole('heading', { name: '3 entradas aguardam sua conferência' })).toBeTruthy();
-    const tabs = screen.getByRole('region', { name: 'Pendências por aba' });
-    expect(within(tabs).getByText('Aguardando você').nextSibling?.textContent).toBe('(3)');
-    expect(within(tabs).getByText('Devolvidas').nextSibling?.textContent).toBe('(1)');
-    expect(within(tabs).getByText('Aceitas').nextSibling?.textContent).toBe('(4)');
-    expect(within(tabs).getByText('Todas').nextSibling?.textContent).toBe('(8)');
+  it('tells the reviewer the first waiting entry and opens it', async () => {
+    const onOpenPosition = vi.fn();const onNavigate = vi.fn();
+    const { client, calls } = unitClient({ 'alfa:1': 'enviada', 'beta:0': 'em_revisao' });
+    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={onNavigate} onOpenPosition={onOpenPosition} />);
+    expect(await screen.findByRole('heading', { name: '2 entradas aguardam sua conferência' })).toBeTruthy();
+    expect(screen.getByText('Próximo passo')).toBeTruthy();
+    expect(screen.getByText('A primeira da fila é Unidade Alfa · Rotinas concluídas.')).toBeTruthy();
     expect(calls.some(call => call.name === 'get_unit_batch')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Conferir agora' }));
-    expect(onNavigate).toHaveBeenCalledWith('conferencia');
+    const action = screen.getByRole('button', { name: 'Conferir agora' });
+    expect(action.className).toContain('primary');
+    fireEvent.click(action);
+    expect(onOpenPosition).toHaveBeenCalledWith('alfa-1');
+    expect(onNavigate).not.toHaveBeenCalled();
+    const table = screen.getByRole('region', { name: 'Situação por unidade' });
+    expect(within(table).queryByRole('button', { name: /Abrir/ })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Pendências por aba' })).toBeNull();
   });
 
   it('shows the reviewer an empty queue', async () => {

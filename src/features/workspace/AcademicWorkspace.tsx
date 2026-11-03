@@ -101,6 +101,8 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  }
  // The painel's "Abrir" opens the fill screen on that unit.
  function openUnit(unitId:string){setUnitRequest(unitId);navigate('preenchimento');}
+ // Opens one position in the queue page of the role; model 2 shows the queue on every page.
+ function openPosition(id:string){setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate(context.role==='cam'?'entradas':'conferencia');}
  useEffect(()=>{
   const request=++generation.current;
   if(context.role!=='area_tecnica'||page!=='preenchimento'||v3) return;
@@ -145,7 +147,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   {v3&&<div className="academic-page-head"><h2>{heading.title}</h2><p>{heading.subtitle}</p></div>}
   {page==='historico'?<AuditPage client={client} context={context}/>
   :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
-  :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit}/>
+  :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition}/>
   :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
   :page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
   {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
@@ -176,7 +178,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
    </section>}
   </section>}
   {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
-  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={id=>{setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate('entradas');}} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
+  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={openPosition} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
  </main></div></div>;

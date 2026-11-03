@@ -11,6 +11,7 @@ import { reviewPosition, startReview } from './reviewApi';
 import { CamDecisionForm } from './CorrectionForm';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { requestAcademicLeave } from '../workspace/academicNavigation';
+import { scopeName } from '../workspace/displayNames';
 const queuePageSize=25;
 interface ReviewQueueProps {client:SupabaseClient;context:AuthorizedContext;requestedPositionId?:string;positionRequestKey?:number;onPositionsLoaded?:(positions:PositionSummary[])=>void;
  // Model 3: one queue over every indicator context of the group (read-only for the CAM).
@@ -106,8 +107,9 @@ function ReviewEvidence({client,context,detail,onConfirmed,v3=false,readOnly=fal
    setError(cause instanceof DomainCommandError?cause.message:'Não foi possível confirmar a conferência. Repita a mesma operação.');
   }}finally{inFlight.current=false;if(active.current)setBusy(false);}
  }
- return <section aria-label="Evidência da posição">
-  <h3 ref={heading} tabIndex={v3?-1:undefined}>{detail.position.escopoCodigo}</h3><p>Estado: {status} · revisão {revision?.number??'—'}</p>
+ return <section aria-label="Evidência da posição" className={v3?'v3-panel':undefined}>
+  <h3 ref={heading} tabIndex={v3?-1:undefined}>{v3?scopeName(detail.position.escopoCodigo):detail.position.escopoCodigo}</h3>
+  {v3&&detail.position.indicatorCode&&<p className="v3-cell-sub">{detail.position.indicatorCode} · {detail.position.indicatorName}</p>}<p>Estado: {status} · revisão {revision?.number??'—'}</p>
   {revision&&<dl><dt>Fonte</dt><dd>{revision.source}</dd><dt>Período</dt><dd>{revision.sourcePeriod}</dd><dt>Estado do dado</dt><dd>{revision.estadoDado}</dd><dt>Valor informado</dt><dd>{revision.value??'Sem valor numérico'}</dd><dt>Justificativa da fonte</dt><dd>{revision.reason||'—'}</dd></dl>}
   {v3&&<V3Evidence detail={detail}/>}
   <p>{detail.position.estadoDado==='indisponivel'?'Sem resultado numérico. Aceitar a evidência não decide a indisponibilidade; decisão CAM pendente.':detail.position.resultValue===null?'Sem resultado numérico disponível.':`Resultado sintético preservado: ${detail.position.resultValue}`}</p>
@@ -116,7 +118,7 @@ function ReviewEvidence({client,context,detail,onConfirmed,v3=false,readOnly=fal
   {error&&<p role="alert">{error}</p>}{confirmation&&<p role="status">{confirmation}</p>}
   {!readOnly&&pending&&!busy&&<><p>A confirmação está pendente. Repetir preserva comando, versão, motivo e chave originais.</p><button type="button" onClick={()=>void execute(pending.action)}>Repetir operação pendente</button></>}
   {!readOnly&&status==='enviada'&&<button type="button" disabled={busy||!!pending} onClick={()=>void execute('start')}>Iniciar revisão</button>}
-  {!readOnly&&status==='em_revisao'&&<><button type="button" disabled={busy||!!pending} onClick={()=>void execute('accept')}>Aceitar evidência</button><button type="button" disabled={busy||!!pending} onClick={()=>void execute('return')}>Devolver com motivo</button></>}
+  {!readOnly&&status==='em_revisao'&&<><button type="button" className={v3?'primary':undefined} disabled={busy||!!pending} onClick={()=>void execute('accept')}>Aceitar evidência</button><button type="button" disabled={busy||!!pending} onClick={()=>void execute('return')}>Devolver com motivo</button></>}
  </section>;
 }
 
@@ -137,14 +139,13 @@ function V3Evidence({detail}:{detail:PositionDetail}) {
   {memory&&<div role="group" aria-label="Memória de cálculo"><dl><dt>Valor</dt><dd>{formatDecimal(memory.inputValue)}</dd><dt>Pontos (regra v{memory.ruleVersion})</dt><dd>{formatDecimal(memory.resultValue,2)}</dd></dl></div>}
  </>;
 }
-type QueueTab={id:'todas'|'pendentes'|'em_conferencia'|'devolvidas'|'aceitas';label:string;statuses:readonly string[]|null};
-const queueTabs:readonly QueueTab[]=[{id:'todas',label:'Todas',statuses:null},{id:'pendentes',label:'Pendentes',statuses:['enviada']},{id:'em_conferencia',label:'Em conferência',statuses:['em_revisao']},
- {id:'devolvidas',label:'Devolvidas',statuses:['devolvida']},{id:'aceitas',label:'Aceitas',statuses:['validada']}];
+type QueueTab={id:'aguardando'|'em_conferencia'|'devolvidas'|'aceitas'|'todas';label:string;statuses:readonly string[]|null};
+const tabs:readonly QueueTab[]=[{id:'aguardando',label:'Aguardando você',statuses:['enviada']},{id:'em_conferencia',label:'Em conferência',statuses:['em_revisao']},
+ {id:'devolvidas',label:'Devolvidas',statuses:['devolvida']},{id:'aceitas',label:'Aceitas',statuses:['validada']},{id:'todas',label:'Todas',statuses:null}];
 function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionRequestKey}:{client:SupabaseClient;group:ContextGroup;readOnly:boolean;requestedPositionId?:string;positionRequestKey?:number}) {
- const tabs=queueTabs.filter(tab=>readOnly||tab.id!=='todas');
  const [rows,setRows]=useState<GroupPosition[]>([]);
  const [loading,setLoading]=useState(true);const [error,setError]=useState<string|null>(null);const [reload,setReload]=useState(0);
- const [tabId,setTabId]=useState<QueueTab['id']>(tabs[0].id);
+ const [tabId,setTabId]=useState<QueueTab['id']>(readOnly?'todas':'aguardando');
  const [searchInput,setSearchInput]=useState('');const [search,setSearch]=useState('');
  const [open,setOpen]=useState<{row:GroupPosition;detail:PositionDetail;requested:boolean}|null>(null);
  const listGeneration=useRef(0);const detailGeneration=useRef(0);const handledRequest=useRef<number|undefined>(undefined);
@@ -167,7 +168,8 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
   handledRequest.current=positionRequestKey;
   const row=rows.find(candidate=>candidate.position.id===requestedPositionId);
   if(!row){setError('Esta posição não está entre as posições autorizadas.');return;}
-  if(readOnly)setTabId('todas');
+  // Show the requested row in the list: the CAM reads in Todas, the reviewer in the tab of its status.
+  setTabId(readOnly?'todas':tabs.find(tab=>tab.statuses?.includes(row.position.status))?.id??'todas');
   void openRow(row,true);
  },[requestedPositionId,positionRequestKey,loading,rows]);
  function changeTab(next:QueueTab['id']) {
@@ -179,7 +181,8 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
   if(target<0)return;
   event.preventDefault();changeTab(tabs[target].id);tabRefs.current.get(tabs[target].id)?.focus();
  }
- const matches=(row:GroupPosition)=>!search||row.position.escopoCodigo.toLowerCase().includes(search.toLowerCase());
+ const needle=search.toLowerCase();
+ const matches=({position}:GroupPosition)=>!needle||[scopeName(position.escopoCodigo),position.escopoCodigo,position.indicatorCode,position.indicatorName].some(text=>text?.toLowerCase().includes(needle));
  const inTab=(row:GroupPosition,tab:QueueTab)=>!tab.statuses||tab.statuses.includes(row.position.status);
  const active=tabs.find(tab=>tab.id===tabId)??tabs[0];
  const list=rows.filter(row=>inTab(row,active)&&matches(row));
@@ -187,22 +190,31 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
   setRows(all=>all.map(row=>row.position.id===receipt.resourceId?{...row,position:{...row.position,status:receipt.status as PositionSummary['status'],version:receipt.version}}:row));
  }
  return <section aria-label={readOnly?'Todas as entradas':'Fila de conferência técnica'}>
-  <h2>{readOnly?'Todas as entradas':'Conferência técnica'}</h2>
-  <p>{readOnly?'Leitura de todas as entradas do ciclo. A conferência é do revisor técnico; as decisões da CAM ficam em Ciclo e fechamento.':'Aceite de evidência sintética; não é aprovação de gratificação ou decisão de indisponibilidade pela CAM.'}</p>
   <button type="button" onClick={()=>{if(requestAcademicLeave()){detailGeneration.current++;setOpen(null);setReload(n=>n+1);}}}>Atualizar fila</button>
   <form role="search" onSubmit={event=>{event.preventDefault();if(!requestAcademicLeave())return;detailGeneration.current++;setOpen(null);setSearch(searchInput.trim());}}>
-   <label>Buscar unidade<input type="search" maxLength={100} value={searchInput} onChange={event=>setSearchInput(event.target.value)} /></label>
+   <label>Buscar unidade ou indicador<input type="search" maxLength={100} value={searchInput} onChange={event=>setSearchInput(event.target.value)} /></label>
    <button type="submit">Buscar</button>
   </form>
   <div className="v3-tabs" role="tablist" aria-label="Filtrar entradas">{tabs.map((tab,index)=><button key={tab.id} id={`queue-tab-${tab.id}`} ref={node=>{if(node)tabRefs.current.set(tab.id,node);else tabRefs.current.delete(tab.id);}}
    type="button" role="tab" aria-selected={tab.id===active.id} aria-controls="queue-panel" tabIndex={tab.id===active.id?0:-1} onClick={()=>changeTab(tab.id)} onKeyDown={event=>arrow(event,index)}>
    {tab.label} ({rows.filter(row=>inTab(row,tab)).length})</button>)}</div>
-  <div id="queue-panel" role="tabpanel" aria-labelledby={`queue-tab-${active.id}`}>
-   {loading&&<p role="status">Carregando fila…</p>}
-   <ul>{list.map(row=><li key={row.position.id}><button type="button" onClick={()=>void openRow(row)}>{row.position.escopoCodigo} · {statusLabels[row.position.status]}{row.position.indicatorCode?` · ${row.position.indicatorCode} ${row.position.indicatorName}`:''}{row.position.inputValue!==null?` · ${formatDecimal(row.position.inputValue)}`:''}</button></li>)}</ul>
-   {!loading&&!list.length&&!error&&<p>Nenhuma posição nesta aba.</p>}
+  <div className={open?'v3-split':undefined}>
+   <div id="queue-panel" role="tabpanel" aria-labelledby={`queue-tab-${active.id}`}>
+    {loading&&<p role="status">Carregando fila…</p>}
+    {list.length>0&&<><div className="table-scroll"><table className="v3-table">
+     <thead><tr><th scope="col">Unidade</th><th scope="col">Indicador</th><th scope="col" className="r">Valor</th><th scope="col" className="r">Pontos</th><th scope="col">Situação</th></tr></thead>
+     <tbody>{list.map(row=>{const {position}=row;const selected=open?.row.position.id===position.id;
+      return <tr key={position.id} className={selected?'selected':undefined} aria-selected={selected}>
+       <td><button type="button" onClick={()=>void openRow(row)}>{scopeName(position.escopoCodigo)}</button></td>
+       <td>{position.indicatorCode}<span className="v3-cell-sub">{position.indicatorName}</span></td>
+       <td className="r">{position.inputValue!==null?formatDecimal(position.inputValue):'–'}</td>
+       <td className="r">{position.resultValue!==null?formatDecimal(position.resultValue,2):'–'}</td>
+       <td><span className={`v3-badge v3-st-${position.status}`}>{statusLabels[position.status]}</span></td></tr>;})}</tbody>
+    </table></div><p className="v3-note">{`${list.length} de ${rows.length} entradas`}</p></>}
+    {!loading&&!list.length&&!error&&<p>Nenhuma posição nesta aba.</p>}
+   </div>
+   {open&&<ReviewEvidence key={open.detail.position.id} client={client} context={open.row.context} detail={open.detail} v3 readOnly={readOnly} focusHeading={open.requested} onConfirmed={confirmed} />}
   </div>
   {error&&<p role="alert">{error}</p>}
-  {open&&<ReviewEvidence key={open.detail.position.id} client={client} context={open.row.context} detail={open.detail} v3 readOnly={readOnly} focusHeading={open.requested} onConfirmed={confirmed} />}
  </section>;
 }

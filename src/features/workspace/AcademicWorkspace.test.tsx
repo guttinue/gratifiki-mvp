@@ -301,8 +301,7 @@ it('model-3 CAM: Ciclo shows the cycle and its decisions only; "Ver entrada" ope
  expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
  expect(screen.queryByRole('tablist',{name:'Filtrar entradas'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3'}));
- // The shell's page head names it too until the queue drops its own h2 (Tasks 4–8).
- expect((await screen.findAllByRole('heading',{name:'Todas as entradas',level:2})).length).toBeGreaterThan(0);
+ expect(await screen.findAllByRole('heading',{name:'Todas as entradas',level:2})).toHaveLength(1);
  expect(window.location.hash).toBe('#academico/entradas');
  expect(await screen.findByText('Unidade sem este serviço.')).toBeTruthy();
  expect(screen.getByRole('heading',{name:'ACADEMIC-NORTE-3',level:3})).toBeTruthy();

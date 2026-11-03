@@ -60,16 +60,17 @@ export function UnitStatusTable({rows,onOpenUnit}:{rows:GroupPosition[];onOpenUn
 }
 type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string)=>void;onOpenPosition?:(id:string)=>void};
 export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDashboard key={props.group.key} {...props}/>;}
-function GroupDashboard({client,group,onNavigate,onOpenUnit}:GroupDashboardProps){
+function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition}:GroupDashboardProps){
  const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
  useEffect(()=>{let current=true;setData(null);setError(false);
   const load=group.role==='cam'?loadCycleChecklist(client,toCommandContext(group.contexts[0])).then((checklist):V3Data=>({kind:'cycle',checklist})):loadPanelPositions(client,group);
   void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
  const openUnit=(unitId:string)=>onOpenUnit?onOpenUnit(unitId):onNavigate('preenchimento');
+ const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
  return <section aria-label="Painel autorizado" className="v3-page">
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
   :data.kind==='cycle'?<CamPanel checklist={data.checklist} onNavigate={onNavigate}/>
-  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onNavigate={onNavigate}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
+  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
 }
 function TechnicalPanel({data,competence,onOpenUnit}:{data:Extract<V3Data,{kind:'positions'}>;competence:string;onOpenUnit:(unitId:string)=>void}){
@@ -81,12 +82,12 @@ function TechnicalPanel({data,competence,onOpenUnit}:{data:Extract<V3Data,{kind:
   :<NextStep kicker="Tudo enviado" title={`Seus indicadores de ${monthName(competence)} estão com o revisor`} text="Se algum for devolvido, ele volta para o preenchimento com o motivo."/>}
   <UnitStatusTable rows={data.rows} onOpenUnit={onOpenUnit}/></>;
 }
-function ReviewerPanel({rows,onNavigate}:{rows:GroupPosition[];onNavigate:(destination:string)=>void}){
- const count=(...statuses:string[])=>rows.filter(({position})=>statuses.includes(position.status)).length;const waiting=count('enviada','em_revisao');
- const tabs=[['Aguardando você',waiting],['Devolvidas',count('devolvida')],['Aceitas',count('validada')],['Todas',rows.length]] as const;
- return <>{waiting>0?<NextStep kicker="Próximo passo" title={`${waiting} ${waiting>1?'entradas aguardam':'entrada aguarda'} sua conferência`} text="Confira valor, fonte e cálculo; aceite ou devolva com motivo." action={{label:'Conferir agora',go:()=>onNavigate('conferencia')}}/>
+// "First in the queue", not "oldest": PositionSummary carries no submission date.
+function ReviewerPanel({rows,onOpenPosition}:{rows:GroupPosition[];onOpenPosition:(id:string)=>void}){
+ const waiting=rows.filter(({position})=>position.status==='enviada'||position.status==='em_revisao');const first=waiting[0]?.position;
+ return <>{first?<NextStep kicker="Próximo passo" title={`${waiting.length} ${waiting.length>1?'entradas aguardam':'entrada aguarda'} sua conferência`} text={`A primeira da fila é ${scopeName(first.escopoCodigo)} · ${first.indicatorName??first.indicatorCode??''}.`} action={{label:'Conferir agora',go:()=>onOpenPosition(first.id)}}/>
   :<NextStep kicker="Fila vazia" title="Nada aguardando você" text="Quando a área técnica enviar, a entrada aparece aqui."/>}
-  <section aria-label="Pendências por aba" className="v3-panel"><ul className="v3-tabcounts">{tabs.map(([label,value])=><li key={label}><span>{label}</span><span>({value})</span></li>)}</ul></section></>;
+  <UnitStatusTable rows={rows}/></>;
 }
 function CamPanel({checklist,onNavigate}:{checklist:CycleChecklist;onNavigate:(destination:string)=>void}){
  const current=checklist.publication==='publicada_demo'?3:checklist.state==='fechada'?2:checklist.state==='em_consolidacao'?1:0;
