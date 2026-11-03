@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuthorizedContext, CycleChecklist } from '../pilot/types';
 import { ExportPanel } from './ExportPanel';
-const context:AuthorizedContext={key:'cam',actorId:'actor',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',role:'cam',escopoId:'district',escopoCodigo:'North',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'cam',actorId:'actor',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',role:'cam',escopoId:'district',escopoCodigo:'North',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 const checklist:CycleChecklist={version:1,state:'fechada',snapshotId:'snapshot',publication:'nao_publicada',publicationId:null,fullCoverage:true,expected:1,received:1,reviewed:1,unavailable:0,notApplicable:0,decidedUnavailable:0,canConsolidate:false,canClose:false,blockers:[]};
 const bundle={contractVersion:1,snapshotId:'snapshot',rows:[{snapshotId:'snapshot',competencia:'2026-10',indicador:'DEMO-01',alvoTipo:'unidade',alvoCodigo:'A',regraVersao:1,revisao:1,estadoDado:'valor',entrada:'10',fator:'0.8',resultado:'8',publicacao:'nao_publicada'}],manifest:{competencia:'2026-10',ruleVersions:[1],publicationVersion:0,positionCount:1,calculableCount:1,unavailableCount:0,notApplicableCount:0,totals:[{tipo:'unidade',unidadeMedida:'pontos sintéticos',sum:'8'}]}};
 function client(fetch:typeof globalThis.fetch){return createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch}});}

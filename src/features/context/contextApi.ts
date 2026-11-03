@@ -13,6 +13,13 @@ function text(value: unknown): string {
   return value;
 }
 
+// The server does not emit `modelo` yet: academic contexts are model 2, legacy ones model 1.
+function modelo(value: Record<string, unknown>): AuthorizedContext["modelo"] {
+  if (value.modelo === undefined) return value.mode === "legacy" ? 1 : 2;
+  if (value.modelo !== 1 && value.modelo !== 2 && value.modelo !== 3) throw new Error("Invalid authorized context modelo");
+  return value.modelo;
+}
+
 export async function loadAuthorizedContexts(client: SupabaseClient): Promise<AuthorizedContext[]> {
   const { data, error } = await client.rpc("get_authorized_contexts");
   if (error) throw error;
@@ -29,6 +36,7 @@ export async function loadAuthorizedContexts(client: SupabaseClient): Promise<Au
       vinculoId: text(value.vinculoId), competenciaId: text(value.competenciaId), indicadorId: text(value.indicadorId),
       escopoId: text(value.escopoId), escopoCodigo: text(value.escopoCodigo),
       competenciaCodigo: text(value.competenciaCodigo), mode: value.mode as AuthorizedContext["mode"],
+      modelo: modelo(value),
     };
   });
   if (new Set(contexts.map(({ key }) => key)).size !== contexts.length

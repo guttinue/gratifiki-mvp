@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
-import { loginAcademic } from './academicFlowSupport';
+import { loginAcademic, openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { loadAdminCatalog, setDemoBusinessLink } from '../../src/features/admin/adminApi';
 test.use({trace:'off'});
@@ -17,6 +17,7 @@ test('a link revoked during an open session removes its loaded detail and unsave
  const admin=await signedIn('administrador'),technical=await signedIn('area_tecnica');
  const tc=await selected(technical,'ACADEMIC-NORTE-1');const ac=toCommandContext(await selected(admin,'ACADEMIC-NORTE'));
  await loginAcademic(page,'area_tecnica','area_tecnica','ACADEMIC-NORTE-1');
+ await openAcademicPage(page,'Preenchimento');
  await page.getByRole('button',{name:'ACADEMIC-NORTE-1 · ausente',exact:true}).click();
  await page.getByLabel('Fonte',{exact:true}).fill('Fonte E2E não salva');
  await expect(page.getByRole('heading',{name:'ACADEMIC-NORTE-1',exact:true})).toBeVisible();

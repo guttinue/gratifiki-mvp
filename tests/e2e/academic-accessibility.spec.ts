@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { loginAcademic, logoutAcademic } from './academicFlowSupport';
+import { loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
+import { getAcademicDestinations } from '../../src/features/workspace/academicNavigation';
 import type { Role } from '../../src/features/pilot/types';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
 
-for (const role of ['area_tecnica', 'revisor_tecnico', 'cam', 'gestor_unidade', 'gestor_distrital', 'administrador', 'lideranca'] as Role[]) {
+const roles = ['area_tecnica', 'revisor_tecnico', 'cam', 'gestor_unidade', 'gestor_distrital', 'administrador', 'lideranca'] as Role[];
+for (const role of roles) {
   test(`${role}: keyboard landmarks and narrow/desktop layouts reflow at 100% and 200%`, async ({ page }) => {
     test.setTimeout(60_000);
     await loginAcademic(page, role, role, role === 'gestor_unidade' ? 'ACADEMIC-NORTE-1' : undefined);
@@ -29,7 +31,8 @@ for (const role of ['area_tecnica', 'revisor_tecnico', 'cam', 'gestor_unidade', 
     }
     await page.evaluate(() => { document.body.style.zoom = '100%'; });
     if (role !== 'lideranca') {
-      await page.getByRole('button', { name: 'Histórico', exact: true }).focus();
+      const history = ['cam', 'administrador'].includes(role) ? 'Auditoria' : 'Histórico';
+      await page.getByRole('button', { name: history, exact: true }).focus();
       await page.keyboard.press('Enter');
       await expect(page.getByRole('main')).toBeFocused();
       await expect(page.getByRole('heading', { name: role === 'administrador' ? 'Auditoria administrativa' : 'Histórico autorizado', exact: true })).toBeVisible();
@@ -38,8 +41,27 @@ for (const role of ['area_tecnica', 'revisor_tecnico', 'cam', 'gestor_unidade', 
   });
 }
 
+// V3 shell: the side menu becomes a top bar below 768px; no screen may scroll the page sideways.
+for (const role of roles) {
+  test(`${role}: every screen of the menu fits 375px and 1440px without horizontal page scroll`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await loginAcademic(page, role, role, role === 'gestor_unidade' ? 'ACADEMIC-NORTE-1' : undefined);
+    for (const width of [375, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const destination of getAcademicDestinations(role)) {
+        await openAcademicPage(page, destination.label);
+        await page.waitForLoadState('networkidle');
+        const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
+        expect(scrollWidth, `${role}, ${destination.label}, ${width}px: page scrollWidth`).toBeLessThanOrEqual(innerWidth);
+      }
+    }
+    await logoutAcademic(page);
+  });
+}
+
 test('invalid keyboard-submitted draft exposes an actionable error without sending data', async ({ page }) => {
   await loginAcademic(page, 'area_tecnica', 'area_tecnica', 'ACADEMIC-NORTE-1');
+  await openAcademicPage(page, 'Preenchimento');
   await page.getByRole('button', { name: 'ACADEMIC-NORTE-1 · ausente', exact: true }).click();
   await page.getByLabel('Valor', { exact: true }).fill('not-a-number');
   await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).focus();

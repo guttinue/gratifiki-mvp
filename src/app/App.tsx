@@ -42,7 +42,7 @@ export function App() {
   const { refresh: refreshContexts, clear: clearContexts, revalidate: revalidateContext } = authorized;
   // Live academic selection (unlike the intent ref below, cleared with it).
   const academicKeyRef = useRef<string | null>(null);
-  academicKeyRef.current = authorized.context?.mode === "academic" ? authorized.context.key : null;
+  academicKeyRef.current = authorized.context?.mode === "academic" ? authorized.group?.key ?? null : null;
   // An explicit denial from any context-bound read or command rechecks the
   // selection; only discovery decides whether it was revoked. A denial may be
   // an out-of-scope read, so the workspace stays visible while asking.
@@ -65,12 +65,12 @@ export function App() {
   const contextKey = getContextKey(context);
   const contextRef = useRef<PilotContext | null>(context);
   const contextKeyRef = useRef(contextKey);
-  const authorizedContextRef = useRef(authorized.context);
+  const authorizedContextRef = useRef(authorized.group);
   contextRef.current = context;
   contextKeyRef.current = contextKey;
   // Selection intent survives revalidation's temporary null state. This ref
   // only supplies a preferred key, never authorization or data visibility.
-  if (authorized.context) authorizedContextRef.current = authorized.context;
+  if (authorized.group) authorizedContextRef.current = authorized.group;
   const sessionGeneration = authGeneration.current;
 
   useEffect(() => {
@@ -110,7 +110,7 @@ export function App() {
       }
 
       const nextActorId = session.user.id;
-      const selectedKey = authorizedContextRef.current?.actorId === nextActorId
+      const selectedKey = authorizedContextRef.current?.contexts[0].actorId === nextActorId
         ? authorizedContextRef.current.key : undefined;
       const previousActorId = authActorId.current;
       const activeActorId = contextRef.current?.actorId;
@@ -371,10 +371,10 @@ export function App() {
     );
   }
 
-  const choices = <ContextPicker contexts={authorized.contexts} selectedKey={authorized.context?.key ?? null}
+  const choices = <ContextPicker groups={authorized.groups} selectedKey={authorized.group?.key ?? null}
     onSelect={(key) => {
-      if(key===authorized.context?.key||!requestAcademicLeave())return;
-      const candidate = authorized.contexts.find((choice) => choice.key === key);
+      if(key===authorized.group?.key||!requestAcademicLeave())return;
+      const candidate = authorized.groups.find((choice) => choice.key === key);
       if (candidate) authorizedContextRef.current = candidate;
       void authorized.selectContext(key);
     }} />;
@@ -383,7 +383,7 @@ export function App() {
     return <main className="auth-screen"><section className="auth-card" role="status">Verificando contexto autorizado…</section></main>;
   }
 
-  if (authorized.context?.mode === 'academic') {
+  if (authorized.group && authorized.context?.mode === 'academic') {
     // The wrapper keeps one tree position, so hiding never remounts the
     // workspace; `hidden` removes it from display and the accessibility tree.
     const verifying = authorized.status === "revalidating" || authorized.status === "unverified";
@@ -395,14 +395,14 @@ export function App() {
             <button type="button" onClick={() => void revalidateContext()}>Verificar acesso novamente</button></>}
         <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
       </section></main>}
-      <div hidden={verifying}><AcademicLoadBoundary key={authorized.context.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
-        <AcademicWorkspace client={academicClient} context={authorized.context} contextPicker={choices}
+      <div hidden={verifying}><AcademicLoadBoundary key={authorized.group.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
+        <AcademicWorkspace client={academicClient} group={authorized.group} contextPicker={choices}
           onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
       </Suspense></AcademicLoadBoundary></div>
     </>;
   }
 
-  if (!authorized.context && authorized.contexts.length > 0) {
+  if (!authorized.group && authorized.groups.length > 0) {
     return <main className="auth-screen"><section className="auth-card">
       <h1>Selecione seu contexto</h1>
       {authorized.error && <p role="alert">{authorized.error}</p>}
@@ -444,7 +444,7 @@ export function App() {
       signOutError={signOutError}
     >
       <aside aria-label="Leitura histórica legada"><strong>Baseline legada</strong><p>Registros históricos: pendente não significa aprovação. Este espaço não executa o ciclo acadêmico atual.</p></aside>
-      {authorized.contexts.length > 1 && choices}
+      {authorized.groups.length > 1 && choices}
       {page === "overview" && (
         <DashboardPage
           context={context}

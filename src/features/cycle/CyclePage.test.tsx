@@ -1,3 +1,4 @@
+import { groupContexts } from '../context/contextGroups';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -21,7 +22,7 @@ afterEach(()=>{
  if(originalShowModal)Object.defineProperty(HTMLDialogElement.prototype,'showModal',originalShowModal);else Reflect.deleteProperty(HTMLDialogElement.prototype,'showModal');
  if(originalClose)Object.defineProperty(HTMLDialogElement.prototype,'close',originalClose);else Reflect.deleteProperty(HTMLDialogElement.prototype,'close');
 });
-const context:AuthorizedContext={key:'cam-cycle',actorId:'cam',role:'cam',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'cam-cycle',actorId:'cam',role:'cam',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 const checklist:CycleChecklist={version:20,state:'em_consolidacao',expected:6,received:6,reviewed:6,unavailable:1,decidedUnavailable:1,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:true,snapshotId:null,publication:'nao_publicada',publicationId:null,blockers:[]};
 it.each(['cancel-repeat','A-B-A'])('executes each checklist intent for the same authorized target: %s',async scenario=>{
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
@@ -37,7 +38,7 @@ it.each(['cancel-repeat','A-B-A'])('executes each checklist intent for the same 
   return response({items:[a,b],total:2,page:1,pageSize:25});
  });
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}}/>);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}}/>);
  const open=await screen.findByRole('button',{name:'Ver pendência de NORTE-A'});
  if(scenario==='cancel-repeat'){
   fireEvent.change(screen.getByLabelText('Motivo do ciclo'),{target:{value:'PRESERVE THIS'}});
@@ -65,7 +66,7 @@ it('identifies an authorized blocker and opens its real detail without inventing
   return response({items:[position],total:1,page:1,pageSize:25});
  });
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}}/>);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'Ver pendência de NORTE-1'}));
  expect(await screen.findByRole('heading',{name:'NORTE-1'})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/Cobertura incompleta/})).toBeNull();
@@ -100,7 +101,7 @@ it('uses persisted checklist metadata on reload and requires distinct confirmati
   current={...current,version:22,publication:'publicada_demo',publicationId:'publication'} as typeof current;return response({resourceId:'snapshot',version:22,revisionId:null,status:'publicada_demo',resultValue:null});
  });
  openAcademicPage('ciclo');
- const view=render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ const view=render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  await screen.findByText('Esperadas: 6 · Recebidas: 6 · Conferidas: 6');
  fireEvent.change(screen.getByLabelText('Referência do ciclo'),{target:{value:'DEMO-DECISAO- A'}});
  fireEvent.click(screen.getByRole('button',{name:'Fechar ciclo'}));expect(calls).toHaveLength(0);
@@ -110,7 +111,7 @@ it('uses persisted checklist metadata on reload and requires distinct confirmati
  expect(calls[0].body).toMatchObject({p_expected_version:20,p_action:'close',p_reference:'DEMO-DECISAO- A'});
  view.unmount();
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  await screen.findByText('Snapshot fechado: snapshot');
  expect(screen.queryByRole('button',{name:'Fechar ciclo'})).toBeNull();
  fireEvent.change(screen.getByLabelText('Referência do ciclo'),{target:{value:'DEMO-PUBLICACAO- A'}});
@@ -134,7 +135,7 @@ it.each(['close','publish'] as const)('returns %s confirmation focus on native c
   calls.push(String(url));return response(null);
  });
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  const trigger=await screen.findByRole('button',{name:action==='close'?'Fechar ciclo':'Publicar demonstração'});
  trigger.focus();fireEvent.click(trigger);
  const dialog=screen.getByRole('dialog');const confirm=screen.getByRole('button',{name:action==='close'?'Confirmar fechamento':'Confirmar publicação'});const cancel=screen.getByRole('button',{name:'Cancelar'});

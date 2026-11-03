@@ -5,7 +5,12 @@ export type Role = 'area_tecnica' | 'revisor_tecnico' | 'cam' | 'gestor_unidade'
 export type DecimalText = string;
 export type CommandContext = { vinculoId: string; competenciaId: string; indicadorId: string };
 export type AuthorizedContext = CommandContext & { key: string; actorId: string; role: Role;
-  escopoId: string; escopoCodigo: string; competenciaCodigo: string; mode: 'legacy' | 'academic' };
+  escopoId: string; escopoCodigo: string; competenciaCodigo: string; mode: 'legacy' | 'academic';
+  modelo: 1 | 2 | 3 };
+// One role, competence and scope with all the indicators the actor may use there.
+// The server still authorizes each context; the group only shapes the screens.
+export type ContextGroup = { key: string; role: Role; modelo: 1 | 2 | 3; competenciaId: string;
+  competenciaCodigo: string; escopoId: string; escopoCodigo: string; contexts: AuthorizedContext[] };
 export type EntryStatus = 'rascunho' | 'enviada' | 'em_revisao' | 'devolvida' | 'validada' | 'invalidada';
 export type DraftInput = { estadoDado: 'valor' | 'indisponivel'; valor: DecimalText | null;
   fonte: string; periodoFonte: string; motivo: string };

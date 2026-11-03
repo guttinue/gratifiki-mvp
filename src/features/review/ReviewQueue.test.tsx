@@ -1,3 +1,4 @@
+import { groupContexts } from '../context/contextGroups';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, expect, it } from 'vitest';
@@ -6,7 +7,7 @@ import { startReview, reviewPosition } from './reviewApi';
 import type { AuthorizedContext } from '../pilot/types';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(cleanup);
-const context:AuthorizedContext={key:'review',actorId:'reviewer',role:'revisor_tecnico',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'review',actorId:'reviewer',role:'revisor_tecnico',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 const position={id:'pos',escopoId:'scope',escopoCodigo:'NORTE-1',escopoTipo:'unidade',aplicavel:true,status:'enviada',estadoDado:'valor',version:3,revisionId:'revision',inputValue:'10',resultValue:'8'};
 const detail={position,revisions:[{id:'revision',number:1,authorId:'author',estadoDado:'valor',value:'10',source:'Synthetic origin',sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z'}],decisions:[],memories:[{revisionId:'revision',ruleVersion:1,factor:'0.8',inputValue:'10',resultValue:'8'}]};
 function response(data:unknown){return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});}
@@ -20,7 +21,7 @@ it('integrates the queue into the authenticated host; requires claim then a moti
   return response({resourceId:'pos',version:calls.length+3,revisionId:'revision',status:calls.length===1?'em_revisao':'devolvida',resultValue:'8'});
  });
  openAcademicPage('conferencia');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · enviada/}));
  expect(await screen.findByText('Synthetic origin')).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
@@ -43,7 +44,7 @@ it('retains the exact pending review operation after an ambiguous response and r
   return response({resourceId:'pos',version:4,revisionId:'revision',status:'em_revisao',resultValue:'8'});
  });
  openAcademicPage('conferencia');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));fireEvent.click(await screen.findByRole('button',{name:'Iniciar revisão'}));
  fireEvent.click(await screen.findByRole('button',{name:'Repetir operação pendente'}));
  expect(await screen.findByRole('button',{name:'Aceitar evidência'})).toBeTruthy();expect(bodies).toHaveLength(2);expect(bodies[1]).toEqual(bodies[0]);
@@ -52,9 +53,9 @@ it('discards late review completions when another authorized context is selected
  let finish!:(value:Response)=>void;const pending=new Promise<Response>(resolve=>{finish=resolve;});
  const api=client(async url=>String(url).includes('get_operational_positions')?response({items:[position],total:1,page:1,pageSize:25}):String(url).includes('get_position_detail')?response(detail):pending);
  openAcademicPage('conferencia');
- const view=render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ const view=render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));fireEvent.click(await screen.findByRole('button',{name:'Iniciar revisão'}));
- view.rerender(<AcademicWorkspace client={api} context={{...context,key:'other',role:'gestor_unidade',escopoCodigo:'OUTRO'}} onSignOut={()=>{}} />);
+ view.rerender(<AcademicWorkspace client={api} group={groupContexts([{...context,key:'other',role:'gestor_unidade',escopoCodigo:'OUTRO'}])[0]} onSignOut={()=>{}} />);
  await act(async()=>{finish(response({resourceId:'pos',version:4,revisionId:'revision',status:'em_revisao',resultValue:'8'}));});
  expect(screen.getByText(/OUTRO/)).toBeTruthy();expect(screen.queryByText(/Conferência confirmada/)).toBeNull();expect(screen.queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
 });
@@ -69,7 +70,7 @@ it('checks command-specific receipts and does not trust role or actor fields fro
 it('does not describe absent evidence as a pending CAM unavailability decision',async()=>{
  const api=client(async url=>String(url).includes('get_operational_positions')?response({items:[{...position,status:'ausente',estadoDado:null,revisionId:null,inputValue:null,resultValue:null}],total:1,page:1,pageSize:25}):response({position:{...position,status:'ausente',estadoDado:null,revisionId:null,inputValue:null,resultValue:null},revisions:[],decisions:[],memories:[]}));
  openAcademicPage('conferencia');
- render(<AcademicWorkspace client={api} context={context} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · ausente/}));
  await screen.findByRole('heading',{name:'NORTE-1'});
  expect(screen.queryByText(/decisão CAM pendente/)).toBeNull();
@@ -95,7 +96,7 @@ function paged(count:number){
 it('pages the CAM queue beyond the first 25 authorized targets and opens the 26th',async()=>{
  const {api,filters}=paged(26);
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([camContext])[0]} onSignOut={()=>{}} />);
  expect(await screen.findByRole('button',{name:/ALVO-25/})).toBeTruthy();
  expect(screen.queryByRole('button',{name:/ALVO-26/})).toBeNull();
  expect(screen.getByText(/Página 1 de 2/)).toBeTruthy();
@@ -107,7 +108,7 @@ it('pages the CAM queue beyond the first 25 authorized targets and opens the 26t
 it('searches the authorized queue on the server instead of filtering only the loaded page',async()=>{
  const {api,filters}=paged(30);
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([camContext])[0]} onSignOut={()=>{}} />);
  await screen.findByRole('button',{name:/ALVO-01/});
  fireEvent.change(screen.getByLabelText('Buscar alvo'),{target:{value:'ALVO-30'}});
  fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
@@ -117,7 +118,7 @@ it('searches the authorized queue on the server instead of filtering only the lo
 it('opens a cycle blocker that is outside the loaded queue page through the authorized detail read',async()=>{
  const {api}=paged(26);
  openAcademicPage('ciclo');
- render(<AcademicWorkspace client={api} context={camContext} onSignOut={()=>{}} />);
+ render(<AcademicWorkspace client={api} group={groupContexts([camContext])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'Ver pendência: Envio ausente.'}));
  expect(await screen.findByRole('heading',{name:'ALVO-26'})).toBeTruthy();
 });

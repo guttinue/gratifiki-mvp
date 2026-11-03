@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { AuthorizedContext, PositionSummary } from '../pilot/types';
+import type { ContextGroup, PositionSummary } from '../pilot/types';
 import { toCommandContext } from '../context/contextApi';
 import { listPositions, loadPositionDetail, type PositionDetail } from '../submission/positionApi';
 import { DraftForm } from '../submission/DraftForm';
@@ -19,13 +19,17 @@ import { AcademicDashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
-export interface AcademicWorkspaceProps { client:SupabaseClient; context:AuthorizedContext; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }
+export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }
 export function AcademicWorkspace(props:AcademicWorkspaceProps) {
- // Key the owned data/edit subtree to context; no response from a previous
- // actor/link/month can populate the next selection, even without an App key.
- return <NavigationSafety key={props.context.key}><AcademicContextWorkspace {...props} /></NavigationSafety>;
+ // Key the owned data/edit subtree to the group and to each of its contexts; no
+ // response from a previous actor/link/month, and nothing loaded for a context
+ // the group no longer holds, can populate the next selection.
+ return <NavigationSafety key={`${props.group.key}|${props.group.contexts.map(({key})=>key).join('|')}`}><AcademicContextWorkspace {...props} /></NavigationSafety>;
 }
-function AcademicContextWorkspace({client,context,onSignOut,contextPicker,isSigningOut=false,signOutError}:AcademicWorkspaceProps) {
+function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSigningOut=false,signOutError}:AcademicWorkspaceProps) {
+ // Task 2: the pages still operate on one context. Tasks 9 and 11 replace them
+ // with pages that use the whole group.
+ const context=group.contexts[0];
  const [page,setPage]=useState(()=>academicPageFromHash(context.role,window.location.hash));
  const [adminPage,setAdminPage]=useState<'scopes'|'links'|'competences'|'rules'>('scopes');
  const [positions,setPositions]=useState<PositionSummary[]>([]);
@@ -75,12 +79,15 @@ function AcademicContextWorkspace({client,context,onSignOut,contextPicker,isSign
   try {const loaded=await loadPositionDetail(client,toCommandContext(context),id);if(detailGeneration.current===request)setDetail(loaded);}
   catch {if(detailGeneration.current===request)setError('Não foi possível carregar o detalhe autorizado.');}
  }
- return <div className="academic-app"><a className="skip-link" href="#academic-content" onClick={event=>{event.preventDefault();contentRef.current?.focus();}}>Pular para o conteúdo</a><header className="academic-header">
-  <h1>Contexto acadêmico autorizado</h1>{contextPicker}
-  <p>Perfil {context.role} · {context.escopoCodigo} · {context.competenciaCodigo}</p>
-  <p>DEMO-01 · Dados sintéticos. Sem efeito institucional ou financeiro.</p>
-  <AcademicNavigation role={context.role} page={page} onNavigate={navigate}/>
-  <button type="button" disabled={isSigningOut} onClick={()=>{if(requestAcademicLeave())onSignOut();}}>Sair</button>
+ return <div className="academic-app"><a className="skip-link" href="#academic-content" onClick={event=>{event.preventDefault();contentRef.current?.focus();}}>Pular para o conteúdo</a>
+  <aside className="academic-side" aria-label="Menu"><div className="academic-brand"><span className="academic-brand-mark" aria-hidden="true">G</span><span><b>Gratifiki</b><span>Avaliação por desempenho</span></span></div>
+   <AcademicNavigation role={context.role} page={page} onNavigate={navigate}/></aside>
+  <div className="academic-body"><header className="academic-top">
+  <p className="academic-demo-strip">Regra fictícia DEMO-v1 · dados sintéticos · sem efeito institucional</p>
+  <div className="academic-top-row"><h1>Contexto acadêmico autorizado</h1>
+  <p className="academic-profile">Perfil {context.role} · {context.escopoCodigo} · {context.competenciaCodigo}</p>
+  {contextPicker}
+  <button type="button" className="academic-signout" disabled={isSigningOut} onClick={()=>{if(requestAcademicLeave())onSignOut();}}>Sair</button></div>
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">
   {page==='historico'?<AuditPage client={client} context={context}/>:page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
   {(context.role==='gestor_unidade'||context.role==='gestor_distrital')&&<EvaluationPage client={client} context={context}/>}
@@ -113,5 +120,5 @@ function AcademicContextWorkspace({client,context,onSignOut,contextPicker,isSign
   {context.role==='cam'&&<CyclePage key={context.key} client={client} context={context} authorizedPositions={camPositions} onOpenPosition={id=>setPositionRequest(previous=>({id,key:(previous?.key??0)+1}))} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
- </main></div>;
+ </main></div></div>;
 }

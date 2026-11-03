@@ -24,3 +24,8 @@ export async function logoutAcademic(page: Page) {
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await expect(page.getByLabel('E-mail', { exact: true })).toBeVisible();
 }
+
+// The V3 menu lands every role on Painel; work screens are reached through it.
+export async function openAcademicPage(page: Page, label: string) {
+  await page.getByRole('navigation', { name: 'Navegação acadêmica' }).getByRole('button', { name: label, exact: true }).click();
+}

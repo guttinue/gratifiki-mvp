@@ -4,7 +4,7 @@ import { afterEach,it,expect } from 'vitest';
 import { AuditPage } from './AuditPage';
 import type { AuthorizedContext } from '../pilot/types';
 afterEach(cleanup);
-const context:AuthorizedContext={key:'k',actorId:'a',role:'administrador',vinculoId:'v',competenciaId:'c',indicadorId:'i',escopoId:'s',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'k',actorId:'a',role:'administrador',vinculoId:'v',competenciaId:'c',indicadorId:'i',escopoId:'s',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 it('renders administrative metadata without exposing values outside its contract',async()=>{
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>new Response(JSON.stringify({items:[{id:'e',occurredAt:'2026-10-20T12:00:00Z',action:'vinculo_demo_alterado',resourceId:'v',version:2,reason:null,inputValue:'SECRET-VALUE'}],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
  render(<AuditPage client={client} context={context}/>);

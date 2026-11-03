@@ -16,4 +16,10 @@ describe("workspace responsive stylesheet", () => {
   it("styles the existing entry submit button as a primary action", () => {
     expect(/\.input-row\s+button\s*\{[^}]*background:\s*var\(--blue\);/s.test(stylesheet)).toBe(true);
   });
+
+  it("turns the academic side menu into a top bar that scrolls inside itself below 768px", () => {
+    const narrow = /@media \(max-width: 767px\)\s*\{(.*?)\n\}/s.exec(stylesheet)?.[1] ?? "";
+    expect(/\.academic-app\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s.test(narrow)).toBe(true);
+    expect(/\.academic-app \.academic-nav\s*\{[^}]*flex-direction:\s*row;[^}]*overflow-x:\s*auto/s.test(narrow)).toBe(true);
+  });
 });

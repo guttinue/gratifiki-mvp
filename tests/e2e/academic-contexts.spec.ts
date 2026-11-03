@@ -29,7 +29,8 @@ for (const role of roles)
         const contexts = await loadAuthorizedContexts(client);
         if (role === 'administrador')
             expect(new Set(contexts.map(c => c.competenciaCodigo))).toEqual(new Set(['ACADEMIC-2026-09', 'ACADEMIC-2026-10']));
-        const context = contexts.find(c => c.key === selected!.value)!;
+        // The picker value is the group key (role:competenciaId:escopoId).
+        const context = contexts.find(c => `${c.role}:${c.competenciaId}:${c.escopoId}` === selected!.value)!;
         expect(context.actorId).toBe((await client.auth.getUser()).data.user?.id);
         if (['area_tecnica', 'revisor_tecnico', 'cam'].includes(role)) {
             const result = await listPositions(client, toCommandContext(context), { page: 1, pageSize: 25 });
