@@ -32,13 +32,32 @@ isOneToOne: false
                   ]
                 },"competencias": {
                   Row: {
-                    "codigo": string,"estado": string,"id": string,"lock_version": number,"modelo": number,"referencia": string
+                    "codigo": string,"conjunto_id": string | null,"estado": string,"id": string,"lock_version": number,"modelo": number,"referencia": string
                   }
                   Insert: {
-                    "codigo": string,"estado": string,"id"?: string,"lock_version"?: number,"modelo"?: number,"referencia": string
+                    "codigo": string,"conjunto_id"?: string | null,"estado": string,"id"?: string,"lock_version"?: number,"modelo"?: number,"referencia": string
                   }
                   Update: {
-                    "codigo"?: string,"estado"?: string,"id"?: string,"lock_version"?: number,"modelo"?: number,"referencia"?: string
+                    "codigo"?: string,"conjunto_id"?: string | null,"estado"?: string,"id"?: string,"lock_version"?: number,"modelo"?: number,"referencia"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "competencias_conjunto_id_fkey"
+      columns: ["conjunto_id"]
+isOneToOne: false
+      referencedRelation: "conjuntos_regra"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"conjuntos_regra": {
+                  Row: {
+                    "codigo": string,"id": string,"modo_ausencia": string,"referencia": string,"sintetico": boolean,"versao": number,"vigencia_inicio": string
+                  }
+                  Insert: {
+                    "codigo": string,"id"?: string,"modo_ausencia": string,"referencia": string,"sintetico": boolean,"versao": number,"vigencia_inicio": string
+                  }
+                  Update: {
+                    "codigo"?: string,"id"?: string,"modo_ausencia"?: string,"referencia"?: string,"sintetico"?: boolean,"versao"?: number,"vigencia_inicio"?: string
                   }
                   Relationships: [
 
@@ -188,15 +207,46 @@ isOneToOne: true
                   Relationships: [
 
                   ]
-                },"itens_fechamento": {
+                },"itens_conjunto": {
                   Row: {
-                    "alvo_codigo": string,"alvo_id": string,"alvo_tipo": string | null,"distrito_codigo": string | null,"distrito_id": string | null,"estado_dado": string,"fator": number | null,"fechamento_id": string,"id": string,"indicador_codigo": string | null,"indicador_id": string | null,"memoria": NonNullable<Json>,"posicao_id": string,"regra_id": string,"regra_versao": number | null,"revisao_id": string | null,"revisao_numero": number | null,"unidade_medida": string | null,"valor_entrada": number | null,"valor_resultado": number | null
+                    "conjunto_id": string,"indicador_id": string,"metadados": NonNullable<Json>,"peso": number,"regra_id": string
                   }
                   Insert: {
-                    "alvo_codigo"?: string,"alvo_id": string,"alvo_tipo"?: string | null,"distrito_codigo"?: string | null,"distrito_id"?: string | null,"estado_dado": string,"fator"?: number | null,"fechamento_id": string,"id"?: string,"indicador_codigo"?: string | null,"indicador_id"?: string | null,"memoria": NonNullable<Json>,"posicao_id": string,"regra_id": string,"regra_versao"?: number | null,"revisao_id"?: string | null,"revisao_numero"?: number | null,"unidade_medida"?: string | null,"valor_entrada"?: number | null,"valor_resultado"?: number | null
+                    "conjunto_id": string,"indicador_id": string,"metadados"?: NonNullable<Json>,"peso": number,"regra_id": string
                   }
                   Update: {
-                    "alvo_codigo"?: string,"alvo_id"?: string,"alvo_tipo"?: string | null,"distrito_codigo"?: string | null,"distrito_id"?: string | null,"estado_dado"?: string,"fator"?: number | null,"fechamento_id"?: string,"id"?: string,"indicador_codigo"?: string | null,"indicador_id"?: string | null,"memoria"?: NonNullable<Json>,"posicao_id"?: string,"regra_id"?: string,"regra_versao"?: number | null,"revisao_id"?: string | null,"revisao_numero"?: number | null,"unidade_medida"?: string | null,"valor_entrada"?: number | null,"valor_resultado"?: number | null
+                    "conjunto_id"?: string,"indicador_id"?: string,"metadados"?: NonNullable<Json>,"peso"?: number,"regra_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "fk_itens_conjunto_regra_indicador"
+      columns: ["regra_id","indicador_id"]
+isOneToOne: false
+      referencedRelation: "regras"
+      referencedColumns: ["id","indicador_id"]
+    },{
+      foreignKeyName: "itens_conjunto_conjunto_id_fkey"
+      columns: ["conjunto_id"]
+isOneToOne: false
+      referencedRelation: "conjuntos_regra"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "itens_conjunto_indicador_id_fkey"
+      columns: ["indicador_id"]
+isOneToOne: false
+      referencedRelation: "indicadores"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"itens_fechamento": {
+                  Row: {
+                    "alvo_codigo": string,"alvo_id": string,"alvo_tipo": string | null,"conjunto_id": string | null,"conjunto_versao": number | null,"direcao": string | null,"distrito_codigo": string | null,"distrito_id": string | null,"estado_dado": string,"fator": number | null,"fechamento_id": string,"id": string,"indicador_codigo": string | null,"indicador_id": string | null,"memoria": NonNullable<Json>,"meta": number | null,"metodo": string | null,"modo_ausencia": string | null,"peso": number | null,"peso_efetivo": number | null,"pontos": number | null,"posicao_id": string,"razao": number | null,"regra_id": string,"regra_versao": number | null,"revisao_id": string | null,"revisao_numero": number | null,"unidade_medida": string | null,"valor_entrada": number | null,"valor_resultado": number | null
+                  }
+                  Insert: {
+                    "alvo_codigo"?: string,"alvo_id": string,"alvo_tipo"?: string | null,"conjunto_id"?: string | null,"conjunto_versao"?: number | null,"direcao"?: string | null,"distrito_codigo"?: string | null,"distrito_id"?: string | null,"estado_dado": string,"fator"?: number | null,"fechamento_id": string,"id"?: string,"indicador_codigo"?: string | null,"indicador_id"?: string | null,"memoria": NonNullable<Json>,"meta"?: number | null,"metodo"?: string | null,"modo_ausencia"?: string | null,"peso"?: number | null,"peso_efetivo"?: number | null,"pontos"?: number | null,"posicao_id": string,"razao"?: number | null,"regra_id": string,"regra_versao"?: number | null,"revisao_id"?: string | null,"revisao_numero"?: number | null,"unidade_medida"?: string | null,"valor_entrada"?: number | null,"valor_resultado"?: number | null
+                  }
+                  Update: {
+                    "alvo_codigo"?: string,"alvo_id"?: string,"alvo_tipo"?: string | null,"conjunto_id"?: string | null,"conjunto_versao"?: number | null,"direcao"?: string | null,"distrito_codigo"?: string | null,"distrito_id"?: string | null,"estado_dado"?: string,"fator"?: number | null,"fechamento_id"?: string,"id"?: string,"indicador_codigo"?: string | null,"indicador_id"?: string | null,"memoria"?: NonNullable<Json>,"meta"?: number | null,"metodo"?: string | null,"modo_ausencia"?: string | null,"peso"?: number | null,"peso_efetivo"?: number | null,"pontos"?: number | null,"posicao_id"?: string,"razao"?: number | null,"regra_id"?: string,"regra_versao"?: number | null,"revisao_id"?: string | null,"revisao_numero"?: number | null,"unidade_medida"?: string | null,"valor_entrada"?: number | null,"valor_resultado"?: number | null
                   }
                   Relationships: [
                     {
@@ -256,6 +306,31 @@ isOneToOne: false
                   Relationships: [
 
                   ]
+                },"pontuacoes_fechamento": {
+                  Row: {
+                    "alvo_codigo": string,"alvo_id": string,"completo": boolean,"conjunto_id": string,"conjunto_versao": number,"distrito_id": string | null,"fechamento_id": string,"pontos": number | null,"sem_base": boolean
+                  }
+                  Insert: {
+                    "alvo_codigo": string,"alvo_id": string,"completo": boolean,"conjunto_id": string,"conjunto_versao": number,"distrito_id"?: string | null,"fechamento_id": string,"pontos"?: number | null,"sem_base": boolean
+                  }
+                  Update: {
+                    "alvo_codigo"?: string,"alvo_id"?: string,"completo"?: boolean,"conjunto_id"?: string,"conjunto_versao"?: number,"distrito_id"?: string | null,"fechamento_id"?: string,"pontos"?: number | null,"sem_base"?: boolean
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "pontuacoes_fechamento_alvo_id_fkey"
+      columns: ["alvo_id"]
+isOneToOne: false
+      referencedRelation: "escopos"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "pontuacoes_fechamento_fechamento_id_fkey"
+      columns: ["fechamento_id"]
+isOneToOne: false
+      referencedRelation: "fechamentos"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"posicoes_esperadas": {
                   Row: {
                     "alvo_id": string,"aplicavel": boolean,"competencia_id": string,"id": string,"indicador_id": string,"informante_id": string,"lock_version": number,"regra_id": string,"revisor_id": string
@@ -314,13 +389,13 @@ isOneToOne: true
                   ]
                 },"regras": {
                   Row: {
-                    "fator": number,"id": string,"indicador_id": string,"versao": number,"vigencia_fim": string | null,"vigencia_inicio": string
+                    "casas_decimais": number | null,"direcao": string | null,"fator": number | null,"id": string,"indicador_id": string,"meta": number | null,"metodo": string,"nome": string | null,"unidade_medida": string | null,"valor_maximo": number | null,"versao": number,"vigencia_fim": string | null,"vigencia_inicio": string
                   }
                   Insert: {
-                    "fator": number,"id"?: string,"indicador_id": string,"versao": number,"vigencia_fim"?: string | null,"vigencia_inicio": string
+                    "casas_decimais"?: number | null,"direcao"?: string | null,"fator"?: number | null,"id"?: string,"indicador_id": string,"meta"?: number | null,"metodo"?: string,"nome"?: string | null,"unidade_medida"?: string | null,"valor_maximo"?: number | null,"versao": number,"vigencia_fim"?: string | null,"vigencia_inicio": string
                   }
                   Update: {
-                    "fator"?: number,"id"?: string,"indicador_id"?: string,"versao"?: number,"vigencia_fim"?: string | null,"vigencia_inicio"?: string
+                    "casas_decimais"?: number | null,"direcao"?: string | null,"fator"?: number | null,"id"?: string,"indicador_id"?: string,"meta"?: number | null,"metodo"?: string,"nome"?: string | null,"unidade_medida"?: string | null,"valor_maximo"?: number | null,"versao"?: number,"vigencia_fim"?: string | null,"vigencia_inicio"?: string
                   }
                   Relationships: [
                     {

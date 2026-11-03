@@ -14,7 +14,7 @@ select has_table('public', 'contas_demo', 'contas_demo exists');
 
 \ir ../support/academic-fixture.psql
 select pg_temp.fixture('model');
-select lives_ok($$insert into public.vinculos(actor_id,papel,escopo_id) values(pg_temp.fixture('actor'),'area_tecnica',pg_temp.fixture('unit')) on conflict(actor_id,papel,escopo_id) do update set ativo=excluded.ativo$$,'legacy identity bootstrap keeps its existing upsert conflict target');
+select lives_ok($$insert into public.vinculos(actor_id,papel,escopo_id) values(pg_temp.fixture('actor'),'area_tecnica',pg_temp.fixture('unit')) on conflict(actor_id,papel,escopo_id,indicador_id) do update set ativo=excluded.ativo$$,'legacy identity bootstrap keeps its upsert on the indicator-aware conflict target');
 select throws_ok($$update public.entradas set valor=1 where id=pg_temp.fixture('entry')$$,'23514',null,'academic header cannot duplicate the authoritative revision value');
 
 select is((select modelo from public.competencias where codigo='DEMO-2026-09'), 1, 'legacy competence is not reclassified');

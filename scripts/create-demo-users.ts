@@ -103,7 +103,7 @@ export async function createDemoUsers(
   ]) {
     const { error } = await localAdminClient
       .from("vinculos")
-      .upsert(link, { onConflict: "actor_id,papel,escopo_id" });
+      .upsert(link, { onConflict: "actor_id,papel,escopo_id,indicador_id" });
     if (error) throw new Error("Unable to link a local demo identity to its synthetic role");
   }
 

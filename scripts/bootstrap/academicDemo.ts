@@ -85,6 +85,6 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   for (const role of ['gestor_distrital','administrador','lideranca'] as const) link(actors[role],role,academicId(10));
   link(partialCam,'cam',academicId(10));
   link(southTechnical,'cam',academicId(14));
-  await insertOnly('vinculos',links,'actor_id,papel,escopo_id');
+  await insertOnly('vinculos',links,'actor_id,papel,escopo_id,indicador_id');
   return { actors };
 }
