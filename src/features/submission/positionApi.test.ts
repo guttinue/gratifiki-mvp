@@ -52,6 +52,14 @@ describe("operational position boundary", () => {
       await expect(loadPositionDetail(transport({ position: sent, revisions: [], decisions: [], memories: [memory] }), context, "position")).rejects.toThrow();
     }
   });
+  it("decodes the correction explanation of a revision as nullable text", async () => {
+    const revision = { id: "revision", number: 2, authorId: "actor", estadoDado: "valor", value: "40", source: "synthetic", sourcePeriod: "2026-10-01", reason: "", submittedAt: "2026-10-01T00:00:00Z" };
+    const read = (r: Record<string, unknown>) => loadPositionDetail(transport({ position, revisions: [r], decisions: [], memories: [] }), context, "position");
+    expect((await read({ ...revision, correctionExplanation: "Usei outubro." })).revisions[0].correctionExplanation).toBe("Usei outubro.");
+    expect((await read({ ...revision, correctionExplanation: null })).revisions[0].correctionExplanation).toBeNull();
+    expect((await read(revision)).revisions[0].correctionExplanation).toBeNull();
+    for (const correctionExplanation of ["", " ", 12]) await expect(read({ ...revision, correctionExplanation })).rejects.toThrow();
+  });
   it("rejects malformed typed histories", async () => {
     await expect(loadPositionDetail(transport({ position, revisions: [], decisions: [{ type: "invented" }], memories: [] }), context, "position")).rejects.toThrow();
   });

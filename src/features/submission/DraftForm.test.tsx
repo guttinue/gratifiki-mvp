@@ -13,7 +13,7 @@ function client(fail=false) { return createClient('http://localhost:54321','publ
 }}}); }
 describe('draft form',()=>{
  it('requires a real own save before submitting an inherited draft',async()=>{
-  const inherited:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:3,revisionId:'old-revision'},revisions:[{id:'old-revision',number:1,authorId:'previous-informant',estadoDado:'valor',value:'10',source:'Origem preservada',sourcePeriod:'2026-11-01',reason:'',submittedAt:null}]};
+  const inherited:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:3,revisionId:'old-revision'},revisions:[{id:'old-revision',number:1,authorId:'previous-informant',estadoDado:'valor',value:'10',source:'Origem preservada',sourcePeriod:'2026-11-01',reason:'',submittedAt:null,correctionExplanation:null}]};
   const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>new Response(JSON.stringify({resourceId:'position',version:4,revisionId:'own-revision',status:'rascunho',resultValue:null}),{headers:{'content-type':'application/json'}})}});
   render(<DraftForm actorId="new-informant" client={transport} context={context} detail={inherited} onSaved={()=>{}}/>);
   expect((screen.getByRole('button',{name:'Enviar'}) as HTMLButtonElement).disabled).toBe(true);
@@ -77,7 +77,7 @@ it('submits using the saved version, preserves a lost-response retry across remo
 it('never confirms submission after leaving the position',async()=>{
  let respond!:(response:Response)=>void;
  let calls=0;let completed=0;
- const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null}]};
+ const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null,correctionExplanation:null}]};
  const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{calls++;return new Promise<Response>(resolve=>{respond=resolve;});}}});
  const view=render(<DraftForm actorId="actor" client={transport} context={context} detail={savedDetail} onSaved={()=>{}} onSubmitted={()=>{completed++;}} />);
  fireEvent.click(screen.getByRole('button',{name:'Enviar'}));
@@ -87,7 +87,7 @@ it('never confirms submission after leaving the position',async()=>{
 });
 it('fails closed before submission if the operation cannot be stored',async()=>{
  let calls=0;
- const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null}]};
+ const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null,correctionExplanation:null}]};
  const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{calls++;throw new Error('unexpected');}}});
  render(<DraftForm actorId="actor" client={transport} context={context} detail={savedDetail} onSaved={()=>{}} />);
  vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('denied');});
@@ -96,7 +96,7 @@ it('fails closed before submission if the operation cannot be stored',async()=>{
  expect((screen.getByRole('button',{name:'Enviar'}) as HTMLButtonElement).disabled).toBe(true);
 });
 it('releases an explicitly rejected version-conflict key so refreshed data can start a new operation',async()=>{
- const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null}]};
+ const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null,correctionExplanation:null}]};
  const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>new Response(JSON.stringify({code:'40001',message:'version_conflict'}),{status:409,headers:{'content-type':'application/json'}})}});
  render(<DraftForm actorId="actor" client={transport} context={context} detail={savedDetail} onSaved={()=>{}} />);
  fireEvent.click(screen.getByRole('button',{name:'Enviar'}));await screen.findByRole('alert');
@@ -104,7 +104,7 @@ it('releases an explicitly rejected version-conflict key so refreshed data can s
  expect(localStorage.length).toBe(0);
 });
 it('keeps the original pending operation when current access is denied, since an earlier attempt may have committed',async()=>{
- const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null}]};
+ const savedDetail:PositionDetail={...detail,position:{...detail.position,status:'rascunho',version:2,revisionId:'rev'},revisions:[{id:'rev',number:1,authorId:'actor',estadoDado:'valor',value:'10',source:'synthetic',sourcePeriod:'2026-10-01',reason:'',submittedAt:null,correctionExplanation:null}]};
  const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>new Response(JSON.stringify({code:'42501',message:'access_denied'}),{status:403,headers:{'content-type':'application/json'}})}});
  render(<DraftForm actorId="actor" client={transport} context={context} detail={savedDetail} onSaved={()=>{}} />);
  fireEvent.click(screen.getByRole('button',{name:'Enviar'}));await screen.findByRole('alert');

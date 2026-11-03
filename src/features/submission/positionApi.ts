@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommandContext, CommandReceipt, DraftInput, Page, PositionFilter, PositionSummary } from "../pilot/types";
 import { parseInputDecimal } from '../pilot/decimal';
 import { DomainCommandError, runCommand } from '../pilot/commandApi';
-export type PositionRevision = { id: string; number: number; authorId: string; estadoDado: DraftInput['estadoDado']; value: string | null; source: string; sourcePeriod: string; reason: string; submittedAt: string | null };
+export type PositionRevision = { id: string; number: number; authorId: string; estadoDado: DraftInput['estadoDado']; value: string | null; source: string; sourcePeriod: string; reason: string; submittedAt: string | null;
+  // What a model-3 correction changed (R-25); null on any other revision.
+  correctionExplanation: string | null };
 export type PositionDecision = { id: string; revisionId: string; actorId: string; type: 'iniciar_revisao' | 'validar' | 'devolver' | 'autorizar_retificacao' | 'decidir_indisponibilidade'; reason: string; reference: string | null; occurredAt: string };
 type FactorMemory = { revisionId: string; ruleVersion: number; factor: string; inputValue: string; resultValue: string };
 // A meta/weight result has no factor; its points and expression are read elsewhere.
@@ -49,7 +51,9 @@ export async function loadPositionDetail(client: SupabaseClient, context: Comman
   if (error) throw error;
   const row = object(data);
   return { position: position(row.position), revisions: array(row.revisions, item => {
-    const r = object(item); return { id: text(r.id), number: integer(r.number), authorId: text(r.authorId), estadoDado: choice(r.estadoDado, ['valor','indisponivel','nao_aplicavel'] as const), value: nullableDecimal(r.value), source: text(r.source,true), sourcePeriod: text(r.sourcePeriod,true), reason: text(r.reason,true), submittedAt: nullableText(r.submittedAt) };
+    const r = object(item); return { id: text(r.id), number: integer(r.number), authorId: text(r.authorId), estadoDado: choice(r.estadoDado, ['valor','indisponivel','nao_aplicavel'] as const), value: nullableDecimal(r.value), source: text(r.source,true), sourcePeriod: text(r.sourcePeriod,true), reason: text(r.reason,true), submittedAt: nullableText(r.submittedAt),
+      // Absent only from servers before T10, which never stored one.
+      correctionExplanation: r.correctionExplanation === undefined ? null : nullableText(r.correctionExplanation) };
   }), decisions: array(row.decisions, item => {
     const r = object(item); return { id: text(r.id), revisionId: text(r.revisionId), actorId: text(r.actorId), type: choice(r.type, ['iniciar_revisao','validar','devolver','autorizar_retificacao','decidir_indisponibilidade']), reason: text(r.reason,true), reference: nullableText(r.reference), occurredAt: text(r.occurredAt) };
   }), memories: array(row.memories, item => {

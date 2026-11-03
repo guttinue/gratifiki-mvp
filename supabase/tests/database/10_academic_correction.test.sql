@@ -59,6 +59,9 @@ select is(public.submit_position(pg_temp.ctx('actor','area_tecnica'),pg_temp.fix
 reset role;select pg_temp.login_as('reviewer');set local role authenticated;
 select is(public.start_position_review(pg_temp.ctx('reviewer','revisor_tecnico'),pg_temp.fixture('t08-position'),3,pg_temp.fixture('claim'))->>'version','4','claim old revision');
 select is(public.review_position(pg_temp.ctx('reviewer','revisor_tecnico'),pg_temp.fixture('t08-position'),4,'return','Correct synthetic input',pg_temp.fixture('return'))->>'version','5','return old revision');
+select pg_temp.login_as('actor');
+select throws_ok($$select public.correct_position(pg_temp.ctx('actor','area_tecnica'),pg_temp.fixture('t08-position'),5,'{"estadoDado":"valor","valor":"12","fonte":"Synthetic correction","periodoFonte":"2026-10-01","motivo":"Correction","explanation":"Model 3 only"}',pg_temp.fixture('m2-explanation'))$$,
+ '22023','invalid_input','R-25: a model-2 correction accepts no explanation key');
 reset role;
 select has_function('public','correct_position',array['jsonb','uuid','integer','jsonb','uuid'],'correction RPC exists');
 select has_function('public','authorize_position_correction',array['jsonb','uuid','integer','text','uuid'],'CAM rectification RPC exists');

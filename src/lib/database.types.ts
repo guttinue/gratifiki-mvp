@@ -439,13 +439,13 @@ isOneToOne: false
                   ]
                 },"revisoes_entrada": {
                   Row: {
-                    "autor_id": string,"entrada_id": string,"enviada_em": string | null,"estado_dado": string,"id": string,"motivo": string,"numero": number,"origem": string,"periodo_fonte": string,"valor": number | null
+                    "autor_id": string,"entrada_id": string,"enviada_em": string | null,"estado_dado": string,"explicacao_correcao": string | null,"id": string,"motivo": string,"numero": number,"origem": string,"periodo_fonte": string,"valor": number | null
                   }
                   Insert: {
-                    "autor_id": string,"entrada_id": string,"enviada_em"?: string | null,"estado_dado": string,"id"?: string,"motivo"?: string,"numero": number,"origem"?: string,"periodo_fonte"?: string,"valor"?: number | null
+                    "autor_id": string,"entrada_id": string,"enviada_em"?: string | null,"estado_dado": string,"explicacao_correcao"?: string | null,"id"?: string,"motivo"?: string,"numero": number,"origem"?: string,"periodo_fonte"?: string,"valor"?: number | null
                   }
                   Update: {
-                    "autor_id"?: string,"entrada_id"?: string,"enviada_em"?: string | null,"estado_dado"?: string,"id"?: string,"motivo"?: string,"numero"?: number,"origem"?: string,"periodo_fonte"?: string,"valor"?: number | null
+                    "autor_id"?: string,"entrada_id"?: string,"enviada_em"?: string | null,"estado_dado"?: string,"explicacao_correcao"?: string | null,"id"?: string,"motivo"?: string,"numero"?: number,"origem"?: string,"periodo_fonte"?: string,"valor"?: number | null
                   }
                   Relationships: [
                     {
@@ -563,6 +563,9 @@ isOneToOne: false
 "get_snapshot_export":
 { Args: { "p_contexto": Json,"p_operation_id": string,"p_snapshot_id": string }; Returns: Json
                            },
+"get_unit_batch":
+{ Args: { "p_contextos": Json,"p_unidade_id": string }; Returns: Json
+                           },
 "get_unit_results":
 { Args: { "p_contexto": Json }; Returns: Json
                            },
@@ -598,6 +601,9 @@ isOneToOne: false
                            },
 "submit_position":
 { Args: { "p_contexto": Json,"p_expected_version": number,"p_operation_id": string,"p_position_id": string }; Returns: Json
+                           },
+"submit_unit_batch":
+{ Args: { "p_itens": Json,"p_operation_id": string }; Returns: Json
                            },
 "transition_cycle":
 { Args: { "p_action": string,"p_contexto": Json,"p_expected_version": number,"p_operation_id": string,"p_reason": string,"p_reference": string }; Returns: Json

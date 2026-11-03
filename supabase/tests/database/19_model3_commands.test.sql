@@ -143,9 +143,14 @@ select pg_temp.login_as('reviewer');set local role authenticated;
 select is(pg_temp.claim('alfa',2,3,'alfa-2-claim')->>'status','em_revisao','reviewer claims DEMO-02');
 select is(pg_temp.review('alfa',2,4,'return','Synthetic: check the routine count','alfa-2-return')->>'status','devolvida','reviewer returns DEMO-02');
 select pg_temp.login_as('actor');
-select throws_ok($$select public.correct_position(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'),5,pg_temp.input('valor','20.5','Synthetic correction'),pg_temp.fixture('t19-op-alfa-2-fix-bad'))$$,
+select throws_ok($$select public.correct_position(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'),5,pg_temp.input('valor','20.5','Synthetic correction')||'{"explanation":"Synthetic explanation"}',pg_temp.fixture('t19-op-alfa-2-fix-bad'))$$,
  '22023','invalid_input','correction with DEMO-02 = 20.5 is rejected');
-select is(public.correct_position(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'),5,pg_temp.input('valor','20','Synthetic correction'),pg_temp.fixture('t19-op-alfa-2-fix'))->>'resultValue','25','correction with DEMO-02 = 20 scores 25');
+-- R-25: a model-3 correction carries its explanation inside the input.
+select throws_ok($$select public.correct_position(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'),5,pg_temp.input('valor','20','Synthetic correction'),pg_temp.fixture('t19-op-alfa-2-fix-none'))$$,
+ '22023','invalid_input','a model-3 correction without an explanation is rejected');
+select is(public.correct_position(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'),5,pg_temp.input('valor','20','Synthetic correction')||'{"explanation":" Synthetic explanation "}',pg_temp.fixture('t19-op-alfa-2-fix'))->>'resultValue','25','correction with DEMO-02 = 20 scores 25');
+select is((select r->>'correctionExplanation' from jsonb_array_elements(public.get_position_detail(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(2)),pg_temp.fixture('t19-pos-alfa-2'))->'revisions')r where (r->>'number')::integer=2),
+ 'Synthetic explanation','the trimmed explanation is stored on the new revision');
 select pg_temp.login_as('cam');
 select throws_ok($$select pg_temp.decide('alfa',3,4,'alfa-3-early')$$,'55000','invalid_state','CAM cannot decide not applicable before the technical acceptance');
 select pg_temp.login_as('reviewer');

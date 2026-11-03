@@ -5,7 +5,7 @@ import { command, completeMonth, contextOf, contexts, createAcademicIdentities, 
 import { OwnedSession } from './ownedSession.ts';
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 const snapshotDigest = `select md5(jsonb_build_object('headers',(select jsonb_agg(to_jsonb(f)-'competencia_codigo' order by id) from public.fechamentos f),'items',(select jsonb_agg(to_jsonb(i)-array['indicador_id','indicador_codigo','unidade_medida'] order by id) from public.itens_fechamento i))::text);`;
-const historyDigest = `select md5(jsonb_build_object('revisions',(select jsonb_agg(to_jsonb(r) order by id) from public.revisoes_entrada r),'decisions',(select jsonb_agg(to_jsonb(d) order by id) from public.decisoes_entrada d),'entries',(select jsonb_agg(to_jsonb(e)-'claim_revisao_atual_id' order by id) from public.entradas e),'positions',(select jsonb_agg(to_jsonb(p) order by id) from public.posicoes_esperadas p))::text);`;
+const historyDigest = `select md5(jsonb_build_object('revisions',(select jsonb_agg(to_jsonb(r)-'explicacao_correcao' order by id) from public.revisoes_entrada r),'decisions',(select jsonb_agg(to_jsonb(d) order by id) from public.decisoes_entrada d),'entries',(select jsonb_agg(to_jsonb(e)-'claim_revisao_atual_id' order by id) from public.entradas e),'positions',(select jsonb_agg(to_jsonb(p) order by id) from public.posicoes_esperadas p))::text);`;
 
 /** Real ordered migrations. Invalid old records are adversarial fixtures under
  * enabled old constraints, not a claim that the old API created bad history. */
