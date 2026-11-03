@@ -554,11 +554,17 @@ isOneToOne: false
 "get_position_detail":
 { Args: { "p_contexto": Json,"p_position_id": string }; Returns: Json
                            },
+"get_rule_catalog":
+{ Args: { "p_contexto": Json }; Returns: Json
+                           },
 "get_scoped_audit":
 { Args: { "p_contexto": Json,"p_filters": Json }; Returns: Json
                            },
 "get_snapshot_export":
 { Args: { "p_contexto": Json,"p_operation_id": string,"p_snapshot_id": string }; Returns: Json
+                           },
+"get_unit_results":
+{ Args: { "p_contexto": Json }; Returns: Json
                            },
 "open_demo_competence":
 { Args: { "p_assignments": Json,"p_contexto": Json,"p_operation_id": string,"p_reference": string }; Returns: Json

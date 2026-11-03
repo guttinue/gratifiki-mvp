@@ -27,3 +27,17 @@ describe('canonical export contract',()=>{
   expect(serializeExportCsv(changed)).toContain('"\'\t =1,""x""",1,1,valor,0,0.8,0');
  });
 });
+const model3:ExportBundle={contractVersion:2,snapshotId:'snapshot',rows:[
+ {snapshotId:'snapshot',competencia:'2026-09',indicador:'DEMO-V1-03',alvoTipo:'unidade',alvoCodigo:'@Alfa',regraVersao:1,revisao:1,situacaoDado:'indisponivel',valor:null,meta:'48',peso:'25',pesoEfetivo:'25',pontos:'0',conjunto:'=DEMO',conjuntoVersao:1,sintetico:true,publicacao:'publicada_demo'},
+ {snapshotId:'snapshot',competencia:'2026-09',indicador:'DEMO-V1-01',alvoTipo:'unidade',alvoCodigo:'@Alfa',regraVersao:1,revisao:1,situacaoDado:'valor',valor:'88',meta:'95',peso:'30',pesoEfetivo:'30',pontos:'27.79',conjunto:'=DEMO',conjuntoVersao:1,sintetico:true,publicacao:'publicada_demo'},
+],manifest:{competencia:'2026-09',ruleVersions:[1],publicationVersion:1,positionCount:2,calculableCount:1,unavailableCount:1,notApplicableCount:0,totals:[{tipo:'unidade',unidadeMedida:'pontos sintéticos',sum:'27.79'}]}};
+describe('model-3 export contract',()=>{
+ it('adds the meta/weight columns and keeps formula neutralization',()=>{
+  expect(serializeExportCsv(model3)).toBe('snapshot,competencia,indicador,alvo_tipo,alvo_codigo,regra_versao,revisao,situacao_dado,valor,meta,peso,peso_efetivo,pontos,conjunto,conjunto_versao,sintetico,publicacao\r\n'
+   +"snapshot,2026-09,DEMO-V1-01,unidade,'@Alfa,1,1,valor,88,95,30,30,27.79,'=DEMO,1,true,publicada_demo\r\n"
+   +"snapshot,2026-09,DEMO-V1-03,unidade,'@Alfa,1,1,indisponivel,,48,25,25,0,'=DEMO,1,true,publicada_demo\r\n");
+ });
+ it('serializes the model-3 manifest under contract version 2',()=>{
+  expect(serializeExportManifest(model3)).toBe('{"contractVersion":2,"snapshotId":"snapshot","competencia":"2026-09","ruleVersions":[1],"publicationVersion":1,"positionCount":2,"calculableCount":1,"unavailableCount":1,"notApplicableCount":0,"totals":[{"tipo":"unidade","unidadeMedida":"pontos sintéticos","sum":"27.79"}]}\n');
+ });
+});

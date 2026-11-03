@@ -43,7 +43,17 @@ export type ExportRow = { snapshotId: string; competencia: string; indicador: st
   alvoCodigo: string; regraVersao: number; revisao: number | null; estadoDado: string;
   entrada: DecimalText | null; fator: DecimalText | null; resultado: DecimalText | null;
   publicacao: 'nao_publicada' | 'publicada_demo' };
-export type ExportBundle = { contractVersion: 1; snapshotId: string; rows: ExportRow[];
-  manifest: { competencia: string; ruleVersions: number[]; publicationVersion: 0 | 1;
-    positionCount: number; calculableCount: number; unavailableCount: number;
-    notApplicableCount: number; totals: { tipo: string; unidadeMedida: string; sum: DecimalText }[] } };
+export type ExportManifest = { competencia: string; ruleVersions: number[]; publicationVersion: 0 | 1;
+  positionCount: number; calculableCount: number; unavailableCount: number;
+  notApplicableCount: number; totals: { tipo: string; unidadeMedida: string; sum: DecimalText }[] };
+// Model 3 (contract version 2): frozen meta/weight calculation per row.
+export type Model3ExportRow = { snapshotId: string; competencia: string; indicador: string; alvoTipo: string;
+  alvoCodigo: string; regraVersao: number; revisao: number | null; situacaoDado: 'valor' | 'indisponivel' | 'nao_aplicavel';
+  valor: DecimalText | null; meta: DecimalText; peso: DecimalText; pesoEfetivo: DecimalText | null; pontos: DecimalText | null;
+  conjunto: string; conjuntoVersao: number; sintetico: boolean; publicacao: 'nao_publicada' | 'publicada_demo' };
+export type ExportBundle = { contractVersion: 1; snapshotId: string; rows: ExportRow[]; manifest: ExportManifest }
+  | { contractVersion: 2; snapshotId: string; rows: Model3ExportRow[]; manifest: ExportManifest };
+// Model-3 leadership: no person, no individual value; averages over complete units.
+export type LeadershipOverview = { acceptedPercent: string;
+  districts: { districtCode: string; average: string | null; completeUnits: number; totalUnits: number }[];
+  attention: { unitCode: string; pending: number }[] };
