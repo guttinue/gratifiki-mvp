@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
+import { openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -25,7 +26,7 @@ async function prepare(month:string,unavailable=false){
 }
 async function login(page:Page,role:'area_tecnica'|'revisor_tecnico',month:string){
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential(role).email);await page.getByLabel('Senha').fill(academicCredential(role).password);await page.getByRole('button',{name:'Entrar',exact:true}).click();
- const picker=page.getByLabel('Contexto autorizado');const option=picker.locator('option').filter({hasText:`${role} · ACADEMIC-NORTE-1 · ${month}`});await expect(option).toHaveCount(1);const key=(await option.getAttribute('value'))!;await picker.selectOption(key);return key;
+ const picker=page.getByLabel('Contexto autorizado');const option=picker.locator('option').filter({hasText:`${role} · ACADEMIC-NORTE-1 · ${month}`});await expect(option).toHaveCount(1);const key=(await option.getAttribute('value'))!;await picker.selectOption(key);await openAcademicPage(page,role==='revisor_tecnico'?'Conferência':'Preenchimento');return key;
 }
 test('real host claims, retries an ambiguous claim, returns with reason and technical author reads after reload',async({page})=>{
  const sent=await prepare('ACADEMIC-2026-10');

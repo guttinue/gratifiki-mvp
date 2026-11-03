@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
-import { chooseAcademicContext, loginAcademic } from './academicFlowSupport';
+import { chooseAcademicContext, loginAcademic, openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions } from '../../src/features/submission/positionApi';
 test.use({trace:'off'});
@@ -21,6 +21,7 @@ test('each technical context shows every authorized position the server reports'
   expect(server.items.map(p=>p.escopoCodigo)).toEqual([context.escopoCodigo]);
   if(index===0)await loginAcademic(page,'area_tecnica','area_tecnica',context.escopoCodigo);
   else await chooseAcademicContext(page,'area_tecnica',context.escopoCodigo);
+  await openAcademicPage(page,'Preenchimento');
   const list=page.getByRole('region',{name:'Posições autorizadas'}).getByRole('listitem');
   await expect(list).toHaveCount(server.total);
   await expect(list.first()).toHaveText(`${context.escopoCodigo} · ${server.items[0].status}`);

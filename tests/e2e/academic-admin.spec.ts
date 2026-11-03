@@ -46,6 +46,6 @@ test('administrator maintains only demo metadata; authenticated revoked technica
  const after=await loadAdminCatalog(admin,cc);const district=after.scopes.find(s=>s.codigo==='DEMO-T12-DISTRICT')!;
  await saveDemoScope(admin,cc,tc.escopoId,1,{codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:district.id,ativo:false},crypto.randomUUID());
  const audit=await loadAudit(admin,cc,{page:1,pageSize:100});expect(audit.items.some(a=>a.action==='vinculo_demo_alterado'&&a.version===2)).toBe(true);expect(audit.items.every(a=>a.reason===null)).toBe(true);
- await page.getByRole('button',{name:'Histórico',exact:true}).click();await expect(page.getByText(/vinculo_demo_alterado/)).toBeVisible();
+ await page.getByRole('button',{name:'Auditoria',exact:true}).click();await expect(page.getByText(/vinculo_demo_alterado/)).toBeVisible();
  for(const client of [admin,technical,cam,manager])await client.auth.signOut();
 });

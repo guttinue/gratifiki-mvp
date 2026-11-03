@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
+import { openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 test.use({ trace: 'off' });
@@ -15,6 +16,7 @@ test('real academic area saves exact draft and origin across reload; context cha
     await expect(option).toHaveCount(1);
     const key = (await option.getAttribute('value'))!;
     await picker.selectOption(key);
+    await openAcademicPage(page, 'Preenchimento');
     await page.getByRole('button', { name: /ACADEMIC-NORTE-1 · ausente/ }).click();
     await page.getByLabel('Valor', { exact: true }).fill('0,0001');
     await page.getByLabel('Fonte', { exact: true }).fill('Origem sintética T05');

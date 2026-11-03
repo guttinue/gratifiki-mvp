@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { academicCredential } from './e2eSupport';
+import { openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -20,6 +21,7 @@ async function login(page: Page, profile: 'area_tecnica' | 'southTechnical', sco
     await expect(option).toHaveCount(1);
     const key = (await option.getAttribute('value'))!;
     await picker.selectOption(key);
+    await openAcademicPage(page, 'Preenchimento');
     return key;
 }
 async function saveInUi(page: Page, scope: string, value: string) {

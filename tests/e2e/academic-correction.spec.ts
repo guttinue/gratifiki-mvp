@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
+import { openAcademicPage } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -15,6 +16,7 @@ async function ctx(client:SupabaseClient,role:string){const found=(await loadAut
 async function login(page:Page,identity:Identity,role:string){
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential(identity).email);await page.getByLabel('Senha').fill(academicCredential(identity).password);await page.getByRole('button',{name:'Entrar',exact:true}).click();
  const picker=page.getByLabel('Contexto autorizado');const option=picker.locator('option').filter({hasText:`${role} · ACADEMIC-SUL · ACADEMIC-2026-10`});await expect(option).toHaveCount(1);await picker.selectOption((await option.getAttribute('value'))!);
+ await openAcademicPage(page,role==='cam'?'Ciclo e fechamento':'Preenchimento');
 }
 async function logout(page:Page){await page.getByRole('button',{name:'Sair',exact:true}).click();await expect(page.getByLabel('E-mail')).toBeVisible();}
 test('persistent correction preserves old 8, creates 9.6 and requires independent review, CAM rectification and explicit unavailable decision',async({page})=>{

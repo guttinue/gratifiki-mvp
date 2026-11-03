@@ -655,6 +655,26 @@ describe("App academic access boundary", () => {
     });
   });
 
+  it("keeps a revoked group closed across a later renewal even when its reduced form is still listed", async () => {
+    const { authListener, overrides } = academicBoundary();
+    const secondIndicator = { ...academicTechnical, key: "academic-technical-2", vinculoId: "academic-technical-2", indicadorId: "indicator-2" };
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+    await openDraftAndEdit();
+    acceptLeave();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    for (const event of ["TOKEN_REFRESHED", "USER_UPDATED"]) {
+      await act(async () => authListener(event, { user: { id: technicalContext.actorId } }));
+      expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+      expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+      expect(workspaceHeading()).toBeNull();
+    }
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
+    expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+  });
+
   it("does not let a delayed read restore content after the context is revoked", async () => {
     const { authListener, overrides } = academicBoundary();
     render(<App />);

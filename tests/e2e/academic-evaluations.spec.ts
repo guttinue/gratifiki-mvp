@@ -130,15 +130,19 @@ test('scoped manager snapshots, nonfinancial leadership aggregates and safe audi
         await expect(page.getByText(/Soma de controle: 17.6/)).toBeVisible();
         await expect(page.getByRole('button', { name: 'Histórico', exact: true })).toHaveCount(0);
         await expect(page.getByText('100 × 0.8 = 80')).toHaveCount(0);
+        // Task 1: for lideranca, Painel is the aggregates page itself (no dashboard capability), so it is the page already open.
         await page.getByRole('button', { name: 'Painel', exact: true }).click();
-        await expect(page.getByText('Universo: 2 · Recebidas: 2 · Conferidas: 2 · Indisponíveis: 0')).toBeVisible();
+        await expect(page.getByText(/Soma de controle: 17.6/)).toBeVisible();
+        await expect(page.getByText(/Universo:/)).toHaveCount(0);
         await expect(page.getByRole('region', { name: 'Posições do cartão' })).toHaveCount(0);
         await page.getByRole('button', { name: 'Sair', exact: true }).click();
         await browserLogin(page, 'administrador');
-        await page.getByRole('button', { name: 'Histórico', exact: true }).click();
+        await page.getByRole('button', { name: 'Auditoria', exact: true }).click();
         await expect(page.getByRole('heading', { name: 'Auditoria administrativa' })).toBeVisible();
         await expect(page.getByText('Nenhum evento autorizado neste filtro.')).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Painel', exact: true })).toHaveCount(0);
+        // Task 1 gave the administrator a Painel destination (metadata only); the original intent, no operational dashboard, is kept.
+        await page.getByRole('button', { name: 'Painel', exact: true }).click();
+        await expect(page.getByText(/Universo:/)).toHaveCount(0);
         await page.getByRole('button', { name: 'Sair', exact: true }).click();
         await browserLogin(page, 'cam');
         await page.getByRole('button', { name: 'Painel', exact: true }).click();

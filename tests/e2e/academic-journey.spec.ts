@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { chooseAcademicContext, loginAcademic, logoutAcademic } from './academicFlowSupport';
+import { chooseAcademicContext, loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
 
 async function fillAndSubmit(page: Page, scope: string) {
   await chooseAcademicContext(page, 'area_tecnica', scope);
+  await openAcademicPage(page, 'Preenchimento');
   await page.getByRole('button', { name: `${scope} · ausente`, exact: true }).click();
   await page.getByLabel('Valor', { exact: true }).fill('10');
   await page.getByLabel('Fonte', { exact: true }).fill('T14 fonte exclusivamente sintética');
@@ -18,6 +19,7 @@ async function fillAndSubmit(page: Page, scope: string) {
 
 async function review(page: Page, scope: string, decision: 'accept' | 'return') {
   await chooseAcademicContext(page, 'revisor_tecnico', scope);
+  await openAcademicPage(page, 'Conferência');
   await page.getByRole('button', { name: `${scope} · enviada`, exact: true }).click();
   await page.getByRole('button', { name: 'Iniciar revisão', exact: true }).click();
   await expect(page.getByText('Conferência confirmada: em_revisao.')).toBeVisible();
@@ -39,6 +41,7 @@ test('seven authenticated journeys preserve correction, independent acceptance, 
     await logoutAcademic(page);
   }
   await loginAcademic(page, 'area_tecnica', 'area_tecnica', 'ACADEMIC-NORTE-1');
+  await openAcademicPage(page, 'Preenchimento');
   await page.getByRole('button', { name: 'ACADEMIC-NORTE-1 · devolvida', exact: true }).click();
   await expect(page.getByText('Motivo da devolução técnica: Rever evidência sintética')).toBeVisible();
   await page.getByLabel('Valor corrigido', { exact: true }).fill('12');
@@ -54,6 +57,7 @@ test('seven authenticated journeys preserve correction, independent acceptance, 
   await logoutAcademic(page);
 
   await loginAcademic(page, 'cam', 'cam');
+  await openAcademicPage(page, 'Ciclo e fechamento');
   await expect(page.getByText('Esperadas: 6 · Recebidas: 6 · Conferidas: 6')).toBeVisible();
   await page.getByRole('button', { name: 'Iniciar consolidação', exact: true }).click();
   await expect(page.getByText('Estado do ciclo: em_consolidacao')).toBeVisible();

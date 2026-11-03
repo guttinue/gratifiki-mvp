@@ -66,11 +66,18 @@ export function App() {
   const contextRef = useRef<PilotContext | null>(context);
   const contextKeyRef = useRef(contextKey);
   const authorizedContextRef = useRef(authorized.group);
+  // Set when a revalidation dropped the selected group because a context of it
+  // was revoked. While set, a renewal must not reopen it, neither by its key
+  // (a reduced group keeps the key) nor by auto-selecting the only group left.
+  const selectionClosedRef = useRef(false);
   contextRef.current = context;
   contextKeyRef.current = contextKey;
   // Selection intent survives revalidation's temporary null state. This ref
   // only supplies a preferred key, never authorization or data visibility.
-  if (authorized.group) authorizedContextRef.current = authorized.group;
+  if (authorized.group) {
+    authorizedContextRef.current = authorized.group;
+    selectionClosedRef.current = false;
+  } else if (authorized.status === "ready" && authorized.error) selectionClosedRef.current = true;
   const sessionGeneration = authGeneration.current;
 
   useEffect(() => {
@@ -110,8 +117,9 @@ export function App() {
       }
 
       const nextActorId = session.user.id;
-      const selectedKey = authorizedContextRef.current?.contexts[0].actorId === nextActorId
-        ? authorizedContextRef.current.key : undefined;
+      const selectedKey = selectionClosedRef.current ? ""
+        : authorizedContextRef.current?.contexts[0].actorId === nextActorId
+          ? authorizedContextRef.current.key : undefined;
       const previousActorId = authActorId.current;
       const activeActorId = contextRef.current?.actorId;
       if (
