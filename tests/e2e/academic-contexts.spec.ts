@@ -28,7 +28,8 @@ for (const role of roles)
         expect((await client.auth.signInWithPassword(credentials)).error).toBeNull();
         const contexts = await loadAuthorizedContexts(client);
         if (role === 'administrador')
-            expect(new Set(contexts.map(c => c.competenciaCodigo))).toEqual(new Set(['ACADEMIC-2026-09', 'ACADEMIC-2026-10']));
+            // T7: the administrator's DEMO-v1 links also reach the two V3 (model 3) months.
+            expect(new Set(contexts.map(c => c.competenciaCodigo))).toEqual(new Set(['ACADEMIC-2026-09', 'ACADEMIC-2026-10', 'ACADEMIC-V3-2026-09', 'ACADEMIC-V3-2026-10']));
         // The picker value is the group key (role:competenciaId:escopoId).
         const context = contexts.find(c => `${c.role}:${c.competenciaId}:${c.escopoId}` === selected!.value)!;
         expect(context.actorId).toBe((await client.auth.getUser()).data.user?.id);

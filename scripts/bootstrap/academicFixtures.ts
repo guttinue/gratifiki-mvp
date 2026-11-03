@@ -8,6 +8,21 @@ export const academicMonths = [
   { id: academicId(1), codigo: 'ACADEMIC-2026-09', referencia: '2026-09-01', estado: 'aberta', modelo: 2 },
   { id: academicId(2), codigo: 'ACADEMIC-2026-10', referencia: '2026-10-01', estado: 'aberta', modelo: 2 },
 ];
+// DEMO-v1 catalogue (migration 20261102104000_demo_v1_rule_set.sql). The
+// legacy model-2 indicator keeps the code DEMO-01; model 3 uses DEMO-V1-0N.
+function demoId(n: number): string { return `c0de0000-0000-4000-8000-0000000001${n.toString().padStart(2,'0')}`; }
+export const demoRuleSet = { id: demoId(0), codigo: 'DEMO', versao: 1 };
+export const demoIndicators = [
+  { id: demoId(1), codigo: 'DEMO-V1-01', nome: 'Registros conferidos', regraId: demoId(11), peso: 30 },
+  { id: demoId(2), codigo: 'DEMO-V1-02', nome: 'Rotinas concluídas', regraId: demoId(12), peso: 25 },
+  { id: demoId(3), codigo: 'DEMO-V1-03', nome: 'Tempo de resposta', regraId: demoId(13), peso: 25 },
+  { id: demoId(4), codigo: 'DEMO-V1-04', nome: 'Verificações realizadas', regraId: demoId(14), peso: 20 },
+];
+export const academicV3Months = [
+  { id: academicId(3), codigo: 'ACADEMIC-V3-2026-09', referencia: '2026-09-01', estado: 'aberta', modelo: 3, conjunto_id: demoRuleSet.id },
+  { id: academicId(4), codigo: 'ACADEMIC-V3-2026-10', referencia: '2026-10-01', estado: 'aberta', modelo: 3, conjunto_id: demoRuleSet.id },
+];
+export { unitDisplayNames } from '../../src/features/workspace/displayNames.ts';
 // November is intentionally not opened: T13 owns future competence/rule commands.
 export const academicScopes = [
   { id: academicId(10), codigo: 'ACADEMIC-NORTE', tipo: 'distrito', distrito_id: null },

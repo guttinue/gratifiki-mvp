@@ -136,9 +136,10 @@ export async function runClosureConcurrency(target:OwnedTarget,key:string,creden
   const revokedExport=exportConnection.query(`select pg_temp.capture(${literal(exportReplay)});`);
   await blockedBy(a,pid);
   await blockedBy(a,exportPid,pid);
-  // Revoke a different explicit link while selected context remains present.
+  // Revoke a different explicit link of the same (model-2) indicator while the
+  // selected context remains present; DEMO-v1 links do not cover this cycle.
   // No permission restoration/reset follows; this owned project is now disposed.
-  await a.query(`update public.vinculos set ativo=false where id=(select id from public.vinculos where actor_id=${literal(second.cc.actorId)}::uuid and papel='cam' and id<>${literal(second.cc.vinculoId)}::uuid order by id limit 1);commit;`);
+  await a.query(`update public.vinculos set ativo=false where id=(select id from public.vinculos where actor_id=${literal(second.cc.actorId)}::uuid and papel='cam' and indicador_id=${literal(second.cc.indicadorId)}::uuid and id<>${literal(second.cc.vinculoId)}::uuid order by id limit 1);commit;`);
   if(await revokedReplay!=='42501')throw Error('Owned concurrency replay ignored post-lock access revocation');
   if(await revokedExport!=='42501')throw Error('Owned concurrency export replay ignored post-lock access revocation');
   process.stdout.write('Concurrency revocation-before-replay: observed lock wait; lost explicit coverage rejected cached close without disclosing receipt.\n');
