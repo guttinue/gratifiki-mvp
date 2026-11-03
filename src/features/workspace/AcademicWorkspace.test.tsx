@@ -376,6 +376,19 @@ it('renders the page heading',()=>{
  expect(head.getByRole('heading',{level:2,name:'Painel'})).toBeTruthy();
  expect(head.getByText('Outubro/2026 · você informa os indicadores de Unidade Alfa e Unidade Beta.')).toBeTruthy();
 });
+it('moves focus into the opened menu and closes it when focus leaves for the content',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ const menu=document.getElementById('academic-menu') as HTMLElement;
+ fireEvent.click(toggle);
+ expect(document.activeElement).toBe(within(menu).getAllByRole('button')[0]);
+ fireEvent.focusOut(document.activeElement!,{relatedTarget:within(menu).getByRole('button',{name:'Histórico'})});
+ expect(menu.dataset.open).toBe('true');
+ fireEvent.focusOut(within(menu).getByRole('button',{name:'Histórico'}),{relatedTarget:screen.getByRole('main')});
+ expect(menu.dataset.open).toBe('false');
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+});
 it('menu toggle opens, Escape closes and returns focus',()=>{
  const groups=headerGroups();
  render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
