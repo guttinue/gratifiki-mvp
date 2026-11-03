@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { AuthorizedContext, CompetenceState, ContextGroup, PositionSummary } from '../pilot/types';
+import type { AuthorizedContext, ContextGroup, PositionSummary } from '../pilot/types';
+import { competenceStateLabels } from './displayNames';
 import { toCommandContext } from '../context/contextApi';
 import { listPositions, loadPositionDetail, type PositionDetail } from '../submission/positionApi';
 import { DraftForm } from '../submission/DraftForm';
@@ -22,7 +23,6 @@ import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
-const competenceStateLabels:Record<CompetenceState,string>={aberta:'Aberta',em_revisao:'Em revisão',em_consolidacao:'Em consolidação',fechada:'Fechada',invalidada:'Invalidada'};
 // contexts: every authorized context of the actor (all groups); the model-3 CAM
 // decides each pending item with the context of that item's unit and indicator.
 export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; contexts?:AuthorizedContext[]; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }

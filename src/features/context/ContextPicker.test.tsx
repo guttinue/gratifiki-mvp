@@ -22,8 +22,20 @@ it("offers only backend groups and passes the group key, not a free role", () =>
 
 it("lists one option per group, however many indicators the group holds", () => {
   const four = [1, 2, 3, 4].map((n) => ({ ...first, key: `k${n}`, vinculoId: `k${n}`, indicadorId: `i${n}`, modelo: 3 as const }));
-  render(<ContextPicker groups={groupContexts(four)} selectedKey="cam:month:unit" onSelect={vi.fn()} />);
+  render(<ContextPicker groups={groupContexts(four)} selectedKey="cam:month" onSelect={vi.fn()} />);
   expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-    "Selecione um contexto", "cam · UNIT · MONTH · acadêmico",
+    "Selecione um contexto", "CAM · MONTH",
   ]);
+});
+
+it("labels model-3 options by name and splits model kinds into optgroups", () => {
+  const groups = groupContexts([
+    { ...first, key: "m3", vinculoId: "m3", role: "area_tecnica", competenciaId: "oct", competenciaCodigo: "ACADEMIC-V3-2026-10", modelo: 3, competenciaEstado: "aberta" },
+    first,
+  ]);
+  render(<ContextPicker groups={groups} selectedKey={null} onSelect={vi.fn()} />);
+  expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+    "Selecione um contexto", "Área técnica · Outubro/2026 · Aberta", "cam · UNIT · MONTH · acadêmico",
+  ]);
+  expect(screen.getAllByRole("group").map((group) => group.getAttribute("label"))).toEqual(["Gratifiki · regra DEMO-v1", "Baseline legada"]);
 });

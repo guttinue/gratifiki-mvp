@@ -8,7 +8,8 @@ export type CompetenceState = 'aberta' | 'em_revisao' | 'em_consolidacao' | 'fec
 export type AuthorizedContext = CommandContext & { key: string; actorId: string; role: Role;
   escopoId: string; escopoCodigo: string; competenciaCodigo: string; mode: 'legacy' | 'academic';
   modelo: 1 | 2 | 3; competenciaEstado?: CompetenceState };
-// One role, competence and scope with all the indicators the actor may use there.
+// One role and competence (model 3: every unit; models 1/2: one scope) with all the
+// indicators the actor may use there.
 // The server still authorizes each context; the group only shapes the screens.
 export type ContextGroup = { key: string; role: Role; modelo: 1 | 2 | 3; competenciaId: string;
   competenciaCodigo: string; escopoId: string; escopoCodigo: string; contexts: AuthorizedContext[] };

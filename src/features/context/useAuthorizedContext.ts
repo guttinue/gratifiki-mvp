@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthorizedContext, ContextGroup } from "../pilot/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadAuthorizedContexts } from "./contextApi";
-import { groupContexts } from "./contextGroups";
+import { groupContexts, pickDefaultGroup } from "./contextGroups";
 
 // revalidating/unverified keep the selected context so its subtree can stay
 // mounted but hidden; the App must never display it in those states.
@@ -12,8 +12,10 @@ function sameContext(a: AuthorizedContext, b: AuthorizedContext): boolean {
   return (Object.keys(a) as (keyof AuthorizedContext)[]).every((field) => a[field] === b[field]);
 }
 
-// The selection is a group (role + competence + scope). `context` is the
-// group's first context, for the screens that still work on a single one.
+// The selection is a group (model 3: role + competence; models 1/2: role +
+// competence + scope). Without a key, refresh opens pickDefaultGroup; with one
+// (even "") only that key. `context` is the group's first context, for the
+// screens that still work on a single one.
 export function useAuthorizedContext(client: SupabaseClient): {
   contexts: AuthorizedContext[]; groups: ContextGroup[]; group: ContextGroup | null;
   context: AuthorizedContext | null; status: Status; error: string | null;
@@ -48,7 +50,7 @@ export function useAuthorizedContext(client: SupabaseClient): {
       choices.current = groups;
       const group = preferredKey !== undefined
         ? groups.find(({ key }) => key === preferredKey) ?? null
-        : groups.length === 1 ? groups[0] : null;
+        : pickDefaultGroup(groups);
       setState({ contexts, groups, group, status: "ready", error: null });
       return contexts.length > 0;
     } catch {

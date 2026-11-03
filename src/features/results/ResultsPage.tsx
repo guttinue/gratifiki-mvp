@@ -3,16 +3,13 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react
 import type { ContextGroup } from '../pilot/types';
 import { formatDecimal } from '../pilot/decimal';
 import { toCommandContext } from '../context/contextApi';
-import { unitDisplayNames } from '../workspace/displayNames';
+import { monthName, unitDisplayNames } from '../workspace/displayNames';
 import { CalculationExplainer, directionSymbol } from './CalculationExplainer';
 import { loadUnitResults, type ReviewStatus, type UnitResult, type UnitResults } from './resultsApi';
 
 const statusLabels: Record<ReviewStatus, string> = { valor: 'Aceita', indisponivel: 'Indisponível', nao_aplicavel: 'Não se aplica',
   sem_envio: 'Não enviada', em_conferencia: 'Em conferência', decisao_pendente: 'Aguardando decisão da CAM' };
 const stateLabels: Record<UnitResults['state'], string> = { aberta: 'Aberta', em_consolidacao: 'Em consolidação', fechada: 'Fechada' };
-const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
-// Competence codes end in YYYY-MM (e.g. ACADEMIC-V3-2026-09).
-const monthName = (competencia: string) => months[Number(/-(\d{2})$/.exec(competencia)?.[1]) - 1] ?? 'mês anterior';
 const unitName = (code: string) => unitDisplayNames[code] ?? code;
 const signed = (delta: string) => delta.startsWith('-') ? `−${formatDecimal(delta.slice(1), 2)}` : `+${formatDecimal(delta, 2)}`;
 

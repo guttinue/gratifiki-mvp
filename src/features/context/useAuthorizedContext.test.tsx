@@ -105,3 +105,28 @@ it.each([
   expect(result.current.groups.flatMap((group) => group.contexts).map(({ vinculoId }) => vinculoId))
     .toEqual(change(indicators).map(({ vinculoId }) => vinculoId));
 });
+
+const september: AuthorizedContext = { ...first, key: "sep", vinculoId: "sep", competenciaId: "sep", competenciaCodigo: "ACADEMIC-V3-2026-09", modelo: 3, competenciaEstado: "aberta" };
+
+it('refresh() opens the default model-3 group and refresh("") opens none', async () => {
+  const { hook: { result } } = groupedHook([{ ...first, role: "cam" }, september]);
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.group?.key).toBe("area_tecnica:sep");
+  await act(async () => { await result.current.refresh(""); });
+  expect(result.current.group).toBeNull();
+  expect(result.current.status).toBe("ready");
+});
+
+it("revoking one unit of a model-3 view drops the whole view", async () => {
+  const alfa = { ...september, key: "alfa", vinculoId: "alfa", escopoId: "alfa", escopoCodigo: "ALFA" };
+  const beta = { ...september, key: "beta", vinculoId: "beta", escopoId: "beta", escopoCodigo: "BETA" };
+  const { hook: { result }, set } = groupedHook([beta, alfa]);
+  await act(async () => { await result.current.refresh(); });
+  expect(result.current.group?.contexts.map(({ key }) => key)).toEqual(["alfa", "beta"]);
+  set([alfa]);
+  await act(async () => { expect(await result.current.revalidate()).toBe(false); });
+  expect(result.current.group).toBeNull();
+  expect(result.current.error).toBe("O acesso a este contexto não está mais autorizado. O conteúdo carregado foi descartado.");
+  await act(async () => { await result.current.refresh(""); });
+  expect(result.current.group).toBeNull();
+});

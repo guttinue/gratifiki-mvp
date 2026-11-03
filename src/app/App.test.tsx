@@ -27,7 +27,7 @@ const legacyContext = {
   key: "legacy-link", vinculoId: "legacy-link", ...technicalContext,
   role: technicalContext.papel, mode: "legacy" as const, modelo: 1 as const,
 };
-// Picker values are group keys: role, competence and scope of the fixtures.
+// Picker values are model 1/2 group keys: role, competence and scope of the fixtures.
 const groupKeyOf = (role: string) => `${role}:${technicalContext.competenciaId}:${technicalContext.escopoId}`;
 
 function createAuthBoundary(hasSession = true) {
@@ -230,19 +230,20 @@ describe("App", () => {
     expect(readModelMocks.loadPilotEntries).not.toHaveBeenCalled();
   });
 
-  it("lists a model 2 group and a model 3 group together and opens each one as its own group", async () => {
+  it("opens the model 3 group after login and keeps the model 2 group reachable from the picker", async () => {
     contextMocks.loadAuthorizedContexts.mockResolvedValue([
       { ...legacyContext, key: "m2", vinculoId: "m2", mode: "academic", role: "cam", modelo: 2, escopoCodigo: "DISTRITO" },
       ...[1, 2].map((n) => ({ ...legacyContext, key: `m3-${n}`, vinculoId: `m3-${n}`, indicadorId: `ind-${n}`, mode: "academic", modelo: 3 })),
     ]);
     render(<App />);
-    const picker = await screen.findByLabelText("Contexto autorizado");
+    expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+    expect(screen.getByText("Perfil area_tecnica · DEMO-ESCOPO-01 · DEMO-2026-09")).toBeTruthy();
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "Selecione um contexto", "area_tecnica · DEMO-ESCOPO-01 · DEMO-2026-09 · acadêmico", "cam · DISTRITO · DEMO-2026-09 · acadêmico",
+      "Selecione um contexto", "Área técnica · Setembro/2026", "cam · DISTRITO · DEMO-2026-09 · acadêmico",
     ]);
-    fireEvent.change(picker, { target: { value: groupKeyOf("cam") } });
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("cam") } });
     expect(await screen.findByText("Perfil cam · DISTRITO · DEMO-2026-09")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: `area_tecnica:${technicalContext.competenciaId}` } });
     expect(await screen.findByText("Perfil area_tecnica · DEMO-ESCOPO-01 · DEMO-2026-09")).toBeTruthy();
     expect(screen.getAllByRole("option")).toHaveLength(3);
   });
