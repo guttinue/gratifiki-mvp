@@ -61,6 +61,10 @@ begin
  insert into public.revisoes_entrada(id,entrada_id,numero,autor_id,estado_dado,valor,origem,periodo_fonte,motivo,enviada_em)
   values(pg_temp.fixture('t18-rev-'||k),pg_temp.fixture('t18-entry-'||k),1,pg_temp.fixture('actor'),p_state,p_value,'synthetic source','2026-09-01',case when p_state='valor' then '' else 'synthetic reason' end,now());
  update public.entradas set revisao_atual_id=pg_temp.fixture('t18-rev-'||k),estado=p_entry_state where id=pg_temp.fixture('t18-entry-'||k);
+ -- R-10: a validated entry carries the reviewer's acceptance of its current revision.
+ if p_entry_state='validada' then
+  insert into public.decisoes_entrada(revisao_id,ator_id,tipo,motivo) values(pg_temp.fixture('t18-rev-'||k),pg_temp.fixture('reviewer'),'validar','');
+ end if;
  if p_state<>'valor' and p_decided then
   insert into public.decisoes_entrada(revisao_id,ator_id,tipo,motivo,referencia) values(pg_temp.fixture('t18-rev-'||k),pg_temp.fixture('reviewer'),'decidir_indisponibilidade','synthetic decision','T18-REF');
  end if;
