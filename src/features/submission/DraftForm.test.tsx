@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, describe, expect, it,vi } from 'vitest';
 import { DraftForm } from './DraftForm';
@@ -109,4 +109,20 @@ it('keeps the original pending operation when current access is denied, since an
  render(<DraftForm actorId="actor" client={transport} context={context} detail={savedDetail} onSaved={()=>{}} />);
  fireEvent.click(screen.getByRole('button',{name:'Enviar'}));await screen.findByRole('alert');
  expect(screen.getByRole('button',{name:'Repetir envio pendente'})).toBeTruthy();expect(localStorage.length).toBe(1);
+});
+it('offers "Não se aplica" only when the group allows it, and saves it without a value',async()=>{
+ const bodies:Record<string,unknown>[]=[];
+ const transport=createClient('http://localhost:54321','public-key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(_url,init)=>{bodies.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({resourceId:'position',version:2,revisionId:'rev',status:'rascunho',resultValue:null}),{headers:{'content-type':'application/json'}});}}});
+ const view=render(<DraftForm client={transport} context={context} detail={detail} onSaved={()=>{}} />);
+ expect(within(screen.getByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível']);
+ view.unmount();
+ render(<DraftForm allowNotApplicable client={transport} context={context} detail={detail} onSaved={()=>{}} />);
+ expect(within(screen.getByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível','Não se aplica']);
+ fireEvent.change(screen.getByLabelText('Valor'),{target:{value:'12'}});
+ fireEvent.change(screen.getByLabelText('Estado do dado'),{target:{value:'nao_aplicavel'}});
+ expect((screen.getByLabelText('Valor') as HTMLInputElement).disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText('Motivo'),{target:{value:'Sem atendimento no mês'}});
+ fireEvent.click(screen.getByRole('button',{name:'Salvar rascunho'}));
+ await screen.findByText('Rascunho salvo. Ainda não enviado.');
+ expect(bodies[0].p_input).toEqual({estadoDado:'nao_aplicavel',valor:null,fonte:'',periodoFonte:'',motivo:'Sem atendimento no mês'});
 });

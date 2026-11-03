@@ -4,15 +4,16 @@ export type Role = 'area_tecnica' | 'revisor_tecnico' | 'cam' | 'gestor_unidade'
   'gestor_distrital' | 'administrador' | 'lideranca';
 export type DecimalText = string;
 export type CommandContext = { vinculoId: string; competenciaId: string; indicadorId: string };
+export type CompetenceState = 'aberta' | 'em_revisao' | 'em_consolidacao' | 'fechada' | 'invalidada';
 export type AuthorizedContext = CommandContext & { key: string; actorId: string; role: Role;
   escopoId: string; escopoCodigo: string; competenciaCodigo: string; mode: 'legacy' | 'academic';
-  modelo: 1 | 2 | 3 };
+  modelo: 1 | 2 | 3; competenciaEstado?: CompetenceState };
 // One role, competence and scope with all the indicators the actor may use there.
 // The server still authorizes each context; the group only shapes the screens.
 export type ContextGroup = { key: string; role: Role; modelo: 1 | 2 | 3; competenciaId: string;
   competenciaCodigo: string; escopoId: string; escopoCodigo: string; contexts: AuthorizedContext[] };
 export type EntryStatus = 'rascunho' | 'enviada' | 'em_revisao' | 'devolvida' | 'validada' | 'invalidada';
-export type DraftInput = { estadoDado: 'valor' | 'indisponivel'; valor: DecimalText | null;
+export type DraftInput = { estadoDado: 'valor' | 'indisponivel' | 'nao_aplicavel'; valor: DecimalText | null;
   fonte: string; periodoFonte: string; motivo: string };
 export type CommandReceipt = { resourceId: string; version: number; revisionId: string | null;
   status: string; resultValue: DecimalText | null };

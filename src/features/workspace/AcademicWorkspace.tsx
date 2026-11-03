@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { ContextGroup, PositionSummary } from '../pilot/types';
+import type { CompetenceState, ContextGroup, PositionSummary } from '../pilot/types';
 import { toCommandContext } from '../context/contextApi';
 import { listPositions, loadPositionDetail, type PositionDetail } from '../submission/positionApi';
 import { DraftForm } from '../submission/DraftForm';
@@ -19,6 +19,7 @@ import { AcademicDashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
+const competenceStateLabels:Record<CompetenceState,string>={aberta:'Aberta',em_revisao:'Em revisão',em_consolidacao:'Em consolidação',fechada:'Fechada',invalidada:'Invalidada'};
 export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }
 export function AcademicWorkspace(props:AcademicWorkspaceProps) {
  // Key the owned data/edit subtree to the group and to each of its contexts; no
@@ -86,6 +87,7 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
   <p className="academic-demo-strip">Regra fictícia DEMO-v1 · dados sintéticos · sem efeito institucional</p>
   <div className="academic-top-row"><h1>Contexto acadêmico autorizado</h1>
   <p className="academic-profile">Perfil {context.role} · {context.escopoCodigo} · {context.competenciaCodigo}</p>
+  {context.competenciaEstado&&<p className="academic-competence-state"><span className="sr-only">Situação da competência: </span>{competenceStateLabels[context.competenciaEstado]}</p>}
   {contextPicker}
   <button type="button" className="academic-signout" disabled={isSigningOut} onClick={()=>{if(requestAcademicLeave())onSignOut();}}>Sair</button></div>
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">
@@ -106,10 +108,10 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
     ).map(decision=><p key={decision.id}>
      {decision.type==='devolver'?'Motivo da devolução técnica':'Motivo da retificação CAM'}: {decision.reason}
     </p>)}
-    {detail.position.aplicavel&&detail.position.status==='devolvida'?<CorrectionForm key={detail.position.id} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={receipt=>{
+    {detail.position.aplicavel&&detail.position.status==='devolvida'?<CorrectionForm key={detail.position.id} allowNotApplicable={group.modelo===3} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={receipt=>{
      setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'enviada',version:receipt.version,revisionId:receipt.revisionId,resultValue:receipt.resultValue}:row));
     }} />:detail.position.aplicavel&&['ausente','rascunho','enviada'].includes(detail.position.status)
-     ? <DraftForm key={detail.position.id} actorId={context.actorId} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={(receipt)=>{
+     ? <DraftForm key={detail.position.id} allowNotApplicable={group.modelo===3} actorId={context.actorId} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={(receipt)=>{
       setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'enviada',version:receipt.version,revisionId:receipt.revisionId,resultValue:receipt.resultValue}:row));
      }} onSaved={(receipt)=>{
       setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'rascunho',version:receipt.version,revisionId:receipt.revisionId}:row));

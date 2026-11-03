@@ -39,7 +39,16 @@ describe("authorized contexts boundary", () => {
     expect((await loadAuthorizedContexts(client))[0].modelo).toBe(3);
   });
 
+  it("keeps the competence state the server emits and leaves it absent for older rows", async () => {
+    const client = { rpc: async () => ({ data: { contexts: [{ ...contextFixture, modelo: 3, competenciaEstado: "em_consolidacao" }, { ...contextFixture, key: "older" }] }, error: null }) } as unknown as SupabaseClient;
+    const loaded = await loadAuthorizedContexts(client);
+    expect(loaded[0].competenciaEstado).toBe("em_consolidacao");
+    expect("competenciaEstado" in loaded[1]).toBe(false);
+  });
+
   it.each([
+    { contexts: [{ ...contextFixture, competenciaEstado: "publicada" }] },
+    { contexts: [{ ...contextFixture, competenciaEstado: null }] },
     { contexts: [{ ...contextFixture, modelo: 4 }] },
     { contexts: [{ ...contextFixture, modelo: "2" }] },
     { contexts: [{ ...contextFixture, role: "superuser" }] },

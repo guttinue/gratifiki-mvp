@@ -1,10 +1,12 @@
 import { groupContexts } from '../context/contextGroups';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, expect, it } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import type { AuthorizedContext } from '../pilot/types';
 import { authorizeCorrection, correctPosition, decideUnavailability } from './correctionApi';
+import { CorrectionForm } from './CorrectionForm';
+import type { PositionDetail } from '../submission/positionApi';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(cleanup);
 const context:AuthorizedContext={key:'technical',actorId:'actor',role:'area_tecnica',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'SUL',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
@@ -145,4 +147,15 @@ it.each([
 it('requires command-specific CAM status and null unavailable result',async()=>{
  await expect(authorizeCorrection(api(async()=>response({resourceId:'pos',version:6,revisionId:'old',status:'validada',resultValue:'8'})),context,'pos',5,'reason','op')).rejects.toMatchObject({confirmedRejected:false});
  await expect(decideUnavailability(api(async()=>response({resourceId:'pos',version:6,revisionId:'old',status:'validada',resultValue:'0'})),context,'pos',5,'DEMO','reason','op')).rejects.toMatchObject({confirmedRejected:false});
+});
+it('offers "Não se aplica" in the correction only when the group allows it',()=>{
+ const client=api(async()=>{throw new Error('must not call');});
+ const states=()=>within(screen.getByLabelText('Estado do dado corrigido')).getAllByRole('option').map(o=>o.textContent);
+ const view=render(<CorrectionForm client={client} context={context} detail={detail as PositionDetail} onSubmitted={()=>{}}/>);
+ expect(states()).toEqual(['Valor','Indisponível']);
+ view.unmount();
+ render(<CorrectionForm allowNotApplicable client={client} context={context} detail={detail as PositionDetail} onSubmitted={()=>{}}/>);
+ expect(states()).toEqual(['Valor','Indisponível','Não se aplica']);
+ fireEvent.change(screen.getByLabelText('Estado do dado corrigido'),{target:{value:'nao_aplicavel'}});
+ expect(screen.queryByLabelText('Valor corrigido')).toBeNull();
 });

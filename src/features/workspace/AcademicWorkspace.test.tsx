@@ -150,3 +150,19 @@ it('discards the loaded detail when the same group comes back narrowed to other 
  view.rerender(<AcademicWorkspace client={client} group={groupContexts([second])[0]} onSignOut={()=>{}}/>);
  expect(screen.queryByLabelText('Valor')).toBeNull();
 });
+it('shows the competence state next to its code in the header',()=>{
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{throw new Error('should not read');}}});
+ const view=render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'em_consolidacao'})} onSignOut={()=>{}} />);
+ expect(screen.getByText('Perfil gestor_unidade · NORTE · 2026-10')).toBeTruthy();
+ expect(screen.getByText('Em consolidação')).toBeTruthy();
+ view.unmount();
+ render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'aberta'})} onSignOut={()=>{}} />);
+ expect(screen.getByText('Aberta')).toBeTruthy();
+});
+it('offers "Não se aplica" in the draft only for a model-3 group',async()=>{
+ openAcademicPage('preenchimento');
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_position_detail')?{position,revisions:[],decisions:[],memories:[]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ render(<AcademicWorkspace client={client} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
+ fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
+ expect(within(await screen.findByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível','Não se aplica']);
+});

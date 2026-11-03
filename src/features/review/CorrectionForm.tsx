@@ -10,9 +10,11 @@ interface CorrectionFormProps {
     client: SupabaseClient;
     context: CommandContext;
     detail: PositionDetail;
+    // Model-3 groups only: offers the "Não se aplica" state.
+    allowNotApplicable?: boolean;
     onSubmitted: (receipt: CommandReceipt) => void;
 }
-export function CorrectionForm({ client, context, detail, onSubmitted }: CorrectionFormProps) {
+export function CorrectionForm({ client, context, detail, allowNotApplicable = false, onSubmitted }: CorrectionFormProps) {
     const previous = detail.revisions.find(row => row.id === detail.position.revisionId);
     const initial: DraftInput = {
         estadoDado: previous?.estadoDado ?? 'valor',
@@ -48,7 +50,7 @@ export function CorrectionForm({ client, context, detail, onSubmitted }: Correct
                     !/^\d{4}-\d{2}-\d{2}$/.test(normalized.periodoFonte) ||
                     normalized.motivo.length > 1000 ||
                     (normalized.estadoDado === 'valor' && normalized.valor === null) ||
-                    (normalized.estadoDado === 'indisponivel' && !normalized.motivo))
+                    (normalized.estadoDado !== 'valor' && !normalized.motivo))
                     throw new Error();
                 operation = { id: crypto.randomUUID(), version: detail.position.version, input: normalized };
             }
@@ -87,7 +89,7 @@ export function CorrectionForm({ client, context, detail, onSubmitted }: Correct
     useNavigationDraft(!receipt && (busy || !!pending || JSON.stringify(input) !== JSON.stringify(initial)));
     return <section aria-label="Correção versionada"><h4>Nova revisão da evidência</h4>
   <p>Revisão anterior {previous?.number ?? '—'} · resultado preservado: {detail.position.resultValue ?? 'Sem número'}</p>
-  <label>Estado do dado corrigido<select disabled={disabled} value={input.estadoDado} onChange={e => setInput({ ...input, estadoDado: e.target.value as DraftInput['estadoDado'], valor: null })}><option value="valor">Valor</option><option value="indisponivel">Indisponível</option></select></label>
+  <label>Estado do dado corrigido<select disabled={disabled} value={input.estadoDado} onChange={e => setInput({ ...input, estadoDado: e.target.value as DraftInput['estadoDado'], valor: null })}><option value="valor">Valor</option><option value="indisponivel">Indisponível</option>{allowNotApplicable && <option value="nao_aplicavel">Não se aplica</option>}</select></label>
   {input.estadoDado === 'valor' && <label>Valor corrigido<input disabled={disabled} value={input.valor ?? ''} onChange={e => setInput({ ...input, valor: e.target.value || null })}/></label>}
   <label>Fonte corrigida<input disabled={disabled} maxLength={500} value={input.fonte} onChange={e => setInput({ ...input, fonte: e.target.value })}/></label>
   <label>Período da fonte corrigida<input type="date" disabled={disabled} value={input.periodoFonte} onChange={e => setInput({ ...input, periodoFonte: e.target.value })}/></label>
