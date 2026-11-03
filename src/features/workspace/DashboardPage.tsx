@@ -11,7 +11,8 @@ import { listPositions } from '../submission/positionApi';
 import { loadCycleChecklist } from '../cycle/cycleApi';
 import { loadGroupPositions, statusLabels, type GroupPosition } from '../batch/groupPositions';
 import { loadUnitBatch } from '../batch/batchApi';
-import { monthName, scopeName } from './displayNames';
+import { competenceStateLabels, monthName, publicationLabels, scopeName } from './displayNames';
+import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
 type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
 export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
 function ContextDashboard({client,context}:AcademicDashboardProps){
@@ -25,7 +26,7 @@ function ContextDashboard({client,context}:AcademicDashboardProps){
 }
 
 // ---- Model 3 (V3): one dashboard per role over the whole group of indicators ----
-type V3Data={kind:'positions';rows:GroupPosition[];returnReason:string|null}|{kind:'cycle';checklist:CycleChecklist};
+type V3Data={kind:'positions';rows:GroupPosition[];returnReason:string|null}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 const byUnitAndIndicator=(a:GroupPosition,b:GroupPosition)=>compare(a.position.escopoCodigo,b.position.escopoCodigo)||compare(a.position.indicatorCode??'',b.position.indicatorCode??'');
 // Each position keeps the context that listed it. For the technical area, the reason of the
@@ -40,7 +41,6 @@ async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Prom
  const returnReason=await loadUnitBatch(client,contexts,unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
  return{kind:'positions',rows,returnReason};
 }
-const cycleSteps=[['aberta','Aberta','Recebendo e conferindo'],['em_consolidacao','Consolidação','Revisão final da CAM'],['fechada','Fechada','Resultados congelados'],['publicada','Publicada','Visível aos gestores']] as const;
 function NextStep({kicker,title,text,action,alert}:{kicker:string;title:string;text:string;action?:{label:string;go:()=>void};alert?:boolean}){
  return <section className={alert?'v3-next v3-next-alert':'v3-next'}><div><span className="v3-kicker">{kicker}</span><h3>{title}</h3><p>{text}</p></div>{action&&<button type="button" className="primary" onClick={action.go}>{action.label}</button>}</section>;
 }
@@ -63,13 +63,13 @@ export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDash
 function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition}:GroupDashboardProps){
  const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
  useEffect(()=>{let current=true;setData(null);setError(false);
-  const load=group.role==='cam'?loadCycleChecklist(client,toCommandContext(group.contexts[0])).then((checklist):V3Data=>({kind:'cycle',checklist})):loadPanelPositions(client,group);
+  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group)]).then(([checklist,rows]):V3Data=>({kind:'cycle',checklist,rows})):loadPanelPositions(client,group);
   void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
  const openUnit=(unitId:string)=>onOpenUnit?onOpenUnit(unitId):onNavigate('preenchimento');
  const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
  return <section aria-label="Painel autorizado" className="v3-page">
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
-  :data.kind==='cycle'?<CamPanel checklist={data.checklist} onNavigate={onNavigate}/>
+  :data.kind==='cycle'?<CamPanel checklist={data.checklist} rows={data.rows} onNavigate={onNavigate} onOpenPosition={openPosition}/>
   :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
 }
@@ -89,14 +89,14 @@ function ReviewerPanel({rows,onOpenPosition}:{rows:GroupPosition[];onOpenPositio
   :<NextStep kicker="Fila vazia" title="Nada aguardando você" text="Quando a área técnica enviar, a entrada aparece aqui."/>}
   <UnitStatusTable rows={rows}/></>;
 }
-function CamPanel({checklist,onNavigate}:{checklist:CycleChecklist;onNavigate:(destination:string)=>void}){
- const current=checklist.publication==='publicada_demo'?3:checklist.state==='fechada'?2:checklist.state==='em_consolidacao'?1:0;
- const ready=checklist.ready??checklist.reviewed;const open=checklist.blockers.length;
- return <><ol aria-label="Etapas da competência" className="v3-stepper">{cycleSteps.map(([id,label,hint],index)=><li key={id} className={index<current?'done':index===current?'current':''} aria-current={index===current?'step':undefined}><b>{label}</b>{hint}</li>)}</ol>
-  <section className="v3-panel"><div className="v3-metrics"><div className="v3-metric v3-metric-lead"><span className="v3-label" id="v3-ready">Entradas prontas</span><strong className="v3-value">{`${ready} de ${checklist.expected} prontas`}</strong>
-   <progress aria-labelledby="v3-ready" value={ready} max={Math.max(checklist.expected,1)}/></div></div>
-   <p>{open===0?'Nenhuma pendência impede o fechamento.':`${open} ${open>1?'pendências impedem':'pendência impede'} o fechamento.`}</p>
-   <button type="button" onClick={()=>onNavigate('ciclo')}>Abrir ciclo e fechamento</button></section></>;
+// Read-only: the closing and publishing commands stay on the cycle screen.
+function CamPanel({checklist,rows,onNavigate,onOpenPosition}:{checklist:CycleChecklist;rows:GroupPosition[];onNavigate:(destination:string)=>void;onOpenPosition:(id:string)=>void}){
+ return <><CycleStepper checklist={checklist}/><CycleMetrics checklist={checklist}/>
+  <div className="v3-split"><section aria-labelledby="cam-blockers" className="v3-panel"><h3 id="cam-blockers">O que impede o fechamento</h3>
+   {checklist.blockers.length?<CycleBlockers blockers={checklist.blockers} positions={rows.map(row=>row.position)} label="O que impede o fechamento" onOpenPosition={onOpenPosition}/>:<p>Nenhuma pendência impede o fechamento.</p>}</section>
+  <section aria-labelledby="cam-closing" className="v3-panel"><h3 id="cam-closing">Fechamento e publicação</h3>
+   <p>Situação do ciclo: {competenceStateLabels[checklist.state]}</p><p>Publicação: {publicationLabels[checklist.publication]}</p>
+   <button type="button" className="primary" onClick={()=>onNavigate('ciclo')}>Abrir ciclo e fechamento</button></section></div></>;
 }
 
 interface DashboardPageProps {

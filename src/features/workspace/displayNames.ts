@@ -1,4 +1,4 @@
-import type { CompetenceState, Role } from '../pilot/types';
+import type { CompetenceState, CycleChecklist, Role } from '../pilot/types';
 
 // Presentation only: friendly V3 names for the synthetic academic scopes.
 // Authorization and domain data keep using the scope codes.
@@ -36,4 +36,8 @@ export const roleLabels: Readonly<Record<Role, string>> = {
 
 export const competenceStateLabels: Readonly<Record<CompetenceState, string>> = {
   aberta: 'Aberta', em_revisao: 'Em revisão', em_consolidacao: 'Em consolidação', fechada: 'Fechada', invalidada: 'Invalidada',
+};
+
+export const publicationLabels: Readonly<Record<CycleChecklist['publication'], string>> = {
+  nao_publicada: 'Não publicada', publicada_demo: 'Publicada na demonstração',
 };

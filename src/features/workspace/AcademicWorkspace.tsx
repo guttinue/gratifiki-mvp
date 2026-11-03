@@ -92,17 +92,23 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   window.addEventListener('hashchange',syncPage);
   return()=>window.removeEventListener('hashchange',syncPage);
  },[context.role]);
- function navigate(destination:string){
+ function navigate(destination:string):boolean{
   setMenuOpen(false);
-  if(destination===page||!getAcademicDestinations(context.role).some(d=>d.id===destination)||!requestAcademicLeave())return;
+  if(destination===page||!getAcademicDestinations(context.role).some(d=>d.id===destination)||!requestAcademicLeave())return false;
   detailGeneration.current++;setDetail(null);setPage(destination);
   window.history.pushState({},'',`#academico/${destination}`);
   contentRef.current?.focus();
+  return true;
  }
  // The painel's "Abrir" opens the fill screen on that unit.
  function openUnit(unitId:string){setUnitRequest(unitId);navigate('preenchimento');}
  // Opens one position in the queue page of the role; model 2 shows the queue on every page.
- function openPosition(id:string){setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate(context.role==='cam'?'entradas':'conferencia');}
+ function openPosition(id:string){
+  const target=context.role==='cam'?'entradas':'conferencia';
+  // A cancelled leave prompt keeps the page and must not leave a request for the next visit.
+  if(v3&&page!==target&&!navigate(target))return;
+  setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));
+ }
  useEffect(()=>{
   const request=++generation.current;
   if(context.role!=='area_tecnica'||page!=='preenchimento'||v3) return;
