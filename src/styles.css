@@ -1981,13 +1981,21 @@ td code,
 .v3-metric progress { width: 100%; height: 10px; }
 
 /* T11: batch entry (one card per indicator) and the model-3 queue. */
-.batch-unit { max-width: 360px; }
+.batch-fill { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
+.batch-main { min-width: 0; }
+/* Clears the sticky header, like scroll-padding-top above. */
+.batch-units { position: sticky; top: 120px; display: grid; gap: 8px; }
+.academic-app .batch-units button { display: grid; gap: 4px; width: 100%; margin: 0; padding: 12px 14px; border-color: var(--line); border-radius: var(--r); background: var(--surface); color: var(--ink); text-align: left; }
+.academic-app .batch-units button[aria-pressed="true"] { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+.batch-units progress { width: 100%; height: 6px; margin-top: 2px; }
+.batch-head { padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+.batch-head h3, .batch-head p { margin: 0; }
 .batch-cards { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
 .batch-cards > li { margin: 0; min-width: 0; }
 .batch-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .batch-card[data-invalid="true"] { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
 .batch-card > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
-.batch-card h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.batch-card h4 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .batch-card p { margin: 6px 0; }
 .batch-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 0 20px; align-items: start; }
 .batch-body > * { min-width: 0; }
@@ -2010,8 +2018,14 @@ td code,
 .batch-locked dt { color: var(--muted); font-size: 14px; }
 .batch-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .batch-footer p { margin: 0; }
-@media (max-width: 767px) {
+@media (max-width: 1179px) {
   .batch-body { grid-template-columns: minmax(0, 1fr); }
-  .batch-score { grid-column: 1; grid-row: auto; padding: 8px 0 0; border-left: 0; border-top: 1px solid #dce2ec; }
+  .batch-score { grid-column: 1; grid-row: auto; padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 900px) {
+  .batch-fill { grid-template-columns: minmax(0, 1fr); }
+  .batch-units { position: static; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+}
+@media (max-width: 767px) {
   .batch-footer { position: static; }
 }

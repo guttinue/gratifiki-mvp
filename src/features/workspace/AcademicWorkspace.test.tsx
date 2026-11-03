@@ -174,7 +174,7 @@ it('offers "Não se aplica" through the batch page for a model-3 group and not i
  view.unmount();
  const batch=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',mode:'zero',items:[{positionId:'pos',indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,periodoFonte:null,returnReason:null,revisionNumber:null}]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
  render(<AcademicWorkspace client={batch} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
- expect(await screen.findByRole('heading',{name:'Preenchimento da unidade'})).toBeTruthy();
+ expect(await screen.findByRole('heading',{name:'Preenchimento',level:2})).toBeTruthy();
  expect(await screen.findByRole('radio',{name:'Não se aplica'})).toBeTruthy();
  expect(screen.queryByRole('heading',{name:'Rascunhos do indicador'})).toBeNull();
  expect(screen.queryByLabelText('Estado do dado')).toBeNull();
@@ -214,12 +214,31 @@ it('mounts the unit results on resultados for the CAM of a model-3 group, and th
 });
 it('mounts the V3 dashboard for the technical area and navigates to the fill screen from it',async()=>{
  openAcademicPage('painel');
- const {client,calls}=rpc(name=>name==='get_dashboard'?{expected:2,received:0,reviewed:0,unavailable:0,cards:[{id:'todas',label:'todas',count:2,filter:null},{id:'ausente',label:'ausente',count:2,filter:null}]}:{items:[],total:0,page:1,pageSize:25});
+ const {client,calls}=rpc(name=>name==='get_operational_positions'?{items:[{...position,escopoCodigo:'ACADEMIC-NORTE-1'}],total:1,page:1,pageSize:100}:{});
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
- expect(await screen.findByRole('heading',{name:'Preenchimento da unidade'})).toBeTruthy();
- expect(calls).toContain('get_dashboard');
+ expect(await screen.findByRole('heading',{name:'Preenchimento',level:2})).toBeTruthy();
+ expect(calls).not.toContain('get_dashboard');
+});
+it('opens the fill screen on the unit chosen in the painel',async()=>{
+ openAcademicPage('painel');
+ const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+ const batches:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(init?.body??'{}')) as {p_contexto:{vinculoId:string};p_unidade_id:string};
+  const json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
+  if(name==='get_operational_positions'){const id=body.p_contexto.vinculoId;return json({items:[{...position,id:`pos-${id}`,escopoId:id,escopoCodigo:units[id],status:'ausente',indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'}],total:1,page:1,pageSize:100});}
+  if(name==='get_unit_batch'){batches.push(body.p_unidade_id);return json({unitId:body.p_unidade_id,unitCode:units[body.p_unidade_id],mode:'zero',items:[{positionId:`pos-${body.p_unidade_id}`,indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,periodoFonte:null,returnReason:null,revisionNumber:null}]});}
+  return json({});
+ }}});
+ const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica'),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
+ render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
+ expect(batches).toEqual(['beta']);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
  const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));

@@ -75,7 +75,7 @@ describe('BatchEntryPage', () => {
     const situation = within(card('DEMO-V1-01')).getByRole('radiogroup', { name: 'Situação do dado' });
     expect(within(situation).getAllByRole('radio').map(r => (r as HTMLInputElement).labels?.[0].textContent)).toEqual(['Tenho o valor', 'Não se aplica', 'Indisponível']);
     expect((within(situation).getByRole('radio', { name: 'Tenho o valor' }) as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByLabelText('Unidade')).toBeTruthy();
+    expect(within(screen.getByRole('navigation', { name: 'Unidades' })).getByRole('button', { name: /^Unidade Alfa/ })).toBeTruthy();
   });
 
   it('shows the live points as a preview with the server rounding (88 → 27,79 and 90 → 28,42)', async () => {
@@ -299,7 +299,7 @@ describe('BatchEntryPage', () => {
     });
     render(<BatchEntryPage client={view.client} group={group} />);
     expect((await screen.findByRole('alert')).textContent).toContain('indicadores da unidade');
-    fireEvent.change(screen.getByLabelText('Unidade'), { target: { value: 'beta' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
     await screen.findByText(/DEMO-V1-01/);
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -316,11 +316,34 @@ describe('BatchEntryPage', () => {
       ? new Response(JSON.stringify({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } }) : undefined);
     render(<BatchEntryPage client={view.client} group={group} />);
     await screen.findByText(/DEMO-V1-01/);
-    const picker = screen.getByLabelText('Unidade') as HTMLSelectElement;
-    expect(Array.from(picker.options).map(o => o.textContent)).toEqual(['ACADEMIC-NORTE-1', 'ACADEMIC-NORTE-2']);
-    fireEvent.change(picker, { target: { value: 'beta' } });
+    const list = within(screen.getByRole('navigation', { name: 'Unidades' })).getAllByRole('button');
+    expect(list.map(button => button.querySelector('b')?.textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
+    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
     await waitFor(() => expect(view.calls.filter(c => c.name === 'get_unit_batch').at(-1)!.body.p_unidade_id).toBe('beta'));
     expect(view.calls.filter(c => c.name === 'get_unit_batch').at(-1)!.body.p_contextos.map((c) => c.indicadorId)).toEqual(['indicator-1']);
+  });
+
+  it('lists units with their progress and opens the requested one', async () => {
+    const betaItem = { ...items[0], positionId: 'position-5', status: 'ausente', version: 1, estadoDado: null, valor: null, fonte: null, revisionNumber: null };
+    const view = rpc(call => {
+      const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+      if (call.name === 'get_operational_positions' && call.body.p_contexto.indicadorId === 'indicator-1') {
+        return json({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 });
+      }
+      return call.name === 'get_unit_batch' && call.body.p_unidade_id === 'beta' ? json({ unitId: 'beta', unitCode: 'ACADEMIC-NORTE-2', mode: 'zero', items: [betaItem] }) : undefined;
+    });
+    render(<BatchEntryPage client={view.client} group={group} initialUnitId="beta" />);
+    expect(await screen.findByRole('heading', { name: 'Unidade Beta', level: 3 })).toBeTruthy();
+    expect(screen.getByText('Outubro/2026 · regra fictícia DEMO-v1')).toBeTruthy();
+    expect(view.calls.filter(c => c.name === 'get_unit_batch').map(c => c.body.p_unidade_id)).toEqual(['beta']);
+    // Enviados = enviada, em revisão e validada (02 and 04 of Alfa).
+    const alfa = screen.getByRole('button', { name: 'Unidade Alfa 2 de 4 enviados · 1 devolvida' });
+    const beta = screen.getByRole('button', { name: 'Unidade Beta 0 de 1 enviados' });
+    expect(beta.getAttribute('aria-pressed')).toBe('true');
+    expect(alfa.getAttribute('aria-pressed')).toBe('false');
+    expect(within(card('DEMO-V1-01')).getByText('Não enviado').className).toContain('v3-st-ausente');
+    expect(screen.getByRole('button', { name: 'Enviar 0 itens' }).className).toContain('primary');
+    expect(screen.queryByRole('heading', { name: 'Preenchimento da unidade' })).toBeNull();
   });
 
   it('shows a load failure without inventing cards', async () => {

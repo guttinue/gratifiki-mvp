@@ -9,6 +9,7 @@ import { absenceCopy, directionSymbol } from '../results/CalculationExplainer';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { BatchCommandError, loadUnitBatch, submitUnitBatch, type BatchItem, type UnitBatch, type UnitBatchItem } from './batchApi';
 import { loadGroupPositions, statusLabels, type GroupPosition } from './groupPositions';
+import { competenceLabel, scopeName } from '../workspace/displayNames';
 
 type Situation = DraftInput['estadoDado'];
 type Edit = { estado: Situation; valor: string; fonte: string; periodo: string; motivo: string; explicacao: string };
@@ -43,11 +44,11 @@ function check(item: UnitBatchItem, e: Edit): Errors {
   return errors;
 }
 
-export function BatchEntryPage({ client, group }: { client: SupabaseClient; group: ContextGroup }) {
+export function BatchEntryPage({ client, group, initialUnitId }: { client: SupabaseClient; group: ContextGroup; initialUnitId?: string }) {
   const period = defaultPeriod(group.competenciaCodigo);
   const open = !group.contexts[0].competenciaEstado || group.contexts[0].competenciaEstado === 'aberta';
   const [rows, setRows] = useState<GroupPosition[] | null>(null);
-  const [unitId, setUnitId] = useState('');
+  const [unitId, setUnitId] = useState(initialUnitId ?? '');
   const [batch, setBatch] = useState<UnitBatch | null>(null);
   const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [touched, setTouched] = useState<Record<string, true>>({});
@@ -67,10 +68,17 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
   const active = useRef(true);
   useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
 
+  // Progress per unit from the listed positions: "enviados" are the ones out of the technician's hands.
   const units = useMemo(() => {
-    const byId = new Map<string, string>();
-    for (const { position } of rows ?? []) byId.set(position.escopoId, position.escopoCodigo);
-    return [...byId].map(([id, code]) => ({ id, code })).sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+    const byId = new Map<string, { id: string; code: string; total: number; sent: number; returned: number }>();
+    for (const { position } of rows ?? []) {
+      const unit = byId.get(position.escopoId) ?? { id: position.escopoId, code: position.escopoCodigo, total: 0, sent: 0, returned: 0 };
+      unit.total++;
+      if (['enviada', 'em_revisao', 'validada'].includes(position.status)) unit.sent++;
+      if (position.status === 'devolvida') unit.returned++;
+      byId.set(unit.id, unit);
+    }
+    return [...byId.values()].sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
   }, [rows]);
   const activeUnit = units.find(unit => unit.id === unitId)?.id ?? units[0]?.id ?? '';
   const byPosition = useMemo(() => new Map((rows ?? []).map(row => [row.position.id, row])), [rows]);
@@ -173,16 +181,17 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
 
   const retry = () => { setProblem(null); setReload(n => n + 1); };
   return <section className="v3-page batch-page" aria-label="Preenchimento em lote">
-    <h2>Preenchimento da unidade</h2>
-    <p>Informe os indicadores da unidade e envie para conferência. Zero é um valor; &quot;não enviado&quot;, &quot;não se aplica&quot; e &quot;indisponível&quot; são situações diferentes.</p>
     {!open && <p className="v3-note">A competência não está aberta: somente consulta.</p>}
-    <label className="batch-unit">Unidade
-      <select value={activeUnit} onChange={event => setUnitId(event.target.value)}>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.code}</option>)}</select>
-    </label>
+    <div className="batch-fill">
+    <nav aria-label="Unidades" className="batch-units">{units.map(unit => <button key={unit.id} type="button" aria-pressed={unit.id === activeUnit} onClick={() => setUnitId(unit.id)}>
+      <b>{scopeName(unit.code)}</b>{' '}<span className="v3-sub">{`${unit.sent} de ${unit.total} enviados`}{unit.returned ? ` · ${unit.returned} ${unit.returned > 1 ? 'devolvidas' : 'devolvida'}` : ''}</span>
+      <progress aria-hidden="true" value={unit.sent} max={unit.total} /></button>)}</nav>
+    <div className="batch-main">
     {loadError && <p role="alert">{loadError}</p>}
     {rows && !units.length && !loadError && <p>Nenhuma posição para preencher neste mês.</p>}
     {!loadError && !batch && (!rows || units.length > 0) && <p role="status">Carregando indicadores…</p>}
     {notice && <p role="status">{notice}</p>}
+    {batch && <header className="batch-head"><h3>{scopeName(batch.unitCode)}</h3><p className="v3-sub">{competenceLabel(group.competenciaCodigo)} · regra fictícia DEMO-v1</p></header>}
     <ul className="batch-cards">{evaluated.map(({ item, e, errors, visible, ready: isReady }) => {
       const k = `batch-${item.positionId}`;
       const isEditable = editable(item);
@@ -193,7 +202,7 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
       const unit = item.unit ? ` ${item.unit}` : '';
       return <li key={item.positionId}><section ref={node => { if (node) cards.current.set(item.positionId, node); else cards.current.delete(item.positionId); }}
         className="batch-card" tabIndex={-1} aria-labelledby={`${k}-title`} aria-describedby={cardProblem ? `${k}-problem` : undefined} data-invalid={cardProblem ? 'true' : undefined}>
-        <header><h3 id={`${k}-title`}>{item.indicatorCode} · {item.name}</h3><span className="v3-badge">{statusLabels[item.status]}</span></header>
+        <header><h4 id={`${k}-title`}>{item.indicatorCode} · {item.name}</h4><span className={`v3-badge v3-st-${item.status}`}>{statusLabels[item.status]}</span></header>
         <p className="v3-sub">Meta: {directionSymbol(item.direction)} {formatDecimal(item.meta)}{unit} · peso {formatDecimal(item.weight)} pontos{item.revisionNumber && item.revisionNumber > 1 ? ` · revisão ${item.revisionNumber}` : ''}</p>
         {cardProblem && <p id={`${k}-problem`} role="alert" className="batch-error">{cardProblem.message}</p>}
         {item.status === 'devolvida' && item.returnReason && <p className="batch-return"><strong>Motivo da devolução</strong> {item.returnReason}</p>}
@@ -243,7 +252,8 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
       {problem.code === 'version_conflict' && <button type="button" onClick={retry}>Recarregar unidade</button>}</>}
     {batch && open && <div className="batch-footer">
       <p className="batch-count" aria-live="polite"><strong>{plural(ready.length, 'pronto', 'prontos')} para envio</strong>{waiting ? <span> · {plural(waiting, 'pendente', 'pendentes')}</span> : null}</p>
-      <button type="button" className="batch-send" disabled={busy || !ready.length || blocked} onClick={() => void send()}>{busy ? 'Enviando…' : `Enviar ${plural(ready.length, 'item', 'itens')}`}</button>
+      <button type="button" className="batch-send primary" disabled={busy || !ready.length || blocked} onClick={() => void send()}>{busy ? 'Enviando…' : `Enviar ${plural(ready.length, 'item', 'itens')}`}</button>
     </div>}
+    </div></div>
   </section>;
 }
