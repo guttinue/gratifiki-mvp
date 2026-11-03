@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import { CyclePage } from './CyclePage';
+import { NavigationSafety } from '../workspace/NavigationSafety';
 import { loadCycleChecklist } from './cycleApi';
 import type { AuthorizedContext, CycleChecklist } from '../pilot/types';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
@@ -156,12 +157,14 @@ const v3Checklist=(blockers:object[],extra:object={})=>({...checklist,state:'abe
 const pendingBlocker=(id:string)=>({positionId:id,code:'unavailability_pending',message:'Indisponibilidade sem decisão CAM ou com número indevido.'});
 type CycleBody={p_contexto:{vinculoId:string;indicadorId:string};p_position_id:string};
 function v3Cycle(blockers:object[],onCommand?:(body:Record<string,unknown>)=>Response|undefined){
- const calls:{name:string;body:CycleBody}[]=[];let decided=false;
+ const calls:{name:string;body:CycleBody}[]=[];const decidedIds=new Set<string>();
  const api=client(async(url,options)=>{
   const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
-  if(name==='get_cycle_checklist')return response(v3Checklist(decided?blockers.filter(b=>(b as {code:string}).code!=='unavailability_pending'):blockers));
+  // A re-read is not instantaneous in a browser; the delay lets the loading state render in the test too.
+  if(name==='get_cycle_checklist'&&calls.filter(c=>c.name==='get_cycle_checklist').length>1)await new Promise(resolve=>setTimeout(resolve,40));
+  if(name==='get_cycle_checklist')return response(v3Checklist(blockers.filter(b=>!decidedIds.has((b as {positionId:string}).positionId))));
   if(name==='get_operational_positions')return response({items:v3Rows[body.p_contexto.indicadorId],total:v3Rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
-  if(name==='decide_unavailability'){const custom=onCommand?.(body);if(custom)return custom;decided=true;return response({resourceId:body.p_position_id,version:8,revisionId:`rev-${body.p_position_id}`,status:'validada',resultValue:null});}
+  if(name==='decide_unavailability'){const custom=onCommand?.(body);if(custom)return custom;decidedIds.add(body.p_position_id);return response({resourceId:body.p_position_id,version:8,revisionId:`rev-${body.p_position_id}`,status:'validada',resultValue:null});}
   return response(null);
  });
  return {api,calls};
@@ -219,4 +222,38 @@ it('V3 cycle: keeps the model-2 checklist text and shows no V3 sections without 
  render(<CyclePage client={api} context={context} />);
  expect(await screen.findByText(/Esperadas: 6/)).toBeTruthy();
  expect(screen.queryByText(/prontas/)).toBeNull();expect(screen.queryByRole('heading',{name:'Decisões pendentes da CAM'})).toBeNull();
+});
+
+it('V3 cycle: deciding one item keeps what was typed for the other pending items',async()=>{
+ const {api}=v3Cycle([pendingBlocker('na'),pendingBlocker('un')]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ const list=await screen.findByRole('list',{name:'Decisões pendentes da CAM'});
+ const [first,second]=Array.from(list.querySelectorAll('li'));
+ fireEvent.change(within(first).getByLabelText('Referência da decisão'),{target:{value:'OF-1'}});fireEvent.change(within(first).getByLabelText('Motivo da decisão'),{target:{value:'Motivo do primeiro.'}});
+ fireEvent.change(within(second).getByLabelText('Referência da decisão'),{target:{value:'OF-2'}});fireEvent.change(within(second).getByLabelText('Motivo da decisão'),{target:{value:'Motivo do segundo.'}});
+ fireEvent.click(within(first).getByRole('button',{name:/^Decidir/}));
+ expect(await screen.findByText(/Decisão registrada para/)).toBeTruthy();
+ await waitFor(()=>expect(within(screen.getByRole('list',{name:'Decisões pendentes da CAM'})).getAllByRole('listitem')).toHaveLength(1));
+ const remaining=screen.getByRole('list',{name:'Decisões pendentes da CAM'});
+ expect((within(remaining).getByLabelText('Referência da decisão') as HTMLInputElement).value).toBe('OF-2');
+ expect((within(remaining).getByLabelText('Motivo da decisão') as HTMLTextAreaElement).value).toBe('Motivo do segundo.');
+});
+it('V3 cycle: "Atualizar ciclo" asks before discarding typed decisions and keeps them when cancelled',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ const {api,calls}=v3Cycle([pendingBlocker('na')]);
+ render(<NavigationSafety><CyclePage client={api} context={camV3(1)} group={v3Group()} /></NavigationSafety>);
+ const item=(await screen.findByRole('list',{name:'Decisões pendentes da CAM'})).querySelector('li')!;
+ fireEvent.click(screen.getByRole('button',{name:'Atualizar ciclo'}));
+ expect(confirm).not.toHaveBeenCalled();
+ await waitFor(()=>expect(calls.filter(c=>c.name==='get_cycle_checklist').length).toBe(2));
+ const again=(await screen.findByRole('list',{name:'Decisões pendentes da CAM'})).querySelector('li')!;
+ fireEvent.change(within(again).getByLabelText('Motivo da decisão'),{target:{value:'Não perder.'}});
+ expect(item).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Atualizar ciclo'}));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ expect(calls.filter(c=>c.name==='get_cycle_checklist').length).toBe(2);
+ expect((screen.getByLabelText('Motivo da decisão') as HTMLTextAreaElement).value).toBe('Não perder.');
+ confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Atualizar ciclo'}));
+ await waitFor(()=>expect(calls.filter(c=>c.name==='get_cycle_checklist').length).toBe(3));
+ expect((await screen.findByLabelText('Motivo da decisão') as HTMLTextAreaElement).value).toBe('Não perder.');
 });

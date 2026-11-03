@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthorizedContext, ContextGroup, CycleChecklist, PositionSummary } from '../pilot/types';
 import { loadGroupPositions, type GroupPosition } from '../batch/groupPositions';
@@ -7,6 +7,7 @@ import { toCommandContext } from '../context/contextApi';
 import { DomainCommandError } from '../pilot/commandApi';
 import { loadCycleChecklist, publishCycleDemo, transitionCycle } from './cycleApi';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
+import { requestAcademicLeave } from '../workspace/academicNavigation';
 type Action='consolidate'|'reopen'|'close'|'publish';
 type Pending={id:string;version:number;action:Action;reason:string;reference:string;snapshotId:string|null};
 function CycleConfirmation({action,onConfirm,onDismiss,trigger,fallback}:{action:Action;onConfirm:()=>void;onDismiss:()=>void;trigger:HTMLButtonElement|null;fallback:HTMLHeadingElement|null}) {
@@ -39,13 +40,14 @@ function CycleConfirmation({action,onConfirm,onDismiss,trigger,fallback}:{action
 }
 const stateLabels:Record<string,string>={indisponivel:'Indisponível',nao_aplicavel:'Não se aplica'};
 // Model 3: accepted "indisponível" / "não se aplica" wait for the CAM decision (reference + reason).
-function PendingDecisions({client,positionIds,rows,onOpenPosition,onDecided}:{client:SupabaseClient;positionIds:string[];rows:GroupPosition[];onOpenPosition?:(id:string)=>void;onDecided:(label:string)=>void}) {
- const [fields,setFields]=useState<Record<string,{reference:string;reason:string}>>({});
+type DecisionFields=Record<string,{reference:string;reason:string}>;
+// The typed text lives in CyclePage: re-reading the cycle unmounts this list, and a decision on one item must not wipe the others.
+function PendingDecisions({client,positionIds,rows,fields,setFields,onOpenPosition,onDecided}:{client:SupabaseClient;positionIds:string[];rows:GroupPosition[];fields:DecisionFields;setFields:Dispatch<SetStateAction<DecisionFields>>;onOpenPosition?:(id:string)=>void;onDecided:(label:string)=>void}) {
  const [errors,setErrors]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState<string|null>(null);
  const attempts=useRef(new Map<string,{signature:string;id:string}>());const inFlight=useRef(false);const active=useRef(true);
  useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
- useNavigationDraft(!!busy||Object.values(fields).some(field=>field.reference||field.reason));
+ useNavigationDraft(!!busy);
  const without=<T,>(all:Record<string,T>,key:string)=>Object.fromEntries(Object.entries(all).filter(([id])=>id!==key));
  async function decide(row:GroupPosition) {
   const id=row.position.id;const field=fields[id]??{reference:'',reason:''};
@@ -84,12 +86,14 @@ export function CyclePage({client,context,group,renderExport,authorizedPositions
  const v3=group?.modelo===3;
  const [groupRows,setGroupRows]=useState<GroupPosition[]>([]);
  const [decided,setDecided]=useState<string|null>(null);
+ const [decisionFields,setDecisionFields]=useState<DecisionFields>({});
  const [checklist,setChecklist]=useState<CycleChecklist|null>(null);const [error,setError]=useState<string|null>(null);
  const [reason,setReason]=useState('');const [reference,setReference]=useState('');const [confirm,setConfirm]=useState<Action|null>(null);
  const [pending,setPending]=useState<Pending|null>(null);const [busy,setBusy]=useState(false);const [reload,setReload]=useState(0);
  const generation=useRef(0);const active=useRef(true);const inFlight=useRef(false);
  const confirmTrigger=useRef<HTMLButtonElement|null>(null);const heading=useRef<HTMLHeadingElement>(null);
- useNavigationDraft(busy||!!pending||!!reason||!!reference);
+ const decisionsDirty=Object.values(decisionFields).some(field=>field.reference||field.reason);
+ useNavigationDraft(busy||!!pending||!!reason||!!reference||decisionsDirty);
  useEffect(()=>{active.current=true;return()=>{active.current=false;generation.current++;};},[]);
  useEffect(()=>{
   const request=++generation.current;setError(null);setChecklist(null);
@@ -123,13 +127,13 @@ export function CyclePage({client,context,group,renderExport,authorizedPositions
  const blockers=checklist?checklist.blockers.filter(b=>!decisions.includes(b)):[];
  const positions=v3?groupRows.map(row=>row.position):authorizedPositions;
  return <section aria-label="Ciclo CAM"><h2 ref={heading} tabIndex={-1}>Ciclo da demonstração acadêmica</h2><p>Não representa decisão institucional nem pagamento.</p>
-  <button type="button" disabled={busy||!!pending} onClick={()=>setReload(n=>n+1)}>Atualizar ciclo</button>
+  <button type="button" disabled={busy||!!pending} onClick={()=>{if(decisionsDirty&&!requestAcademicLeave())return;setReload(n=>n+1);}}>Atualizar ciclo</button>
   {decided&&<p role="status">Decisão registrada para {decided}.</p>}
   {!checklist&&!error&&<p role="status">Carregando ciclo…</p>}
   {checklist&&<><p>Estado do ciclo: {checklist.state}</p><p>Esperadas: {checklist.expected} · Recebidas: {checklist.received} · Conferidas: {checklist.reviewed}</p>
    <p>Indisponíveis: {checklist.unavailable} · Decididas: {checklist.decidedUnavailable} · Não aplicáveis: {checklist.notApplicable}</p>
    {v3&&<p>{`${checklist.ready??0} de ${checklist.expected} prontas`}</p>}
-   {v3&&decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);heading.current?.focus();}} />}
+   {v3&&decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows} fields={decisionFields} setFields={setDecisionFields} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);heading.current?.focus();}} />}
    {v3&&blockers.length>0&&<h3>Bloqueios</h3>}
    {(!v3||blockers.length>0)&&<ul aria-label={v3?'Bloqueios':undefined}>{blockers.map((b,i)=>{
     // A blocker outside the loaded queue page is still opened by id through the

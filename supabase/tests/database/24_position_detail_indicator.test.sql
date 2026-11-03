@@ -57,6 +57,13 @@ select is((select public.get_position_detail(pg_temp.reviewer('DEMO-V1-04','ACAD
 select is((select public.get_position_detail(pg_temp.reviewer('DEMO-V1-01','ACADEMIC-V3-2026-11'),pg_temp.pos('ACADEMIC-NORTE-1','DEMO-V1-01','ACADEMIC-V3-2026-11'))->'previous'),
  'null'::jsonb,'an earlier draft that nobody accepted is never shown as the previous value');
 
+-- The previous-month lookup also skips an invalidated month; a model-3 competence
+-- cannot be invalidated today (the state constraint), so that guard is only defensive.
+reset role;
+select throws_ok($$update public.competencias set estado='invalidada' where codigo='ACADEMIC-V3-2026-10'$$,'23514',null,
+ 'a model-3 competence cannot be invalidated, so the previous-month lookup can never meet one');
+set local role authenticated;
+
 -- Another unit's position is still denied.
 select throws_ok(format('select public.get_position_detail(%L::jsonb,%L::uuid)',pg_temp.reviewer('DEMO-V1-01','ACADEMIC-V3-2026-10'),pg_temp.pos('ACADEMIC-NORTE-2','DEMO-V1-01','ACADEMIC-V3-2026-10')),
  '42501',null,'the reviewer of Alfa cannot read the detail of a Beta position');

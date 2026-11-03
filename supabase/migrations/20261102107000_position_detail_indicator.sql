@@ -33,7 +33,7 @@ $$;
 -- From 20261102106000_unit_batch.sql. For a model-3 position the detail adds
 -- "indicator" (code, name, target, direction, weight, unit) and "previous":
 -- the same unit and indicator in the latest earlier month of the same rule set
--- code, from the frozen snapshot when that month is closed, otherwise from a
+-- code (never an invalidated one), from the frozen snapshot when that month is closed, otherwise from a
 -- revision accepted by private.situacao_posicao. Null when there is none.
 create or replace function public.get_position_detail(p_contexto jsonb,p_position_id uuid) returns jsonb
 language plpgsql stable security definer set search_path='' as $$
@@ -65,7 +65,7 @@ begin
   select pc.id,pc.codigo,pp.id into v_prev_competence,v_prev_code,v_prev_position
   from public.competencias pc join public.conjuntos_regra ps on ps.id=pc.conjunto_id
   join public.posicoes_esperadas pp on pp.competencia_id=pc.id and pp.indicador_id=v_current.indicador_id and pp.alvo_id=v_current.alvo_id
-  where pc.modelo=3 and pc.referencia<v_competence.referencia and ps.codigo=(select s.codigo from public.conjuntos_regra s where s.id=v_competence.conjunto_id)
+  where pc.modelo=3 and pc.estado<>'invalidada' and pc.referencia<v_competence.referencia and ps.codigo=(select s.codigo from public.conjuntos_regra s where s.id=v_competence.conjunto_id)
   order by pc.referencia desc limit 1;
   if v_prev_position is not null then
    select i.estado_dado,i.valor_entrada into v_state,v_value from public.itens_fechamento i join public.fechamentos f on f.id=i.fechamento_id

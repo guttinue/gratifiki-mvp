@@ -51,6 +51,8 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
   const [batch, setBatch] = useState<UnitBatch | null>(null);
   const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [touched, setTouched] = useState<Record<string, true>>({});
+  // The server does not return a draft's source period; what was saved in this session is kept here.
+  const [savedPeriods, setSavedPeriods] = useState<Record<string, string>>({});
   const [cardNotes, setCardNotes] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -88,7 +90,8 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
     const request = ++batchGeneration.current;
     const contexts = [...new Map(rows.filter(row => row.position.escopoId === activeUnit).map(row => [row.context.key, row.context])).values()];
     setBatch(current => current && current.unitId === activeUnit ? current : null);
-    void loadUnitBatch(client, contexts, activeUnit).then(loaded => { if (batchGeneration.current === request) setBatch(loaded); })
+    setLoadError(null);
+    void loadUnitBatch(client, contexts, activeUnit).then(loaded => { if (batchGeneration.current === request) { setBatch(loaded); setLoadError(null); } })
       .catch(() => { if (batchGeneration.current === request) setLoadError('Não foi possível carregar os indicadores da unidade.'); });
     return () => { batchGeneration.current++; };
   }, [client, rows, activeUnit]);
@@ -99,7 +102,7 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
   }, [problem]);
 
   const initial = (item: UnitBatchItem): Edit => ({ estado: item.estadoDado ?? 'valor', valor: item.valor ? formatDecimal(item.valor) : '',
-    fonte: item.fonte ?? '', periodo: period, motivo: item.motivo ?? '', explicacao: '' });
+    fonte: item.fonte ?? '', periodo: savedPeriods[item.positionId] ?? period, motivo: item.motivo ?? '', explicacao: '' });
   const current = (item: UnitBatchItem) => edits[item.positionId] ?? initial(item);
   const editable = (item: UnitBatchItem) => open && !!byPosition.get(item.positionId)?.position.aplicavel && ['ausente', 'rascunho', 'devolvida'].includes(item.status);
   const items = batch?.items ?? [];
@@ -161,6 +164,7 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
       setBatch(loaded => loaded && { ...loaded, items: loaded.items.map(row => row.positionId !== item.positionId ? row : { ...row, status: 'rascunho', version: receipt.version,
         estadoDado: e.estado, valor: normalized.valor === null ? null : parseInputDecimal(normalized.valor), fonte: normalized.fonte, motivo: normalized.motivo }) });
       setEdits(all => without(all, item.positionId));
+      if (normalized.periodoFonte) setSavedPeriods(all => ({ ...all, [item.positionId]: normalized.periodoFonte }));
       setCardNotes(all => ({ ...all, [item.positionId]: 'Rascunho salvo.' }));
     } catch (cause) {
       if (!active.current) return;
@@ -178,7 +182,8 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
       <select value={activeUnit} onChange={event => setUnitId(event.target.value)}>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.code}</option>)}</select>
     </label>
     {loadError && <p role="alert">{loadError}</p>}
-    {!loadError && !batch && <p role="status">Carregando indicadores…</p>}
+    {rows && !units.length && !loadError && <p>Nenhuma posição para preencher neste mês.</p>}
+    {!loadError && !batch && (!rows || units.length > 0) && <p role="status">Carregando indicadores…</p>}
     {notice && <p role="status">{notice}</p>}
     <ul className="batch-cards">{evaluated.map(({ item, e, errors, visible, ready: isReady }) => {
       const k = `batch-${item.positionId}`;

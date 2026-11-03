@@ -105,7 +105,7 @@ describe('BatchEntryPage', () => {
     expect(input.getAttribute('aria-describedby')?.split(' ')).toContain(message.id);
     expect(screen.getByText('0 prontos para envio')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Enviar 0 itens' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(first).queryByText('prévia')).toBeNull();
+    expect(first.querySelector('output')?.textContent).toBe('–');
   });
 
   it('blocks the send while any filled card has an error, even if another is ready', async () => {
@@ -273,6 +273,42 @@ describe('BatchEntryPage', () => {
     expect(screen.getByText(/somente consulta/i)).toBeTruthy();
     expect(screen.queryByLabelText('Valor apurado')).toBeNull();
     expect(screen.queryByRole('button', { name: /^Enviar/ })).toBeNull();
+  });
+
+  it('keeps the saved source period after "Rascunho salvo." and sends it with the batch', async () => {
+    const { client, calls } = rpc();
+    render(<BatchEntryPage client={client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    const first = card('DEMO-V1-01');
+    fireEvent.change(within(first).getByLabelText('Período da fonte'), { target: { value: '2026-09-15' } });
+    fireEvent.click(within(first).getByRole('button', { name: 'Salvar rascunho' }));
+    expect(await within(first).findByText('Rascunho salvo.')).toBeTruthy();
+    expect(calls.find(c => c.name === 'save_position_draft')!.body).toMatchObject({ p_input: { periodoFonte: '2026-09-15' } });
+    expect((within(card('DEMO-V1-01')).getByLabelText('Período da fonte') as HTMLInputElement).value).toBe('2026-09-15');
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar 1 item' }));
+    await screen.findByText('1 item enviado para conferência.');
+    expect(calls.find(c => c.name === 'submit_unit_batch')!.body.p_itens[0].input).toMatchObject({ periodoFonte: '2026-09-15' });
+  });
+
+  it('clears a load error once another unit loads', async () => {
+    const view = rpc(call => {
+      if (call.name === 'get_operational_positions' && call.body.p_contexto.indicadorId === 'indicator-1') {
+        return new Response(JSON.stringify({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } });
+      }
+      return call.name === 'get_unit_batch' && call.body.p_unidade_id === 'alfa' ? new Response('{}', { status: 500 }) : undefined;
+    });
+    render(<BatchEntryPage client={view.client} group={group} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('indicadores da unidade');
+    fireEvent.change(screen.getByLabelText('Unidade'), { target: { value: 'beta' } });
+    await screen.findByText(/DEMO-V1-01/);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('says so when the technician has no position to fill instead of loading forever', async () => {
+    const view = rpc(call => call.name === 'get_operational_positions' ? new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } }) : undefined);
+    render(<BatchEntryPage client={view.client} group={group} />);
+    expect(await screen.findByText('Nenhuma posição para preencher neste mês.')).toBeTruthy();
+    expect(screen.queryByText('Carregando indicadores…')).toBeNull();
   });
 
   it('lets the technician switch units and loads the batch of the chosen one', async () => {
