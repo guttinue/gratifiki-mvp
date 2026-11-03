@@ -94,6 +94,8 @@ select is(pg_temp.draft('alfa',1,1,pg_temp.input('valor','100'),'alfa-1-max')->>
 select is(pg_temp.draft('alfa',1,2,pg_temp.input('valor','90'),'alfa-1-save')->>'version','3','DEMO-01 = 90 is saved');
 select is(pg_temp.send('alfa',1,3,'alfa-1-send')-'revisionId',jsonb_build_object('resourceId',pg_temp.fixture('t19-pos-alfa-1'),'version',4,'status','enviada','resultValue','28.42'),
  'submitting DEMO-01 = 90 returns 28.42 points');
+select is((public.get_position_detail(pg_temp.ctx('actor','area_tecnica','alfa',pg_temp.ind(1)),pg_temp.fixture('t19-pos-alfa-1'))->'memories'->0)-'revisionId',
+ jsonb_build_object('ruleVersion',1,'method','meta_peso','factor',null,'inputValue','90','resultValue','28.42'),'position detail names the meta/weight method and has no factor');
 select is(pg_temp.draft('beta',1,1,pg_temp.input('valor','100'),'beta-1-save')->>'version','2','DEMO-01 = 100 saves in another unit');
 select is(pg_temp.send('beta',1,2,'beta-1-send')->>'resultValue','30','DEMO-01 = 100 is sent and scores the full weight');
 

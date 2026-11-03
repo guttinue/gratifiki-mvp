@@ -40,6 +40,18 @@ describe("operational position boundary", () => {
   it.each([{ ...position, resultValue: 0.00008 }, { ...position, status: "pendente" }, { ...position, version: 0 }, { ...position, estadoDado: undefined }])("rejects malformed position DTO", async (item) => {
     await expect(listPositions(transport({ items: [item], total: 1, page: 1, pageSize: 25 }), context, { page: 1, pageSize: 25 })).rejects.toThrow();
   });
+  it("decodes a meta/weight memory without a factor and keeps factor memories strict", async () => {
+    const sent = { ...position, status: "enviada", estadoDado: "valor", revisionId: "revision", inputValue: "90", resultValue: "28.42" };
+    const metaPeso = { revisionId: "revision", ruleVersion: 1, method: "meta_peso", factor: null, inputValue: "90", resultValue: "28.42" };
+    const detail = await loadPositionDetail(transport({ position: sent, revisions: [], decisions: [], memories: [metaPeso] }), context, "position");
+    expect(detail.memories).toEqual([metaPeso]);
+    const factor = { revisionId: "revision", ruleVersion: 1, factor: "0.8", inputValue: "10", resultValue: "8" };
+    await expect(loadPositionDetail(transport({ position: sent, revisions: [], decisions: [], memories: [{ ...factor, method: "fator" }] }), context, "position")).resolves.toBeTruthy();
+    for (const memory of [{ ...factor, factor: null }, { ...factor, factor: undefined }, { ...factor, method: "fator", factor: null },
+      { ...metaPeso, factor: "0.8" }, { ...metaPeso, method: "invented" }]) {
+      await expect(loadPositionDetail(transport({ position: sent, revisions: [], decisions: [], memories: [memory] }), context, "position")).rejects.toThrow();
+    }
+  });
   it("rejects malformed typed histories", async () => {
     await expect(loadPositionDetail(transport({ position, revisions: [], decisions: [{ type: "invented" }], memories: [] }), context, "position")).rejects.toThrow();
   });

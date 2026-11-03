@@ -4,7 +4,9 @@ import { parseInputDecimal } from '../pilot/decimal';
 import { DomainCommandError, runCommand } from '../pilot/commandApi';
 export type PositionRevision = { id: string; number: number; authorId: string; estadoDado: DraftInput['estadoDado']; value: string | null; source: string; sourcePeriod: string; reason: string; submittedAt: string | null };
 export type PositionDecision = { id: string; revisionId: string; actorId: string; type: 'iniciar_revisao' | 'validar' | 'devolver' | 'autorizar_retificacao' | 'decidir_indisponibilidade'; reason: string; reference: string | null; occurredAt: string };
-export type PositionMemory = { revisionId: string; ruleVersion: number; factor: string; inputValue: string; resultValue: string };
+type FactorMemory = { revisionId: string; ruleVersion: number; factor: string; inputValue: string; resultValue: string };
+// A meta/weight result has no factor; its points and expression are read elsewhere.
+export type PositionMemory = FactorMemory | (Omit<FactorMemory, 'factor'> & { method: 'meta_peso'; factor: null });
 export type PositionDetail = { position: PositionSummary; revisions: PositionRevision[]; decisions: PositionDecision[]; memories: PositionMemory[] };
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid position response');
@@ -51,6 +53,14 @@ export async function loadPositionDetail(client: SupabaseClient, context: Comman
   }), decisions: array(row.decisions, item => {
     const r = object(item); return { id: text(r.id), revisionId: text(r.revisionId), actorId: text(r.actorId), type: choice(r.type, ['iniciar_revisao','validar','devolver','autorizar_retificacao','decidir_indisponibilidade']), reason: text(r.reason,true), reference: nullableText(r.reference), occurredAt: text(r.occurredAt) };
   }), memories: array(row.memories, item => {
-    const r = object(item); return { revisionId: text(r.revisionId), ruleVersion: integer(r.ruleVersion), factor: decimal(r.factor), inputValue: decimal(r.inputValue), resultValue: decimal(r.resultValue) };
+    const r = object(item);
+    const common = { revisionId: text(r.revisionId), ruleVersion: integer(r.ruleVersion), inputValue: decimal(r.inputValue), resultValue: decimal(r.resultValue) };
+    if (r.method === 'meta_peso') {
+      if (r.factor !== null) throw new Error('Invalid meta/weight memory');
+      return { ...common, method: 'meta_peso', factor: null };
+    }
+    // Factor memories (method 'fator', or absent from older servers) stay strict.
+    if (r.method !== undefined && r.method !== 'fator') throw new Error('Invalid memory method');
+    return { ...common, factor: decimal(r.factor) };
   }) };
 }

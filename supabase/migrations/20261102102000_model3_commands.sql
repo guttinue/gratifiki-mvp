@@ -386,4 +386,26 @@ begin
 end;
 $$;
 
+-- From 20261019092000_expected_positions.sql. Each memory also names its rule
+-- method, so the client can tell a meta/weight memory (no factor) from a
+-- factor memory that must carry one.
+create or replace function public.get_position_detail(p_contexto jsonb,p_position_id uuid) returns jsonb
+language plpgsql stable security definer set search_path='' as $$
+declare v_position jsonb; v_entry uuid; v_revisions jsonb; v_decisions jsonb; v_memories jsonb;
+begin
+ select r.summary into v_position from private.operational_position_rows(p_contexto) r where r.id=p_position_id;
+ if v_position is null then raise exception using errcode='42501',message='access_denied'; end if;
+ select e.id into v_entry from public.entradas e where e.posicao_id=p_position_id;
+ select coalesce(jsonb_agg(jsonb_build_object('id',r.id,'number',r.numero,'authorId',r.autor_id,
+  'estadoDado',r.estado_dado,'value',trim_scale(r.valor)::text,'source',r.origem,'sourcePeriod',r.periodo_fonte,'reason',r.motivo,'submittedAt',r.enviada_em) order by r.numero,r.id),'[]'::jsonb)
+ into v_revisions from public.revisoes_entrada r where r.entrada_id=v_entry;
+ select coalesce(jsonb_agg(jsonb_build_object('id',d.id,'revisionId',d.revisao_id,'actorId',d.ator_id,'type',d.tipo,'reason',d.motivo,'reference',d.referencia,'occurredAt',d.ocorrido_em) order by d.ocorrido_em,d.id),'[]'::jsonb)
+ into v_decisions from public.decisoes_entrada d join public.revisoes_entrada r on r.id=d.revisao_id where r.entrada_id=v_entry;
+ select coalesce(jsonb_agg(jsonb_build_object('revisionId',r.id,'ruleVersion',rule.versao,'method',rule.metodo,'factor',trim_scale(rule.fator)::text,
+  'inputValue',trim_scale(r.valor)::text,'resultValue',trim_scale(result.valor)::text) order by r.numero,r.id),'[]'::jsonb)
+ into v_memories from public.resultados result join public.revisoes_entrada r on r.id=result.revisao_id join public.regras rule on rule.id=result.regra_id where r.entrada_id=v_entry;
+ return jsonb_build_object('position',v_position,'revisions',v_revisions,'decisions',v_decisions,'memories',v_memories);
+end;
+$$;
+
 commit;

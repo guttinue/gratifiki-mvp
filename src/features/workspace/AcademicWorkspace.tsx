@@ -87,7 +87,7 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
   <p className="academic-demo-strip">Regra fictícia DEMO-v1 · dados sintéticos · sem efeito institucional</p>
   <div className="academic-top-row"><h1>Contexto acadêmico autorizado</h1>
   <p className="academic-profile">Perfil {context.role} · {context.escopoCodigo} · {context.competenciaCodigo}</p>
-  {context.competenciaEstado&&<p className="academic-competence-state"><span className="sr-only">Situação da competência: </span>{competenceStateLabels[context.competenciaEstado]}</p>}
+  {context.competenciaEstado&&<p className="academic-competence-state"><span aria-hidden="true">· </span><span className="sr-only">Situação da competência: </span>{competenceStateLabels[context.competenciaEstado]}</p>}
   {contextPicker}
   <button type="button" className="academic-signout" disabled={isSigningOut} onClick={()=>{if(requestAcademicLeave())onSignOut();}}>Sair</button></div>
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">

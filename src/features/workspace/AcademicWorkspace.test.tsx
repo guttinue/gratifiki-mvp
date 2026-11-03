@@ -154,7 +154,7 @@ it('shows the competence state next to its code in the header',()=>{
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>{throw new Error('should not read');}}});
  const view=render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'em_consolidacao'})} onSignOut={()=>{}} />);
  expect(screen.getByText('Perfil gestor_unidade · NORTE · 2026-10')).toBeTruthy();
- expect(screen.getByText('Em consolidação')).toBeTruthy();
+ expect(screen.getByText('Em consolidação').textContent).toBe('· Situação da competência: Em consolidação');
  view.unmount();
  render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'aberta'})} onSignOut={()=>{}} />);
  expect(screen.getByText('Aberta')).toBeTruthy();

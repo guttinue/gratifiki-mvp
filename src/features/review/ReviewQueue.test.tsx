@@ -122,3 +122,13 @@ it('opens a cycle blocker that is outside the loaded queue page through the auth
  fireEvent.click(await screen.findByRole('button',{name:'Ver pendência: Envio ausente.'}));
  expect(await screen.findByRole('heading',{name:'ALVO-26'})).toBeTruthy();
 });
+it('opens a model-3 position whose memory has no factor',async()=>{
+ const metaDetail={...detail,position:{...position,inputValue:'90',resultValue:'28.42'},revisions:[{...detail.revisions[0],value:'90'}],memories:[{revisionId:'revision',ruleVersion:1,method:'meta_peso',factor:null,inputValue:'90',resultValue:'28.42'}]};
+ const api=client(async url=>String(url).includes('get_operational_positions')?response({items:[metaDetail.position],total:1,page:1,pageSize:25}):response(metaDetail));
+ openAcademicPage('conferencia');
+ render(<AcademicWorkspace client={api} group={groupContexts([{...context,modelo:3}])[0]} onSignOut={()=>{}} />);
+ fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · enviada/}));
+ expect(await screen.findByText('Synthetic origin')).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Iniciar revisão'})).toBeTruthy();
+ expect(screen.queryByRole('alert')).toBeNull();
+});
