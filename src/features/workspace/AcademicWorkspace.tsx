@@ -17,6 +17,7 @@ import { CompetenceAdminPage } from '../admin/CompetenceAdminPage';
 import { RuleAdminPage } from '../admin/RuleAdminPage';
 import { RuleCatalogPage } from '../admin/RuleCatalogPage';
 import { ResultsPage } from '../results/ResultsPage';
+import { BatchEntryPage } from '../batch/BatchEntryPage';
 import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
@@ -70,14 +71,14 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
  }
  useEffect(()=>{
   const request=++generation.current;
-  if(context.role!=='area_tecnica'||page!=='preenchimento') return;
+  if(context.role!=='area_tecnica'||page!=='preenchimento'||v3) return;
   setLoading(true);setError(null);
   void listPositions(client,toCommandContext(context),{page:1,pageSize:25}).then(page=>{
    if(generation.current===request)setPositions(page.items);
   }).catch(()=>{if(generation.current===request)setError('Não foi possível carregar as posições autorizadas.');})
    .finally(()=>{if(generation.current===request)setLoading(false);});
   return()=>{generation.current++;detailGeneration.current++;};
- },[client,context,reload,page]);
+ },[client,context,reload,page,v3]);
  async function selectPosition(id:string) {
   if(!requestAcademicLeave())return;
   const request=++detailGeneration.current;setDetail(null);setError(null);
@@ -103,7 +104,8 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
   {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
   {context.role==='lideranca'&&<LeadershipPage client={client} context={context}/>}
   {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).filter(destination=>!v3||destination.id!=='rules').map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
-  {context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
+  {v3&&context.role==='area_tecnica'&&page==='preenchimento'?<BatchEntryPage client={client} group={group}/>
+  :context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
    <h2>Rascunhos do indicador</h2>
    {loading&&<p role="status">Carregando posições…</p>}
    <button type="button" onClick={()=>{if(requestAcademicLeave()){detailGeneration.current++;setDetail(null);setReload(n=>n+1);}}}>Atualizar consulta</button>
@@ -116,18 +118,18 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
     ).map(decision=><p key={decision.id}>
      {decision.type==='devolver'?'Motivo da devolução técnica':'Motivo da retificação CAM'}: {decision.reason}
     </p>)}
-    {detail.position.aplicavel&&detail.position.status==='devolvida'?<CorrectionForm key={detail.position.id} allowNotApplicable={group.modelo===3} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={receipt=>{
+    {detail.position.aplicavel&&detail.position.status==='devolvida'?<CorrectionForm key={detail.position.id} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={receipt=>{
      setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'enviada',version:receipt.version,revisionId:receipt.revisionId,resultValue:receipt.resultValue}:row));
     }} />:detail.position.aplicavel&&['ausente','rascunho','enviada'].includes(detail.position.status)
-     ? <DraftForm key={detail.position.id} allowNotApplicable={group.modelo===3} actorId={context.actorId} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={(receipt)=>{
+     ? <DraftForm key={detail.position.id} actorId={context.actorId} client={client} context={toCommandContext(context)} detail={detail} onSubmitted={(receipt)=>{
       setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'enviada',version:receipt.version,revisionId:receipt.revisionId,resultValue:receipt.resultValue}:row));
      }} onSaved={(receipt)=>{
       setPositions(rows=>rows.map(row=>row.id===receipt.resourceId?{...row,status:'rascunho',version:receipt.version,revisionId:receipt.revisionId}:row));
      }} /> : <p>Esta posição não está disponível para editar rascunho.</p>}
    </section>}
   </section>}
-  {(context.role==='revisor_tecnico'||context.role==='cam')&&<ReviewQueue client={client} context={context} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
-  {context.role==='cam'&&<CyclePage key={context.key} client={client} context={context} authorizedPositions={camPositions} onOpenPosition={id=>setPositionRequest(previous=>({id,key:(previous?.key??0)+1}))} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
+  {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
+  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} authorizedPositions={camPositions} onOpenPosition={id=>{setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate('entradas');}} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
  </main></div></div>;

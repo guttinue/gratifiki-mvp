@@ -1,5 +1,5 @@
 import { groupContexts } from '../context/contextGroups';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
@@ -145,4 +145,78 @@ it.each(['close','publish'] as const)('returns %s confirmation focus on native c
  expect(screen.queryByRole('dialog')).toBeNull();expect(document.activeElement).toBe(trigger);
  fireEvent.click(trigger);fireEvent.click(screen.getByRole('button',{name:'Cancelar'}));
  expect(screen.queryByRole('dialog')).toBeNull();expect(document.activeElement).toBe(trigger);expect(calls).toEqual([]);
+});
+
+// ---- Task 11: model-3 cycle — "N de 16 prontas", pending CAM decisions and blockers with a link ----
+const camV3=(n:number):AuthorizedContext=>({...context,key:`cam-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,competenciaCodigo:'ACADEMIC-V3-2026-10'});
+const v3Group=()=>groupContexts([1,2].map(camV3))[0];
+const unit=(id:string,code:string,state:'indisponivel'|'nao_aplicavel'|'valor',extra:object={})=>({id,escopoId:`unit-${id}`,escopoCodigo:code,escopoTipo:'unidade',aplicavel:true,status:'validada',estadoDado:state,version:7,revisionId:`rev-${id}`,inputValue:null,resultValue:null,...extra});
+const v3Rows:Record<string,ReturnType<typeof unit>[]>={'indicator-1':[unit('na','ACADEMIC-NORTE-3','nao_aplicavel'),unit('late','ACADEMIC-NORTE-1','valor',{status:'enviada'})],'indicator-2':[unit('un','ACADEMIC-NORTE-2','indisponivel')]};
+const v3Checklist=(blockers:object[],extra:object={})=>({...checklist,state:'aberta',expected:16,received:12,reviewed:9,unavailable:1,decidedUnavailable:0,notApplicable:0,canClose:false,canConsolidate:false,ready:9,blockers,...extra});
+const pendingBlocker=(id:string)=>({positionId:id,code:'unavailability_pending',message:'Indisponibilidade sem decisão CAM ou com número indevido.'});
+type CycleBody={p_contexto:{vinculoId:string;indicadorId:string};p_position_id:string};
+function v3Cycle(blockers:object[],onCommand?:(body:Record<string,unknown>)=>Response|undefined){
+ const calls:{name:string;body:CycleBody}[]=[];let decided=false;
+ const api=client(async(url,options)=>{
+  const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
+  if(name==='get_cycle_checklist')return response(v3Checklist(decided?blockers.filter(b=>(b as {code:string}).code!=='unavailability_pending'):blockers));
+  if(name==='get_operational_positions')return response({items:v3Rows[body.p_contexto.indicadorId],total:v3Rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
+  if(name==='decide_unavailability'){const custom=onCommand?.(body);if(custom)return custom;decided=true;return response({resourceId:body.p_position_id,version:8,revisionId:`rev-${body.p_position_id}`,status:'validada',resultValue:null});}
+  return response(null);
+ });
+ return {api,calls};
+}
+it('V3 cycle: shows "N de 16 prontas" and lists a pending CAM decision for an accepted "não se aplica"',async()=>{
+ const {api}=v3Cycle([pendingBlocker('na')]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ expect(await screen.findByText('9 de 16 prontas')).toBeTruthy();
+ const list=screen.getByRole('list',{name:'Decisões pendentes da CAM'});
+ expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+ expect(within(list).getByText('ACADEMIC-NORTE-3 · Não se aplica')).toBeTruthy();
+ expect(screen.getByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
+});
+it('V3 cycle: lists unavailable and not-applicable decisions apart from the other blockers, each with a link to the entry',async()=>{
+ const opened:string[]=[];
+ const {api}=v3Cycle([pendingBlocker('na'),pendingBlocker('un'),{positionId:'late',code:'review_pending',message:'Conferência técnica pendente.'},{positionId:null,code:'coverage_incomplete',message:'Cobertura incompleta.'}]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onOpenPosition={id=>opened.push(id)} />);
+ const decisions=await screen.findByRole('list',{name:'Decisões pendentes da CAM'});
+ expect(within(decisions).getAllByRole('listitem')).toHaveLength(2);
+ expect(within(decisions).getByText('ACADEMIC-NORTE-2 · Indisponível')).toBeTruthy();
+ const blockers=screen.getByRole('list',{name:'Bloqueios'});
+ expect(within(blockers).getAllByRole('listitem')).toHaveLength(2);
+ expect(within(blockers).queryByText(/Indisponibilidade sem decisão/)).toBeNull();
+ fireEvent.click(within(decisions).getByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3'}));
+ fireEvent.click(within(blockers).getByRole('button',{name:'Ver pendência de ACADEMIC-NORTE-1'}));
+ expect(opened).toEqual(['na','late']);
+});
+it('V3 cycle: decides with reference and reason through decide_unavailability and reads the cycle again',async()=>{
+ const {api,calls}=v3Cycle([pendingBlocker('na')]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ const item=(await screen.findByRole('list',{name:'Decisões pendentes da CAM'})).querySelector('li')!;
+ expect((within(item).getByRole('button',{name:'Decidir ACADEMIC-NORTE-3'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.change(within(item).getByLabelText('Referência da decisão'),{target:{value:'  OF-123/2026  '}});
+ fireEvent.change(within(item).getByLabelText('Motivo da decisão'),{target:{value:'  Unidade sem este serviço.  '}});
+ fireEvent.click(within(item).getByRole('button',{name:'Decidir ACADEMIC-NORTE-3'}));
+ expect(await screen.findByText('Decisão registrada para ACADEMIC-NORTE-3.')).toBeTruthy();
+ const decision=calls.find(c=>c.name==='decide_unavailability')!;
+ expect(decision.body).toMatchObject({p_position_id:'na',p_expected_version:7,p_reference:'OF-123/2026',p_reason:'Unidade sem este serviço.',p_contexto:{vinculoId:'link-1',indicadorId:'indicator-1'}});
+ await waitFor(()=>expect(screen.queryByRole('list',{name:'Decisões pendentes da CAM'})).toBeNull());
+ expect(calls.filter(c=>c.name==='get_cycle_checklist').length).toBe(2);
+});
+it('V3 cycle: uses the context of the indicator that holds the position and keeps typed text after a refusal',async()=>{
+ const {api,calls}=v3Cycle([pendingBlocker('un')],()=>new Response(JSON.stringify({code:'55000',message:'invalid_state',details:null,hint:null}),{status:400,headers:{'content-type':'application/json'}}));
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ const item=(await screen.findByRole('list',{name:'Decisões pendentes da CAM'})).querySelector('li')!;
+ fireEvent.change(within(item).getByLabelText('Referência da decisão'),{target:{value:'OF-9'}});
+ fireEvent.change(within(item).getByLabelText('Motivo da decisão'),{target:{value:'Sem dado na fonte.'}});
+ fireEvent.click(within(item).getByRole('button',{name:'Decidir ACADEMIC-NORTE-2'}));
+ expect((await within(item).findByRole('alert')).textContent).toContain('não permite a operação');
+ expect(calls.find(c=>c.name==='decide_unavailability')!.body.p_contexto.indicadorId).toBe('indicator-2');
+ expect((within(item).getByLabelText('Referência da decisão') as HTMLInputElement).value).toBe('OF-9');
+});
+it('V3 cycle: keeps the model-2 checklist text and shows no V3 sections without a model-3 group',async()=>{
+ const api=client(async url=>String(url).includes('get_cycle_checklist')?response({...checklist,state:'aberta',canClose:false}):response({items:[],total:0,page:1,pageSize:25}));
+ render(<CyclePage client={api} context={context} />);
+ expect(await screen.findByText(/Esperadas: 6/)).toBeTruthy();
+ expect(screen.queryByText(/prontas/)).toBeNull();expect(screen.queryByRole('heading',{name:'Decisões pendentes da CAM'})).toBeNull();
 });

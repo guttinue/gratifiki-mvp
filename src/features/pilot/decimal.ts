@@ -41,3 +41,41 @@ export function sumDecimals(values:DecimalText[]):DecimalText {
   const fraction=(total%10n**scale).toString().padStart(12,'0').replace(/0+$/,'');
   return `${total/10n**scale}${fraction?`.${fraction}`:''}`;
 }
+// Live preview of one indicator's points, mirroring private.calcular_pontos in the
+// same order: ratio (↑ valor ÷ meta; ↓ meta ÷ valor, zero = 1, never above 1) rounded
+// to 10 places, times the effective weight rounded to 10 places, then 2 places half up.
+// BigInt only; the server stays the official calculation.
+export type PreviewRule = { meta: DecimalText; direction: 'maior_melhor' | 'menor_melhor'; weight: DecimalText };
+const PRECISION = 10;
+function scaled(text: string): { digits: bigint; places: number } | null {
+  const match = /^(\d+)(?:[.,](\d+))?$/.exec(text.trim());
+  if (!match) return null;
+  const fraction = match[2] ?? '';
+  return { digits: BigInt(match[1] + fraction), places: fraction.length };
+}
+const divideRounded = (numerator: bigint, denominator: bigint) => (2n * numerator + denominator) / (2n * denominator);
+const fromScaled = (digits: bigint, places: number): DecimalText => {
+  const padded = digits.toString().padStart(places + 1, '0');
+  const fraction = padded.slice(padded.length - places).replace(/0+$/, '');
+  return `${padded.slice(0, padded.length - places)}${fraction ? `.${fraction}` : ''}`;
+};
+export function previewPoints(valueText: string, rule: PreviewRule): { points: DecimalText; expression: string } | null {
+  const value = scaled(valueText), meta = scaled(rule.meta), weight = scaled(rule.weight);
+  if (!value || !meta || !weight || meta.digits === 0n) return null;
+  const shown = (x: { digits: bigint; places: number }) => formatDecimal(fromScaled(x.digits, x.places));
+  const valueShown = shown(value), metaShown = shown(meta), weightShown = shown(weight);
+  const up = rule.direction === 'maior_melhor';
+  // numerator/denominator of the ratio as exact integers (same scale on both sides).
+  const [numerator, denominator] = up
+    ? [value.digits * 10n ** BigInt(meta.places), meta.digits * 10n ** BigInt(value.places)]
+    : [meta.digits * 10n ** BigInt(value.places), value.digits * 10n ** BigInt(meta.places)];
+  const zeroDescending = !up && value.digits === 0n;
+  const ratio = zeroDescending || numerator >= denominator ? 10n ** BigInt(PRECISION) : divideRounded(numerator * 10n ** BigInt(PRECISION), denominator);
+  // Effective weight at 10 places (it already has at most that many; this rounds a longer one).
+  const effective = weight.places > PRECISION ? divideRounded(weight.digits, 10n ** BigInt(weight.places - PRECISION)) : weight.digits * 10n ** BigInt(PRECISION - weight.places);
+  const exact = ratio * effective; // 20 places
+  const points = divideRounded(exact, 10n ** BigInt(2 * PRECISION - 2));
+  return { points: fromScaled(points, 2), expression: zeroDescending
+    ? `valor zero no indicador descendente = peso integral (${weightShown})`
+    : up ? `min(${valueShown} ÷ ${metaShown}; 1) × ${weightShown}` : `min(${metaShown} ÷ ${valueShown}; 1) × ${weightShown}` };
+}

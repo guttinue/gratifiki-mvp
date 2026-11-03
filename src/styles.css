@@ -1928,3 +1928,39 @@ td code,
 .v3-bar { height: 8px; margin-top: 6px; border-radius: 4px; background: #dce2ec; overflow: hidden; }
 .v3-bar span { display: block; height: 100%; background: #375e9c; }
 .v3-metric progress { width: 100%; height: 10px; }
+
+/* T11: batch entry (one card per indicator) and the model-3 queue. */
+.batch-unit { max-width: 360px; }
+.batch-cards { display: grid; gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+.batch-cards > li { margin: 0; min-width: 0; }
+.batch-card { min-width: 0; padding: 14px; border: 1px solid #dce2ec; border-radius: 10px; background: #fff; }
+.batch-card[data-invalid="true"] { border-color: #a13b36; box-shadow: inset 0 0 0 1px #a13b36; }
+.batch-card > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.batch-card h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.batch-card p { margin: 6px 0; }
+.batch-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 220px); gap: 0 20px; align-items: start; }
+.batch-body > * { min-width: 0; }
+.batch-situation { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; grid-column: 1 / -1; margin: 10px 0 0; }
+.batch-situation .v3-label { flex-basis: 100%; }
+.academic-app .batch-radio { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; margin: 0; padding: 0 12px; border: 1px solid #c4d0e2; border-radius: 6px; background: #f5f8fe; color: #294c83; font-size: 14px; cursor: pointer; }
+.academic-app .batch-radio:has(input:checked) { border-color: #375e9c; background: #e9effa; font-weight: 600; }
+.academic-app .batch-radio:has(input:focus-visible) { outline: 3px solid #3568bd; outline-offset: 3px; }
+.academic-app .batch-radio input { width: 18px; min-height: 18px; margin: 0; padding: 0; }
+.batch-field { grid-column: 1; min-width: 0; }
+.batch-error { display: block; color: #9b2f2a; font-size: 13px; font-weight: 600; }
+.academic-app .batch-error[role="alert"] { display: block; }
+.batch-return { padding: 10px 12px; border-left: 4px solid #a13b36; background: #fff1f0; color: #6f1c1c; }
+.batch-score { grid-column: 2; grid-row: 2 / span 5; display: grid; align-content: start; gap: 4px; margin-top: 12px; padding-left: 16px; border-left: 1px solid #dce2ec; }
+.batch-points { font-size: 26px; font-weight: 700; color: #1f3558; }
+.batch-formula { font-size: 13px; color: #4a586d; overflow-wrap: anywhere; }
+.batch-actions { grid-column: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.batch-actions button { margin-left: 0; }
+.batch-locked { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; }
+.batch-locked dt { color: #4a586d; font-size: 14px; }
+.batch-footer { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 12px 14px; border: 1px solid #dce2ec; border-radius: 10px; background: #fff; }
+.batch-footer p { margin: 0; }
+@media (max-width: 767px) {
+  .batch-body { grid-template-columns: minmax(0, 1fr); }
+  .batch-score { grid-column: 1; grid-row: auto; padding: 8px 0 0; border-left: 0; border-top: 1px solid #dce2ec; }
+  .batch-footer { position: static; }
+}

@@ -127,8 +127,98 @@ it('opens a model-3 position whose memory has no factor',async()=>{
  const api=client(async url=>String(url).includes('get_operational_positions')?response({items:[metaDetail.position],total:1,page:1,pageSize:25}):response(metaDetail));
  openAcademicPage('conferencia');
  render(<AcademicWorkspace client={api} group={groupContexts([{...context,modelo:3}])[0]} onSignOut={()=>{}} />);
- fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · enviada/}));
+ // T11: the model-3 queue labels a row with the situation in words ("Aguardando conferência"), not the raw status.
+ fireEvent.click(await screen.findByRole('button',{name:/NORTE-1 · Aguardando conferência/}));
  expect(await screen.findByText('Synthetic origin')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Iniciar revisão'})).toBeTruthy();
  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+// ---- Task 11: model-3 queue with tabs, local search, no bulk action, previous version and explanation ----
+const v3Reviewer=(n:number):AuthorizedContext=>({...context,key:`rev-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,escopoCodigo:'ACADEMIC-NORTE',competenciaCodigo:'ACADEMIC-V3-2026-10'});
+const v3Group=(role:'revisor_tecnico'|'cam'='revisor_tecnico')=>groupContexts([1,2].map(n=>({...v3Reviewer(n),role})))[0];
+const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoCodigo:code,status,revisionId:`rev-${id}`,...extra});
+const v3Rows:Record<string,ReturnType<typeof row>[]>={'indicator-1':[row('p1','ALFA','enviada'),row('p2','BETA','em_revisao'),row('p5','EPSILON','ausente',{revisionId:null,estadoDado:null,inputValue:null,resultValue:null})],
+ 'indicator-2':[row('p3','GAMA','devolvida'),row('p4','DELTA','validada',{resultValue:'28.42'})]};
+const v3Revision=(id:string,number:number,value:string,source:string,extra:object={})=>({id,number,authorId:'author',estadoDado:'valor',value,source,sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null,...extra});
+function v3Api(){
+ const calls:{name:string;body:{p_position_id:string;p_contexto:{indicadorId:string}}}[]=[];
+ const api=client(async(url,options)=>{
+  const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
+  if(name==='get_operational_positions')return response({items:v3Rows[body.p_contexto.indicadorId],total:v3Rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
+  if(name==='get_position_detail'){
+   const found=Object.values(v3Rows).flat().find(p=>p.id===body.p_position_id)!;
+   const returned=found.id==='p3';
+   return response({position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
+    decisions:[],memories:[{revisionId:`rev-${found.id}`,ruleVersion:1,method:'meta_peso',factor:null,inputValue:returned?'40':'90',resultValue:returned?'25':'28.42'}]});
+  }
+  return response({resourceId:body.p_position_id,version:4,revisionId:`rev-${body.p_position_id}`,status:name==='start_position_review'?'em_revisao':body.p_decision==='return'?'devolvida':'validada',resultValue:'28.42'});
+ });
+ return {api,calls};
+}
+const queue=async(role:'revisor_tecnico'|'cam'='revisor_tecnico')=>{
+ const view=v3Api();openAcademicPage(role==='cam'?'entradas':'conferencia');
+ render(<AcademicWorkspace client={view.api} group={v3Group(role)} onSignOut={()=>{}}/>);
+ await screen.findByRole('tablist',{name:'Filtrar entradas'});
+ return view;
+};
+const tab=(name:RegExp)=>screen.getByRole('tab',{name});
+it('V3 reviewer: tabs with counts over every indicator context; Pendentes is the default',async()=>{
+ await queue();
+ expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Pendentes (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)']);
+ expect(tab(/Pendentes/).getAttribute('aria-selected')).toBe('true');
+ expect(await screen.findByRole('button',{name:/ALFA · Aguardando conferência/})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/BETA/})).toBeNull();
+ fireEvent.click(tab(/Em conferência/));expect(screen.getByRole('button',{name:/BETA · Em conferência/})).toBeTruthy();
+ fireEvent.click(tab(/Devolvidas/));expect(screen.getByRole('button',{name:/GAMA · Devolvida/})).toBeTruthy();
+ fireEvent.click(tab(/Aceitas/));expect(screen.getByRole('button',{name:/DELTA · Aceita/})).toBeTruthy();
+});
+it('V3 reviewer: search narrows the list by unit and keeps no bulk action anywhere',async()=>{
+ await queue();
+ fireEvent.click(tab(/Devolvidas/));
+ fireEvent.change(screen.getByLabelText('Buscar unidade'),{target:{value:'zzz'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
+ expect(screen.queryByRole('button',{name:/GAMA/})).toBeNull();
+ fireEvent.change(screen.getByLabelText('Buscar unidade'),{target:{value:'gam'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
+ fireEvent.click(await screen.findByRole('button',{name:/GAMA/}));
+ expect(await screen.findByRole('heading',{name:'GAMA'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/aceitar todos|em massa/i})).toBeNull();
+ expect(screen.queryByRole('checkbox')).toBeNull();
+});
+it('V3 reviewer: shows the previous version next to the correction explanation and the calculation memory',async()=>{
+ await queue();fireEvent.click(tab(/Devolvidas/));
+ fireEvent.click(await screen.findByRole('button',{name:/GAMA/}));
+ expect(await screen.findByText('Usei o mês de outubro.')).toBeTruthy();
+ const previous=screen.getByRole('group',{name:'Versão anterior'});
+ expect(previous.textContent).toContain('96');expect(previous.textContent).toContain('Sistema antigo');
+ const memory=screen.getByRole('group',{name:'Memória de cálculo'});
+ expect(memory.textContent).toContain('40');expect(memory.textContent).toContain('25,00');
+});
+it('V3 reviewer: starts and accepts one item with the context of its own indicator',async()=>{
+ const {calls}=await queue();
+ fireEvent.click(await screen.findByRole('button',{name:/ALFA/}));
+ fireEvent.click(await screen.findByRole('button',{name:'Iniciar revisão'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Aceitar evidência'}));
+ expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
+ const commands=calls.filter(c=>['start_position_review','review_position'].includes(c.name));
+ expect(commands.map(c=>c.name)).toEqual(['start_position_review','review_position']);
+ expect(commands.every(c=>c.body.p_position_id==='p1'&&c.body.p_contexto.indicadorId==='indicator-1')).toBe(true);
+ // The accepted item leaves Pendentes and the counts follow.
+ expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Pendentes (0)','Em conferência (1)','Devolvidas (1)','Aceitas (2)']);
+});
+it('V3 reviewer: a return without a reason is refused before any command',async()=>{
+ const {calls}=await queue();fireEvent.click(tab(/Em conferência/));
+ fireEvent.click(await screen.findByRole('button',{name:/BETA/}));
+ fireEvent.click(await screen.findByRole('button',{name:'Devolver com motivo'}));
+ expect((await screen.findByRole('alert')).textContent).toContain('Informe o motivo');
+ expect(calls.some(c=>c.name==='review_position')).toBe(false);
+});
+it('V3 CAM entries: read-only list of every entry, including the ones still absent, with no action',async()=>{
+ await queue('cam');
+ expect(screen.getAllByRole('tab').map(t=>t.textContent)).toEqual(['Todas (5)','Pendentes (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)']);
+ expect(screen.getByRole('heading',{name:'Todas as entradas'})).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
+ expect(await screen.findByText('Painel sintético')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo|Autorizar retificação|Decidir/})).toBeNull();
+ expect(screen.queryByLabelText('Motivo da conferência')).toBeNull();
+ fireEvent.click(tab(/Todas/));expect(screen.getByRole('button',{name:/EPSILON · Não enviado/})).toBeTruthy();
 });

@@ -160,12 +160,21 @@ it('shows the competence state next to its code in the header',()=>{
  render(<AcademicWorkspace client={client} group={grp({...context,role:'gestor_unidade',competenciaEstado:'aberta'})} onSignOut={()=>{}} />);
  expect(screen.getByText('Aberta')).toBeTruthy();
 });
-it('offers "Não se aplica" in the draft only for a model-3 group',async()=>{
+// T11: a model-3 technician fills the unit on the batch page (its situation buttons offer "Não se aplica");
+// the single-position draft form stays the model-2 screen and never offers it.
+it('offers "Não se aplica" through the batch page for a model-3 group and not in the model-2 draft form',async()=>{
  openAcademicPage('preenchimento');
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_position_detail')?{position,revisions:[],decisions:[],memories:[]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
- render(<AcademicWorkspace client={client} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
+ const view=render(<AcademicWorkspace client={client} group={grp(context)} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
- expect(within(await screen.findByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível','Não se aplica']);
+ expect(within(await screen.findByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível']);
+ view.unmount();
+ const batch=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',items:[{positionId:'pos',indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,returnReason:null,revisionNumber:null}]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ render(<AcademicWorkspace client={batch} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
+ expect(await screen.findByRole('heading',{name:'Preenchimento da unidade'})).toBeTruthy();
+ expect(await screen.findByRole('radio',{name:'Não se aplica'})).toBeTruthy();
+ expect(screen.queryByRole('heading',{name:'Rascunhos do indicador'})).toBeNull();
+ expect(screen.queryByLabelText('Estado do dado')).toBeNull();
 });
 
 // ---- Task 9: V3 screens for model-3 groups; model-2 groups keep their pages ----
@@ -206,7 +215,7 @@ it('mounts the V3 dashboard for the technical area and navigates to the fill scr
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
  fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
- expect(await screen.findByRole('heading',{name:'Rascunhos do indicador'})).toBeTruthy();
+ expect(await screen.findByRole('heading',{name:'Preenchimento da unidade'})).toBeTruthy();
  expect(calls).toContain('get_dashboard');
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
@@ -239,4 +248,52 @@ it('keeps a model-2 CAM and a model-2 administrator on their existing screens',a
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
  expect(screen.getByRole('button',{name:'Regras futuras'})).toBeTruthy();
  expect(calls.every(name=>name==='get_admin_catalog')).toBe(true);
+});
+
+// ---- Task 11: model-3 fill, queue and cycle screens routed by destination ----
+const naPosition={...position,id:'na',escopoCodigo:'ACADEMIC-NORTE-3',status:'validada',estadoDado:'nao_aplicavel',revisionId:'rev-na'};
+function camV3Client(){
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>{
+  const name=String(url).split('/rpc/')[1];calls.push(name);
+  const data=name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:1,reviewed:1,unavailable:0,decidedUnavailable:0,notApplicable:1,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:0,
+    blockers:[{positionId:'na',code:'unavailability_pending',message:'Indisponibilidade sem decisão CAM ou com número indevido.'}]}
+   :name==='get_position_detail'?{position:naPosition,revisions:[{id:'rev-na',number:1,authorId:'author',estadoDado:'nao_aplicavel',value:null,source:'Relatório do distrito',sourcePeriod:'2026-10-01',reason:'Unidade sem este serviço.',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null}],decisions:[],memories:[]}
+   :{items:[naPosition],total:1,page:1,pageSize:100};
+  return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});
+ }}});
+ return {client,calls};
+}
+it('model-3 CAM: Ciclo shows the cycle and its decisions only; "Ver entrada" opens the position in the read-only Todas as entradas',async()=>{
+ openAcademicPage('ciclo');
+ const {client}=camV3Client();
+ render(<AcademicWorkspace client={client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
+ expect(screen.queryByRole('tablist',{name:'Filtrar entradas'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3'}));
+ expect(await screen.findByRole('heading',{name:'Todas as entradas',level:2})).toBeTruthy();
+ expect(window.location.hash).toBe('#academico/entradas');
+ expect(await screen.findByText('Unidade sem este serviço.')).toBeTruthy();
+ expect(screen.getByRole('heading',{name:'ACADEMIC-NORTE-3',level:3})).toBeTruthy();
+ expect(screen.queryByRole('heading',{name:'Decisões pendentes da CAM'})).toBeNull();
+ expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo/})).toBeNull();
+});
+it('model-3 technical area: the fill screen is the batch page, so no single-position correction form exists to send a correction without its explanation',async()=>{
+ openAcademicPage('preenchimento');
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',items:[{positionId:'pos',indicatorCode:'DEMO-V1-03',name:'Tempo de resposta',meta:'48',direction:'menor_melhor',weight:'25',decimals:2,max:'8760',unit:'h',status:'devolvida',version:5,estadoDado:'valor',valor:'96',fonte:'Sistema',motivo:'',returnReason:'Confirme outubro.',revisionNumber:1}]}:{items:[{...position,status:'devolvida',revisionId:'rev'}],total:1,page:1,pageSize:100}),{headers:{'content-type':'application/json'}})}});
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByLabelText('O que você corrigiu?')).toBeTruthy();
+ expect(screen.queryByRole('region',{name:'Correção versionada'})).toBeNull();
+ expect(screen.queryByLabelText('Justificativa da correção')).toBeNull();
+ expect((screen.getByRole('button',{name:'Enviar 0 itens'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('model-3 reviewer: the Conferência page mounts the tabbed queue; a model-2 reviewer keeps the paged queue',async()=>{
+ openAcademicPage('conferencia');
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async()=>new Response(JSON.stringify({items:[],total:0,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ const view=render(<AcademicWorkspace client={client} group={grp(v3('revisor_tecnico'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('tablist',{name:'Filtrar entradas'})).toBeTruthy();
+ view.unmount();
+ render(<AcademicWorkspace client={client} group={grp({...context,role:'revisor_tecnico'})} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('navigation',{name:'Páginas da fila'})).toBeTruthy();
+ expect(screen.queryByRole('tablist',{name:'Filtrar entradas'})).toBeNull();
 });
