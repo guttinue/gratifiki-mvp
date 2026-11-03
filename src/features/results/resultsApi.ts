@@ -6,6 +6,10 @@ import { readArray, readDecimal, readInteger, readObject, readRpc, readText } fr
 // Model-3 read contracts. Decimals stay text (pilot/decimal.ts formats them);
 // official points never become a JavaScript number.
 export type Direction = 'maior_melhor' | 'menor_melhor';
+// Absence mode of a rule set: zero (an unavailable/not applicable item scores 0)
+// or redistribuir (its weight goes to the other indicators).
+export type AbsenceMode = 'zero' | 'redistribuir';
+export const absenceModes: readonly AbsenceMode[] = ['zero', 'redistribuir'];
 export type ResultItemState = 'valor' | 'indisponivel' | 'nao_aplicavel' | 'pendente';
 export type ReviewStatus = 'valor' | 'indisponivel' | 'nao_aplicavel' | 'sem_envio' | 'em_conferencia' | 'decisao_pendente';
 export type UnitResultItem = { indicatorCode: string; name: string; state: ResultItemState; inputValue: DecimalText | null;
@@ -16,10 +20,10 @@ export type UnitResult = { unitId: string; unitCode: string; districtCode: strin
   // Signed, two decimal places (e.g. "4.80"); only between two complete scores.
   delta: string | null; items: UnitResultItem[] };
 export type UnitResults = { competencia: string; state: 'aberta' | 'em_consolidacao' | 'fechada';
-  publication: 'nao_publicada' | 'publicada_demo'; units: UnitResult[] };
+  publication: 'nao_publicada' | 'publicada_demo'; mode: AbsenceMode; units: UnitResult[] };
 export type RuleSetItem = { indicatorCode: string; name: string; meta: DecimalText; direction: Direction; decimals: number;
   maximum: DecimalText; unit: string | null; weight: DecimalText };
-export type RuleSet = { id: string; code: string; version: number; mode: 'zero' | 'redistribuir'; synthetic: boolean;
+export type RuleSet = { id: string; code: string; version: number; mode: AbsenceMode; synthetic: boolean;
   validFrom: string; reference: string; inUse: boolean; items: RuleSetItem[] };
 export type RuleCatalog = { ruleSets: RuleSet[] };
 
@@ -71,9 +75,9 @@ function decodeUnit(value: unknown): UnitResult {
 }
 
 export function decodeUnitResults(value: unknown): UnitResults {
-  const r = readExact(value, ['competencia', 'state', 'publication', 'units']);
+  const r = readExact(value, ['competencia', 'state', 'publication', 'mode', 'units']);
   const results: UnitResults = { competencia: readText(r.competencia), state: readOneOf(r.state, ['aberta', 'em_consolidacao', 'fechada'] as const),
-    publication: readOneOf(r.publication, ['nao_publicada', 'publicada_demo'] as const), units: readArray(r.units, decodeUnit) };
+    publication: readOneOf(r.publication, ['nao_publicada', 'publicada_demo'] as const), mode: readOneOf(r.mode, absenceModes), units: readArray(r.units, decodeUnit) };
   if (!results.units.length || new Set(results.units.map(u => u.unitId)).size !== results.units.length
     || (results.publication === 'publicada_demo' && results.state !== 'fechada')) return invalid();
   return results;
@@ -83,7 +87,7 @@ export async function loadUnitResults(client: SupabaseClient, ctx: CommandContex
   return decodeUnitResults(await readRpc(client, 'get_unit_results', ctx));
 }
 
-function date(value: unknown): string {
+export function readDate(value: unknown): string {
   const text = readText(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(text + 'T00:00:00Z')) || new Date(text + 'T00:00:00Z').toISOString().slice(0, 10) !== text) return invalid();
   return text;
@@ -99,8 +103,8 @@ export function decodeRuleCatalog(value: unknown): RuleCatalog {
   const r = readExact(value, ['ruleSets']);
   return { ruleSets: readArray(r.ruleSets, v => {
     const s = readExact(v, ['id', 'code', 'version', 'mode', 'synthetic', 'validFrom', 'reference', 'inUse', 'items']);
-    return { id: readText(s.id), code: readText(s.code), version: readInteger(s.version, 1), mode: readOneOf(s.mode, ['zero', 'redistribuir'] as const),
-      synthetic: readBoolean(s.synthetic), validFrom: date(s.validFrom), reference: readText(s.reference), inUse: readBoolean(s.inUse),
+    return { id: readText(s.id), code: readText(s.code), version: readInteger(s.version, 1), mode: readOneOf(s.mode, absenceModes),
+      synthetic: readBoolean(s.synthetic), validFrom: readDate(s.validFrom), reference: readText(s.reference), inUse: readBoolean(s.inUse),
       items: readArray(s.items, decodeRuleSetItem) };
   }) };
 }

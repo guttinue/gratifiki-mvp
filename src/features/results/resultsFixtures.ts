@@ -18,7 +18,7 @@ export const completeUnit: UnitResult = { unitId: 'alfa', unitCode: 'ACADEMIC-NO
   partial: false, previous: { points: '88.62', competencia: 'ACADEMIC-V3-2026-09' }, delta: '4.80', items: acceptedItems };
 export const partialUnit: UnitResult = { unitId: 'beta', unitCode: 'ACADEMIC-NORTE-2', districtCode: 'ACADEMIC-NORTE', points: '70', complete: false, noBase: false,
   partial: true, previous: { points: '92.51', competencia: 'ACADEMIC-V3-2026-09' }, delta: null, items: [pendingItem, ...acceptedItems.slice(1)] };
-export const results = (...units: UnitResult[]): UnitResults => ({ competencia: 'ACADEMIC-V3-2026-10', state: 'aberta', publication: 'nao_publicada', units });
+export const results = (...units: UnitResult[]): UnitResults => ({ competencia: 'ACADEMIC-V3-2026-10', state: 'aberta', publication: 'nao_publicada', mode: 'zero', units });
 export function rpcClient(handler: (name: string, body: Record<string, unknown>) => unknown, status = 200) {
   const calls: { name: string; body: Record<string, unknown> }[] = [];
   const client = createClient('http://localhost:54321', 'key', { auth: { persistSession: false, storageKey: crypto.randomUUID() },

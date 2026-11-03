@@ -151,7 +151,8 @@ it.each(['close','publish'] as const)('returns %s confirmation focus on native c
 // ---- Task 11: model-3 cycle — "N de 16 prontas", pending CAM decisions and blockers with a link ----
 const camV3=(n:number):AuthorizedContext=>({...context,key:`cam-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,competenciaCodigo:'ACADEMIC-V3-2026-10'});
 const v3Group=()=>groupContexts([1,2].map(camV3))[0];
-const unit=(id:string,code:string,state:'indisponivel'|'nao_aplicavel'|'valor',extra:object={})=>({id,escopoId:`unit-${id}`,escopoCodigo:code,escopoTipo:'unidade',aplicavel:true,status:'validada',estadoDado:state,version:7,revisionId:`rev-${id}`,inputValue:null,resultValue:null,...extra});
+// Positions of the CAM group's own unit: a decision needs the CAM context of the position's unit and indicator.
+const unit=(id:string,code:string,state:'indisponivel'|'nao_aplicavel'|'valor',extra:object={})=>({id,escopoId:'scope',escopoCodigo:code,escopoTipo:'unidade',aplicavel:true,status:'validada',estadoDado:state,version:7,revisionId:`rev-${id}`,inputValue:null,resultValue:null,...extra});
 const v3Rows:Record<string,ReturnType<typeof unit>[]>={'indicator-1':[unit('na','ACADEMIC-NORTE-3','nao_aplicavel'),unit('late','ACADEMIC-NORTE-1','valor',{status:'enviada'})],'indicator-2':[unit('un','ACADEMIC-NORTE-2','indisponivel')]};
 const v3Checklist=(blockers:object[],extra:object={})=>({...checklist,state:'aberta',expected:16,received:12,reviewed:9,unavailable:1,decidedUnavailable:0,notApplicable:0,canClose:false,canConsolidate:false,ready:9,blockers,...extra});
 const pendingBlocker=(id:string)=>({positionId:id,code:'unavailability_pending',message:'Indisponibilidade sem decisão CAM ou com número indevido.'});
@@ -256,4 +257,36 @@ it('V3 cycle: "Atualizar ciclo" asks before discarding typed decisions and keeps
  confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Atualizar ciclo'}));
  await waitFor(()=>expect(calls.filter(c=>c.name==='get_cycle_checklist').length).toBe(3));
  expect((await screen.findByLabelText('Motivo da decisão') as HTMLTextAreaElement).value).toBe('Não perder.');
+});
+
+// I-1: the model-3 CAM listing is widened (one indicator context lists that
+// indicator in every unit where the CAM holds a link), so the context that
+// listed a position may belong to another unit. The decision must use the
+// actor's CAM context for the position's own unit and indicator.
+it('V3 cycle: decides a pending item of another unit with the CAM context of that unit and indicator',async()=>{
+ const camAt=(unit:string,n:number):AuthorizedContext=>({...context,key:`cam-${unit}-${n}`,vinculoId:`link-${unit}-${n}`,indicadorId:`indicator-${n}`,escopoId:`unit-${unit}`,escopoCodigo:`ACADEMIC-${unit}`,modelo:3,competenciaCodigo:'ACADEMIC-V3-2026-10'});
+ const all=[camAt('NORTE-1',1),camAt('NORTE-1',2),camAt('NORTE-2',1),camAt('NORTE-2',2)];
+ const alfa=groupContexts(all).find(g=>g.escopoId==='unit-NORTE-1')!;
+ const at=(id:string,unitCode:string,state:'indisponivel'|'nao_aplicavel'|'valor')=>({...unit(id,`ACADEMIC-${unitCode}`,state),escopoId:`unit-${unitCode}`});
+ const listed:Record<string,ReturnType<typeof at>[]>={'indicator-1':[at('a1','NORTE-1','valor'),at('b1','NORTE-2','valor'),at('g1','SUL-1','indisponivel')],'indicator-2':[at('a2','NORTE-1','valor'),at('b2','NORTE-2','nao_aplicavel')]};
+ const calls:{name:string;body:CycleBody}[]=[];
+ const api=client(async(url,options)=>{
+  const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
+  if(name==='get_cycle_checklist')return response(v3Checklist([pendingBlocker('b2'),pendingBlocker('g1')]));
+  if(name==='get_operational_positions')return response({items:listed[body.p_contexto.indicadorId],total:listed[body.p_contexto.indicadorId].length,page:1,pageSize:100});
+  if(name==='decide_unavailability')return response({resourceId:body.p_position_id,version:8,revisionId:`rev-${body.p_position_id}`,status:'validada',resultValue:null});
+  return response(null);
+ });
+ render(<CyclePage client={api} context={alfa.contexts[0]} group={alfa} contexts={all} />);
+ const list=await screen.findByRole('list',{name:'Decisões pendentes da CAM'});
+ const beta=list.querySelectorAll('li')[0];
+ fireEvent.change(within(beta).getByLabelText('Referência da decisão'),{target:{value:'OF-7'}});
+ fireEvent.change(within(beta).getByLabelText('Motivo da decisão'),{target:{value:'Unidade Beta sem este serviço.'}});
+ fireEvent.click(within(beta).getByRole('button',{name:'Decidir ACADEMIC-NORTE-2'}));
+ expect(await screen.findByText('Decisão registrada para ACADEMIC-NORTE-2.')).toBeTruthy();
+ expect(calls.find(c=>c.name==='decide_unavailability')!.body).toMatchObject({p_position_id:'b2',p_contexto:{vinculoId:'link-NORTE-2-2',indicadorId:'indicator-2'}});
+ // A unit where the actor holds no CAM context: say where to decide, offer no button.
+ const gama=within(screen.getByRole('list',{name:'Decisões pendentes da CAM'})).getByText('ACADEMIC-SUL-1 · Indisponível').closest('li')!;
+ expect(within(gama).getByText('Abra o contexto da unidade ACADEMIC-SUL-1 para decidir.')).toBeTruthy();
+ expect(within(gama).queryByRole('button',{name:/^Decidir/})).toBeNull();
 });

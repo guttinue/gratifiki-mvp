@@ -26,6 +26,7 @@ describe("academic bootstrap safety", () => {
     const tables=new Map<string,Record<string,unknown>[]>([['conjuntos_regra',[{id:demoRuleSet.id,codigo:'DEMO',versao:1}]]]);
     const rpcs: {name:string;actor:string;args:Record<string,unknown>}[]=[];
     const inserts: {table:string;rows:Record<string,unknown>[]}[]=[];
+    const requests: string[]=[];
     let sequence=0;
     function rpc(name:string,args:Record<string,unknown>) {
       const rows=(table:string)=>{ if(!tables.has(table)) tables.set(table,[]); return tables.get(table)!; };
@@ -50,6 +51,7 @@ describe("academic bootstrap safety", () => {
     }
     const client=createClient('http://127.0.0.1:54321','synthetic-admin-key',{auth:{persistSession:false,autoRefreshToken:false,storageKey:'academic-bootstrap-test'},global:{fetch:async(input,init)=>{
       const url=new URL(String(input));
+      requests.push(`${init?.method??'GET'} ${url.pathname}${decodeURIComponent(url.search)}`);
       const json=(value:unknown,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json'}});
       if(url.pathname==='/auth/v1/token') {
         const body=JSON.parse(String(init?.body)) as {email:string};
@@ -96,8 +98,23 @@ describe("academic bootstrap safety", () => {
       }
       return new Response(null,{status:201});
     }}});
-    return { client, users, tables, rpcs, inserts };
+    return { client, users, tables, rpcs, inserts, requests };
   }
+  // I-4: the upgrade/restore check bootstraps the schema before 20261102100000,
+  // where the DEMO-v1 tables and the 4-column link key do not exist yet.
+  it('legacyOnly writes only what the pre-V3 schema has: model-2 rows, the 3-column link key, no DEMO-v1 read or command', async () => {
+    const { client, tables, rpcs, requests } = fakeBackend();
+    tables.delete('conjuntos_regra');
+    await bootstrapAcademicDemo(client,credentials,{legacyOnly:true});
+    expect(requests.filter(r=>r.includes('conjuntos_regra'))).toEqual([]);
+    const linkWrites=requests.filter(r=>r.startsWith('POST /rest/v1/vinculos'));
+    expect(linkWrites.length).toBeGreaterThan(0);
+    expect(new Set(linkWrites.map(r=>/[?&]on_conflict=([^&]*)/.exec(r)?.[1]))).toEqual(new Set(['actor_id,papel,escopo_id']));
+    expect(tables.get('competencias')!.map(c=>c.modelo)).toEqual([2,2]);
+    expect(tables.get('vinculos')!.every(l=>l.indicador_id===academicIndicator)).toBe(true);
+    expect(tables.get('posicoes_esperadas')!.every(p=>p.indicador_id===academicIndicator)).toBe(true);
+    expect(rpcs).toEqual([]);
+  });
   it('resumes bootstrap without replacing Auth IDs, versions, assignments, revoked links or business rows', async () => {
     const { client, users, tables } = fakeBackend();
     const first=await bootstrapAcademicDemo(client,credentials);

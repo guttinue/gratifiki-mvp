@@ -42,14 +42,18 @@ const stateLabels:Record<string,string>={indisponivel:'Indisponível',nao_aplica
 // Model 3: accepted "indisponível" / "não se aplica" wait for the CAM decision (reference + reason).
 type DecisionFields=Record<string,{reference:string;reason:string}>;
 // The typed text lives in CyclePage: re-reading the cycle unmounts this list, and a decision on one item must not wipe the others.
-function PendingDecisions({client,positionIds,rows,fields,setFields,onOpenPosition,onDecided}:{client:SupabaseClient;positionIds:string[];rows:GroupPosition[];fields:DecisionFields;setFields:Dispatch<SetStateAction<DecisionFields>>;onOpenPosition?:(id:string)=>void;onDecided:(label:string)=>void}) {
+// The CAM listing is widened across units, so the context that listed a position
+// may be another unit's. A decision uses the actor's CAM context for the
+// position's own unit and indicator (the listing context's indicator).
+function PendingDecisions({client,positionIds,rows,camContexts,fields,setFields,onOpenPosition,onDecided}:{client:SupabaseClient;positionIds:string[];rows:GroupPosition[];camContexts:AuthorizedContext[];fields:DecisionFields;setFields:Dispatch<SetStateAction<DecisionFields>>;onOpenPosition?:(id:string)=>void;onDecided:(label:string)=>void}) {
  const [errors,setErrors]=useState<Record<string,string>>({});
  const [busy,setBusy]=useState<string|null>(null);
  const attempts=useRef(new Map<string,{signature:string;id:string}>());const inFlight=useRef(false);const active=useRef(true);
  useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
  useNavigationDraft(!!busy);
  const without=<T,>(all:Record<string,T>,key:string)=>Object.fromEntries(Object.entries(all).filter(([id])=>id!==key));
- async function decide(row:GroupPosition) {
+ const decisionContext=(row:GroupPosition)=>camContexts.find(c=>c.escopoId===row.position.escopoId&&c.indicadorId===row.context.indicadorId);
+ async function decide(row:GroupPosition,decisionContext:AuthorizedContext) {
   const id=row.position.id;const field=fields[id]??{reference:'',reason:''};
   const reference=field.reference.trim();const reason=field.reason.trim();
   if(inFlight.current||!reference||!reason)return;
@@ -59,7 +63,7 @@ function PendingDecisions({client,positionIds,rows,fields,setFields,onOpenPositi
   attempts.current.set(id,{signature,id:operationId});
   inFlight.current=true;setBusy(id);setErrors(all=>without(all,id));
   try{
-   await decideUnavailability(client,toCommandContext(row.context),id,row.position.version,reference,reason,operationId);
+   await decideUnavailability(client,toCommandContext(decisionContext),id,row.position.version,reference,reason,operationId);
    if(!active.current)return;
    attempts.current.delete(id);setFields(all=>without(all,id));onDecided(row.position.escopoCodigo);
   }catch(cause){if(active.current)setErrors(all=>({...all,[id]:cause instanceof DomainCommandError?cause.message:'Não foi possível confirmar a decisão. Tente de novo.'}));}
@@ -72,18 +76,23 @@ function PendingDecisions({client,positionIds,rows,fields,setFields,onOpenPositi
    if(!row)return <li key={positionId}>Posição fora da lista autorizada carregada.</li>;
    const code=row.position.escopoCodigo;const field=fields[positionId]??{reference:'',reason:''};
    const change=(patch:Partial<typeof field>)=>setFields(all=>({...all,[positionId]:{...field,...patch}}));
+   const target=decisionContext(row);
    return <li key={positionId}><strong>{code} · {stateLabels[row.position.estadoDado??'']??'Aguardando decisão'}</strong>
     {onOpenPosition&&<button type="button" onClick={()=>onOpenPosition(positionId)}>Ver entrada de {code}</button>}
-    <label>Referência da decisão<input maxLength={500} disabled={busy===positionId} value={field.reference} onChange={event=>change({reference:event.target.value})} /></label>
-    <label>Motivo da decisão<textarea maxLength={1000} disabled={busy===positionId} value={field.reason} onChange={event=>change({reason:event.target.value})} /></label>
-    <button type="button" disabled={!!busy||!field.reference.trim()||!field.reason.trim()} onClick={()=>void decide(row)}>Decidir {code}</button>
+    {target?<>
+     <label>Referência da decisão<input maxLength={500} disabled={busy===positionId} value={field.reference} onChange={event=>change({reference:event.target.value})} /></label>
+     <label>Motivo da decisão<textarea maxLength={1000} disabled={busy===positionId} value={field.reason} onChange={event=>change({reason:event.target.value})} /></label>
+     <button type="button" disabled={!!busy||!field.reference.trim()||!field.reason.trim()} onClick={()=>void decide(row,target)}>Decidir {code}</button>
+    </>:<p>{`Abra o contexto da unidade ${code} para decidir.`}</p>}
     {errors[positionId]&&<p role="alert">{errors[positionId]}</p>}
    </li>;
   })}</ul>
  </section>;
 }
-export function CyclePage({client,context,group,renderExport,authorizedPositions=[],onOpenPosition}:{client:SupabaseClient;context:AuthorizedContext;group?:ContextGroup;renderExport?:(checklist:CycleChecklist)=>ReactNode;authorizedPositions?:PositionSummary[];onOpenPosition?:(id:string)=>void}) {
+export function CyclePage({client,context,group,contexts,renderExport,authorizedPositions=[],onOpenPosition}:{client:SupabaseClient;context:AuthorizedContext;group?:ContextGroup;contexts?:AuthorizedContext[];renderExport?:(checklist:CycleChecklist)=>ReactNode;authorizedPositions?:PositionSummary[];onOpenPosition?:(id:string)=>void}) {
  const v3=group?.modelo===3;
+ // Every CAM context of the actor in this competence, from all groups.
+ const camContexts=(contexts??group?.contexts??[]).filter(c=>c.role==='cam'&&c.competenciaId===context.competenciaId);
  const [groupRows,setGroupRows]=useState<GroupPosition[]>([]);
  const [decided,setDecided]=useState<string|null>(null);
  const [decisionFields,setDecisionFields]=useState<DecisionFields>({});
@@ -133,7 +142,7 @@ export function CyclePage({client,context,group,renderExport,authorizedPositions
   {checklist&&<><p>Estado do ciclo: {checklist.state}</p><p>Esperadas: {checklist.expected} · Recebidas: {checklist.received} · Conferidas: {checklist.reviewed}</p>
    <p>Indisponíveis: {checklist.unavailable} · Decididas: {checklist.decidedUnavailable} · Não aplicáveis: {checklist.notApplicable}</p>
    {v3&&<p>{`${checklist.ready??0} de ${checklist.expected} prontas`}</p>}
-   {v3&&decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows} fields={decisionFields} setFields={setDecisionFields} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);heading.current?.focus();}} />}
+   {v3&&decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows} camContexts={camContexts} fields={decisionFields} setFields={setDecisionFields} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);heading.current?.focus();}} />}
    {v3&&blockers.length>0&&<h3>Bloqueios</h3>}
    {(!v3||blockers.length>0)&&<ul aria-label={v3?'Bloqueios':undefined}>{blockers.map((b,i)=>{
     // A blocker outside the loaded queue page is still opened by id through the

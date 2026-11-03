@@ -10,8 +10,8 @@ O modelo 3 (V3) está implementado de ponta a ponta no ramo `feat/mvp-academico-
 - **Modelo 3, fluxo:** a área técnica preenche e envia a unidade em lote (tudo ou nada), com prévia de pontos; o revisor aceita ou devolve um item por vez; a CAM decide indisponibilidade e não aplicação, consolida, fecha e publica com referência `DEMO-DECISAO-…`/`DEMO-PUBLICACAO-…`; o gestor vê nota, comparação com o mês anterior e “Como foi calculado?”; a liderança vê médias por distrito; o CSV (contrato 2) traz `valor`, `meta`, `peso`, `peso_efetivo` e `pontos`.
 - **Modelo 2 inalterado:** o indicador legado `DEMO-01`, as sete jornadas e as suítes anteriores continuam verdes. Uma mesma sessão pode ter contextos dos dois modelos.
 - **Continua fora:** regras e indicadores oficiais da portaria, retificação após o fechamento no modelo 3, e qualquer tela ou comando para criar ou editar regras (o cadastro de regras é só por migração ou seed). ML não participa do cálculo.
-- **Verificação em 02/11/2026** (ver `Output/gratifiki-mvp/sistema-completo-v3/2026-11-02/relatorio.md`): 713 testes unitários em 60 arquivos; 1033 verificações pgTAP em 24 arquivos; 64 E2E em 21 arquivos (inclui `tests/e2e/academic-v3-journey.spec.ts`, a jornada V3 completa); typecheck, lint e build limpos.
-- **Pendente:** nova revisão das correções I1–I4, execução hospedada do CI, teste com usuários e a falha anterior de `npm run verify:restore` (ocorre também no HEAD limpo e está fora destes gates).
+- **Verificação em 03/11/2026, após a rodada final de correções** (ver `Output/gratifiki-mvp/sistema-completo-v3/2026-11-02/relatorio.md`): 727 testes unitários em 60 arquivos; 1053 verificações pgTAP em 25 arquivos; 64 E2E em 21 arquivos (inclui `tests/e2e/academic-v3-journey.spec.ts`, a jornada V3 completa); typecheck, lint e build limpos; `npm run verify:restore` sai com 0 sobre o esquema atual.
+- **Pendente:** revisão da rodada final de correções, execução hospedada do CI e teste com usuários.
 
 ## Estado anterior — trabalho em desenvolvimento (24/10/2026, histórico)
 

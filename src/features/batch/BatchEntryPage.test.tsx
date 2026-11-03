@@ -17,7 +17,7 @@ const contexts: AuthorizedContext[] = codes.map((_code, i) => ({ key: `c${i + 1}
 const group = groupContexts(contexts)[0];
 const summary = (n: number, status: string, extra: object = {}) => ({ id: `position-${n}`, escopoId: 'alfa', escopoCodigo: 'ACADEMIC-NORTE-1', escopoTipo: 'unidade',
   aplicavel: true, status, estadoDado: null, version: 1, revisionId: null, inputValue: null, resultValue: null, ...extra });
-const base = { direction: 'maior_melhor', decimals: 2, max: '100', unit: '%', estadoDado: null, valor: null, fonte: null, motivo: null, returnReason: null, revisionNumber: null };
+const base = { direction: 'maior_melhor', decimals: 2, max: '100', unit: '%', estadoDado: null, valor: null, fonte: null, motivo: null, periodoFonte: null, returnReason: null, revisionNumber: null };
 // pgTAP 23 fixture: 01 draft with 90, 02 sent, 03 returned, 04 accepted.
 const items = [
   { ...base, positionId: 'position-1', indicatorCode: codes[0], name: 'Registros conferidos', meta: '95', weight: '30', status: 'rascunho', version: 2, estadoDado: 'valor', valor: '90', fonte: 'Painel sintético', revisionNumber: 1 },
@@ -44,7 +44,7 @@ function rpc(handler: (call: Call) => Response | undefined = () => undefined) {
       const n = Number(String(call.body.p_contexto.indicadorId).replace('indicator-', ''));
       return json({ items: [summary(n, rowStatus[n - 1])], total: 1, page: 1, pageSize: 100 });
     }
-    if (call.name === 'get_unit_batch') return json({ unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', items });
+    if (call.name === 'get_unit_batch') return json({ unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', mode: 'zero', items });
     if (call.name === 'submit_unit_batch') return json({ items: call.body.p_itens.map((item) => receipt(Number(item.positionId.replace('position-', '')), 9, '28.42')) });
     if (call.name === 'save_position_draft') return json({ resourceId: 'position-1', version: 3, revisionId: 'rev-1', status: 'rascunho', resultValue: null });
     return json({});
@@ -152,7 +152,7 @@ describe('BatchEntryPage', () => {
     fireEvent.click(within(first).getByRole('radio', { name: 'Não se aplica' }));
     expect(within(first).queryByLabelText('Valor apurado')).toBeNull();
     expect(screen.getByText('0 prontos para envio')).toBeTruthy();
-    expect(within(first).getByText('Sem pontuação numérica. A CAM define o tratamento; não vira zero.')).toBeTruthy();
+    expect(within(first).getByText('Indisponível ou não se aplica entra com 0 pontos neste conjunto (modo zero), após decisão da CAM.')).toBeTruthy();
     fireEvent.change(within(first).getByLabelText('Por que este indicador não se aplica?'), { target: { value: 'Unidade sem este serviço.' } });
     expect(screen.getByText('1 pronto para envio')).toBeTruthy();
     fireEvent.click(within(first).getByRole('radio', { name: 'Indisponível' }));
@@ -329,4 +329,46 @@ describe('BatchEntryPage', () => {
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.queryByText(/DEMO-V1/)).toBeNull();
   });
+
+  // I-2: the source period of a saved draft and of a returned revision comes
+  // from the server, so it survives a reload and is sent as saved.
+  it('reads the saved source period after a remount and sends the returned revision with its own period', async () => {
+    let savedPeriod: string | null = null;
+    const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+    const serverItems = () => items.map(item => item.positionId === 'position-1' ? { ...item, periodoFonte: savedPeriod }
+      : item.positionId === 'position-3' ? { ...item, periodoFonte: '2026-09-01' } : item);
+    const view = rpc(call => {
+      if (call.name === 'save_position_draft') { savedPeriod = (call.body as unknown as { p_input: { periodoFonte: string } }).p_input.periodoFonte; return undefined; }
+      return call.name === 'get_unit_batch' ? json({ unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', mode: 'zero', items: serverItems() }) : undefined;
+    });
+    const first = render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    expect((within(card('DEMO-V1-01')).getByLabelText('Período da fonte') as HTMLInputElement).value).toBe('2026-10-01');
+    expect((within(card('DEMO-V1-03')).getByLabelText('Período da fonte') as HTMLInputElement).value).toBe('2026-09-01');
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Período da fonte'), { target: { value: '2026-09-15' } });
+    fireEvent.click(within(card('DEMO-V1-01')).getByRole('button', { name: 'Salvar rascunho' }));
+    expect(await within(card('DEMO-V1-01')).findByText('Rascunho salvo.')).toBeTruthy();
+    first.unmount();
+    render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    expect((within(card('DEMO-V1-01')).getByLabelText('Período da fonte') as HTMLInputElement).value).toBe('2026-09-15');
+    fireEvent.change(within(card('DEMO-V1-03')).getByLabelText('Valor apurado'), { target: { value: '40' } });
+    fireEvent.change(within(card('DEMO-V1-03')).getByLabelText('O que você corrigiu?'), { target: { value: 'Usei outubro.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar 2 itens' }));
+    await screen.findByText('2 itens enviados para conferência.');
+    const sent = view.calls.find(c => c.name === 'submit_unit_batch')!.body.p_itens;
+    expect(sent.map(item => (item.input as { periodoFonte: string }).periodoFonte)).toEqual(['2026-09-15', '2026-09-01']);
+  });
+
+  // I-3: the copy follows the absence mode of the competence's rule set.
+  it('explains a value-less situation per absence mode: zero points in zero mode, redistributed weight otherwise', async () => {
+    const view = rpc(call => call.name === 'get_unit_batch'
+      ? new Response(JSON.stringify({ unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', mode: 'redistribuir', items }), { headers: { 'content-type': 'application/json' } }) : undefined);
+    render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    fireEvent.click(within(card('DEMO-V1-01')).getByRole('radio', { name: 'Indisponível' }));
+    expect(within(card('DEMO-V1-01')).getByText('Indisponível ou não se aplica não pontua; o peso é redistribuído entre os demais indicadores, após decisão da CAM.')).toBeTruthy();
+    expect(screen.queryByText(/vira zero/)).toBeNull();
+  });
 });
+

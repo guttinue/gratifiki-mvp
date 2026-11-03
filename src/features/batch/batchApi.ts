@@ -3,15 +3,17 @@ import type { CommandContext, CommandReceipt, DecimalText, DomainErrorCode, Draf
 import { DomainCommandError, decodeCommandReceipt } from '../pilot/commandApi';
 import { normalizeDraftInput } from '../submission/positionApi';
 import { readArray, readDecimal, readInteger, readObject, readText } from '../workspace/academicDashboardApi';
-import { readExact, readOneOf, type Direction } from '../results/resultsApi';
+import { absenceModes, readDate, readExact, readOneOf, type AbsenceMode, type Direction } from '../results/resultsApi';
 
 // Model-3 unit batch (T10). The server authorizes every item against its own
 // link; decimals stay text and are never turned into JavaScript numbers.
 export type UnitBatchItem = { positionId: string; indicatorCode: string; name: string; meta: DecimalText; direction: Direction;
   weight: DecimalText; decimals: number; max: DecimalText; unit: string | null; status: EntryStatus | 'ausente'; version: number;
   estadoDado: DraftInput['estadoDado'] | null; valor: DecimalText | null; fonte: string | null; motivo: string | null;
-  returnReason: string | null; revisionNumber: number | null };
-export type UnitBatch = { unitId: string; unitCode: string; items: UnitBatchItem[] };
+  // The current revision's source period (YYYY-MM-DD); null when none was saved.
+  periodoFonte: string | null; returnReason: string | null; revisionNumber: number | null };
+// mode: the absence mode of the competence's rule set.
+export type UnitBatch = { unitId: string; unitCode: string; mode: AbsenceMode; items: UnitBatchItem[] };
 // A returned position needs the explanation of what changed; others send null.
 export type BatchItem = { context: CommandContext; positionId: string; expectedVersion: number; input: DraftInput; correction: { explanation: string } | null };
 
@@ -32,7 +34,7 @@ const decimal = (value: unknown): DecimalText => readDecimal(value) ?? invalid()
 const anyText = (value: unknown): string => typeof value === 'string' ? value : invalid();
 const statuses = ['ausente', 'rascunho', 'enviada', 'em_revisao', 'devolvida', 'validada', 'invalidada'] as const;
 const itemKeys = ['positionId', 'indicatorCode', 'name', 'meta', 'direction', 'weight', 'decimals', 'max', 'unit', 'status', 'version',
-  'estadoDado', 'valor', 'fonte', 'motivo', 'returnReason', 'revisionNumber'] as const;
+  'estadoDado', 'valor', 'fonte', 'motivo', 'periodoFonte', 'returnReason', 'revisionNumber'] as const;
 
 function decodeItem(value: unknown): UnitBatchItem {
   const r = readExact(value, itemKeys);
@@ -40,12 +42,12 @@ function decodeItem(value: unknown): UnitBatchItem {
     direction: readOneOf(r.direction, ['maior_melhor', 'menor_melhor'] as const), weight: decimal(r.weight), decimals: readInteger(r.decimals),
     max: decimal(r.max), unit: nullable(r.unit, readText), status: readOneOf(r.status, statuses), version: readInteger(r.version, 1),
     estadoDado: nullable(r.estadoDado, v => readOneOf(v, ['valor', 'indisponivel', 'nao_aplicavel'] as const)), valor: nullable(r.valor, decimal),
-    fonte: nullable(r.fonte, anyText), motivo: nullable(r.motivo, anyText), returnReason: nullable(r.returnReason, readText),
+    fonte: nullable(r.fonte, anyText), motivo: nullable(r.motivo, anyText), periodoFonte: nullable(r.periodoFonte, readDate), returnReason: nullable(r.returnReason, readText),
     revisionNumber: nullable(r.revisionNumber, v => readInteger(v, 1)) };
 }
 export function decodeUnitBatch(value: unknown): UnitBatch {
-  const r = readExact(value, ['unitId', 'unitCode', 'items']);
-  const batch = { unitId: readText(r.unitId), unitCode: readText(r.unitCode), items: readArray(r.items, decodeItem) };
+  const r = readExact(value, ['unitId', 'unitCode', 'mode', 'items']);
+  const batch = { unitId: readText(r.unitId), unitCode: readText(r.unitCode), mode: readOneOf(r.mode, absenceModes), items: readArray(r.items, decodeItem) };
   if (!batch.items.length || new Set(batch.items.map(i => i.positionId)).size !== batch.items.length) return invalid();
   return batch;
 }

@@ -58,6 +58,6 @@ export type Model3ExportRow = { snapshotId: string; competencia: string; indicad
 export type ExportBundle = { contractVersion: 1; snapshotId: string; rows: ExportRow[]; manifest: ExportManifest }
   | { contractVersion: 2; snapshotId: string; rows: Model3ExportRow[]; manifest: ExportManifest };
 // Model-3 leadership: no person, no individual value; averages over complete units.
-export type LeadershipOverview = { acceptedPercent: string;
+export type LeadershipOverview = { acceptedPercent: string; mode: 'zero' | 'redistribuir';
   districts: { districtCode: string; average: string | null; completeUnits: number; totalUnits: number }[];
   attention: { unitCode: string; pending: number }[] };

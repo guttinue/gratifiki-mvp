@@ -169,7 +169,7 @@ it('offers "Não se aplica" through the batch page for a model-3 group and not i
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
  expect(within(await screen.findByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível']);
  view.unmount();
- const batch=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',items:[{positionId:'pos',indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,returnReason:null,revisionNumber:null}]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ const batch=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',mode:'zero',items:[{positionId:'pos',indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,periodoFonte:null,returnReason:null,revisionNumber:null}]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
  render(<AcademicWorkspace client={batch} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
  expect(await screen.findByRole('heading',{name:'Preenchimento da unidade'})).toBeTruthy();
  expect(await screen.findByRole('radio',{name:'Não se aplica'})).toBeTruthy();
@@ -186,7 +186,7 @@ const rpc=(handler:(name:string)=>unknown)=>{
  }}});
  return {client,calls};
 };
-const unitResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',units:[completeUnit]};
+const unitResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[completeUnit]};
 it.each(['painel','resultados'])('mounts the unit results for a model-3 manager on %s instead of the model-2 evaluations',async page=>{
  openAcademicPage(page);
  const {client,calls}=rpc(()=>unitResults);
@@ -219,7 +219,7 @@ it('mounts the V3 dashboard for the technical area and navigates to the fill scr
  expect(calls).toContain('get_dashboard');
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
- const {client,calls}=rpc(()=>({acceptedPercent:'100.00',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
+ const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
  render(<AcademicWorkspace client={client} group={grp(v3('lideranca'))} onSignOut={()=>{}}/>);
  expect(await screen.findByText('100,00%')).toBeTruthy();
  expect(calls).toEqual(['get_leadership_aggregates']);
@@ -240,6 +240,14 @@ it('keeps the administration landing for a model-3 administrator on painel but w
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
  expect(screen.getByRole('button',{name:'Vínculos de negócio'})).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
+});
+// I-5: the model-2 competence/assignment commands refuse model-3 contexts; the tab is replaced by a read-only notice.
+it('hides "Competências e atribuições" from a model-3 administrator and says how model 3 is configured',async()=>{
+ const {client}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]}));
+ render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Competências e atribuições'})).toBeNull();
+ expect(screen.getByText('A configuração do modelo 3 é feita por migração/seed.')).toBeTruthy();
 });
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');
@@ -280,7 +288,7 @@ it('model-3 CAM: Ciclo shows the cycle and its decisions only; "Ver entrada" ope
 });
 it('model-3 technical area: the fill screen is the batch page, so no single-position correction form exists to send a correction without its explanation',async()=>{
  openAcademicPage('preenchimento');
- const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',items:[{positionId:'pos',indicatorCode:'DEMO-V1-03',name:'Tempo de resposta',meta:'48',direction:'menor_melhor',weight:'25',decimals:2,max:'8760',unit:'h',status:'devolvida',version:5,estadoDado:'valor',valor:'96',fonte:'Sistema',motivo:'',returnReason:'Confirme outubro.',revisionNumber:1}]}:{items:[{...position,status:'devolvida',revisionId:'rev'}],total:1,page:1,pageSize:100}),{headers:{'content-type':'application/json'}})}});
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_unit_batch')?{unitId:'scope',unitCode:'NORTE-1',mode:'zero',items:[{positionId:'pos',indicatorCode:'DEMO-V1-03',name:'Tempo de resposta',meta:'48',direction:'menor_melhor',weight:'25',decimals:2,max:'8760',unit:'h',status:'devolvida',version:5,estadoDado:'valor',valor:'96',fonte:'Sistema',motivo:'',periodoFonte:'2026-09-01',returnReason:'Confirme outubro.',revisionNumber:1}]}:{items:[{...position,status:'devolvida',revisionId:'rev'}],total:1,page:1,pageSize:100}),{headers:{'content-type':'application/json'}})}});
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
  expect(await screen.findByLabelText('O que você corrigiu?')).toBeTruthy();
  expect(screen.queryByRole('region',{name:'Correção versionada'})).toBeNull();

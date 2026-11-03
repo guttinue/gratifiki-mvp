@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { secondaryCredentials, type AcademicCredentials } from '../bootstrap/academicFixtures.ts';
-import { command, completeMonth, contextOf, contexts, createAcademicIdentities, login, rpc, type Context } from './recoveryFixture.ts';
+import { command, completeMonth, contextOf, contexts, createAcademicIdentities, login, rpc, seedCurrentSchema, type Context } from './recoveryFixture.ts';
 import { OwnedSession } from './ownedSession.ts';
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 const snapshotDigest = `select md5(jsonb_build_object('headers',(select jsonb_agg(to_jsonb(f)-'competencia_codigo' order by id) from public.fechamentos f),'items',(select jsonb_agg(to_jsonb(i)-array['indicador_id','indicador_codigo','unidade_medida'] order by id) from public.itens_fechamento i))::text);`;
@@ -11,7 +11,8 @@ const historyDigest = `select md5(jsonb_build_object('revisions',(select jsonb_a
  * enabled old constraints, not a claim that the old API created bad history. */
 export async function runIncrementalUpgrades(session: OwnedSession): Promise<AcademicCredentials> {
   await session.migrate('pre_export'); await session.seed();
-  const credentials = await createAcademicIdentities(session);
+  // The real bootstrap, restricted to what the pre-V3 schema has.
+  const credentials = await createAcademicIdentities(session, { legacyOnly: true });
   const old = await completeMonth(session, credentials, 'ACADEMIC-2026-09');
   const frozenBefore = await session.sql(snapshotDigest);
   await session.migrate('pre_configuration');
@@ -69,5 +70,6 @@ export async function runIncrementalUpgrades(session: OwnedSession): Promise<Aca
     }
     process.stdout.write('Upgrade preT13 → T13: unique API claim recovered; missing/ambiguous/incompatible adversarial old-state fixtures null/fail-closed 55000; enabled guards and payload/actor/decision checksums preserved.\n');
   } finally { for (const client of clients) await client.auth.signOut(); }
+  await seedCurrentSchema(session, credentials);
   return credentials;
 }

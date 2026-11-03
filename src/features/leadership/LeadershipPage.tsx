@@ -5,6 +5,7 @@ import { useEffect,useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
 import { formatDecimal } from '../pilot/decimal';
 import { unitDisplayNames } from '../workspace/displayNames';
+import { absenceCopy } from '../results/CalculationExplainer';
 import { loadLeadershipAggregates, loadLeadershipOverview } from './leadershipApi';
 type Props={client:SupabaseClient;context:AuthorizedContext};
 export function LeadershipPage(props:Props){return props.context.modelo===3?<ContextOverview key={props.context.key} {...props}/>:<ContextLeadership key={props.context.key} {...props}/>;}
@@ -21,7 +22,7 @@ function ContextOverview({client,context}:Props){
   <div className="table-scroll"><table className="v3-table" aria-label="Médias por distrito"><thead><tr><th scope="col">Distrito</th><th scope="col" className="r">Unidades completas</th><th scope="col" className="r">Média das completas</th></tr></thead>
    <tbody>{data.districts.map(district=><tr key={district.districtCode}><td><strong>{displayName(district.districtCode)}</strong></td><td className="r">{`${district.completeUnits} de ${district.totalUnits}`}</td>
     <td className="r">{district.average===null?<span className="v3-cell-sub">Aguardando unidades completas</span>:formatDecimal(district.average,2)}</td></tr>)}</tbody></table></div>
-  <p className="v3-note">Média só de unidades com todos os indicadores aceitos. Indicador indisponível não soma pontos nem vira zero.</p></>}
+  <p className="v3-note">{`Média só de unidades com todos os indicadores aceitos. ${absenceCopy[data.mode]}`}</p></>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar agregados</button></section>;
 }
 function ContextLeadership({client,context}:Props){

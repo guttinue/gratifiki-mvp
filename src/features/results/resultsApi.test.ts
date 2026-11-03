@@ -22,7 +22,7 @@ const partial = { unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', districtCode: 'A
   previous: { points: '88.62', competencia: 'ACADEMIC-V3-2026-09' }, delta: null, items: [pending, accepted] };
 const complete = { unitId: 'delta', unitCode: 'ACADEMIC-SUL-2', districtCode: 'ACADEMIC-SUL', points: '69.87', complete: true, noBase: false, partial: false,
   previous: { points: '87.84', competencia: 'ACADEMIC-V3-2026-09' }, delta: '-17.97', items: [accepted, unavailable] };
-const validResults = { competencia: 'ACADEMIC-V3-2026-10', state: 'aberta', publication: 'nao_publicada', units: [partial, complete] };
+const validResults = { competencia: 'ACADEMIC-V3-2026-10', state: 'aberta', publication: 'nao_publicada', mode: 'zero', units: [partial, complete] };
 const catalog = { ruleSets: [{ id: 'set', code: 'DEMO', version: 1, mode: 'zero', synthetic: true, validFrom: '2026-09-01', reference: 'DEMO-v1 · regra fictícia acadêmica', inUse: true,
   items: [{ indicatorCode: 'DEMO-V1-03', name: 'Tempo de resposta', meta: '48', direction: 'menor_melhor', decimals: 2, maximum: '8760', unit: 'h', weight: '25' },
     { indicatorCode: 'DEMO-V1-02', name: 'Rotinas concluídas', meta: '20', direction: 'maior_melhor', decimals: 0, maximum: '999999', unit: null, weight: '75' }] }] };
@@ -42,6 +42,8 @@ describe('unit results boundary', () => {
     ['an accepted item without expression', { ...validResults, units: [{ ...partial, items: [pending, { ...accepted, expression: null }] }] }],
     ['an unknown review status', { ...validResults, units: [{ ...partial, items: [{ ...pending, reviewStatus: 'rascunho' }, accepted] }] }],
     ['an unknown publication', { ...validResults, publication: 'preliminar' }],
+    ['an unknown absence mode', { ...validResults, mode: 'misto' }],
+    ['a missing absence mode', { ...validResults, mode: undefined }],
     ['a person field', { ...validResults, units: [{ ...partial, actorId: 'someone' }] }],
   ])('rejects %s', (_label, value) => {
     expect(() => decodeUnitResults(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));

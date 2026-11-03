@@ -92,7 +92,7 @@ export function ResultsPage({ client, group }: { client: SupabaseClient; group: 
                 ? <button type="button" aria-expanded={open} aria-controls={`v3-calc-${key}`} aria-describedby={`v3-ind-${key}`} ref={node => { if (node) triggers.current.set(key, node); else triggers.current.delete(key); }}
                     onClick={() => setExplaining(open ? null : key)}>Como foi calculado?</button>
                 : <span className="v3-cell-sub">{item.state === 'pendente' ? 'Aguardando aceite' : 'Sem cálculo numérico: situação decidida pela CAM'}</span>}</td>
-            </tr>{open && <tr id={`v3-calc-${key}`}><td colSpan={6}><CalculationExplainer item={item} onClose={() => { setExplaining(null); triggers.current.get(key)?.focus(); }} /></td></tr>}</Fragment>;
+            </tr>{open && <tr id={`v3-calc-${key}`}><td colSpan={6}><CalculationExplainer item={item} mode={data.mode} onClose={() => { setExplaining(null); triggers.current.get(key)?.focus(); }} /></td></tr>}</Fragment>;
           })}</tbody></table></div>
       </section>
       {group.role !== 'cam' && <p className="v3-note">Discordou do resultado? A contestação formal segue o canal institucional externo; esta demonstração não registra contestações.</p>}

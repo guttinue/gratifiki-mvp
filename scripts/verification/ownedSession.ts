@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { repositoryRoot, validateOwnedTarget, type OwnedTarget } from './runtime.ts';
 
 export type MigrationStage = 'pre_export' | 'pre_configuration' | 'current';
-const stages = { pre_export: '20261019102000', pre_configuration: '20261019104000', current: '20261019105000' };
+const stages = { pre_export: '20261019102000', pre_configuration: '20261019104000', current: '20261102108000' };
 const exclude = 'studio,mailpit,logflare,vector,supavisor,edge-runtime,realtime,storage-api,imgproxy,postgres-meta';
 export function isolatedEnvironment(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { CI: '1', SUPABASE_TELEMETRY_DISABLED: 'true' };
@@ -60,7 +60,9 @@ export class OwnedSession {
     mkdirSync(destination, { recursive: true });
     if (lstatSync(destination).isSymbolicLink() || realpathSync(destination) !== destination) throw Error('Owned migration destination refused');
     for (const name of readdirSync(join(repositoryRoot, 'supabase/migrations')).sort()) {
-      if (!/^\d{14}_[a-z_]+\.sql$/.test(name) || name.slice(0, 14) > stages[stage]) continue;
+      // Names may carry digits (model3, demo_v1); a skipped migration would leave a
+      // stage silently incomplete, so every staged prefix must be copied.
+      if (!/^\d{14}_[a-z0-9_]+\.sql$/.test(name) || name.slice(0, 14) > stages[stage]) continue;
       const source = join(repositoryRoot, 'supabase/migrations', name);
       if (!lstatSync(source).isFile() || lstatSync(source).isSymbolicLink()) throw Error('Owned migration source refused');
       const staged = join(destination, name);

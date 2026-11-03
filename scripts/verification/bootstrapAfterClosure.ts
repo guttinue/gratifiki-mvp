@@ -7,7 +7,8 @@ import { validateOwnedTarget, type OwnedTarget } from './runtime.ts';
 // Every business, history and identity table the bootstrap could touch. Whole
 // rows are compared, so a changed ID, version, state or credential is caught.
 const tables = ['competencias','posicoes_esperadas','territorios_competencia','escopos','vinculos','contas_demo','regras','ativacoes_regra',
-  'entradas','revisoes_entrada','decisoes_entrada','resultados','fechamentos','itens_fechamento','publicacoes','operacoes_dominio','eventos_auditoria'];
+  'entradas','revisoes_entrada','decisoes_entrada','resultados','fechamentos','itens_fechamento','publicacoes','operacoes_dominio','eventos_auditoria',
+  'pontuacoes_fechamento','conjuntos_regra','itens_conjunto'];
 const digest = `select jsonb_build_object(${[
   ...tables.map(t => `'${t}',(select md5(coalesce(string_agg(r::text,'|' order by r::text),'')) from public.${t} r)`),
   `'auth.users',(select md5(coalesce(string_agg(concat_ws(':',id,email,encrypted_password,created_at),'|' order by id),'')) from auth.users)`,

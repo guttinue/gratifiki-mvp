@@ -6,11 +6,11 @@ const context = { vinculoId: 'link-1', competenciaId: 'month', indicadorId: 'ind
 const other = { vinculoId: 'link-3', competenciaId: 'month', indicadorId: 'indicator-3' };
 const item = { positionId: 'position-1', indicatorCode: 'DEMO-V1-01', name: 'Registros conferidos', meta: '95', direction: 'maior_melhor', weight: '30',
   decimals: 2, max: '100', unit: '%', status: 'rascunho', version: 2, estadoDado: 'valor', valor: '90', fonte: 'Painel sintético', motivo: '',
-  returnReason: null, revisionNumber: 1 };
+  periodoFonte: '2026-10-01', returnReason: null, revisionNumber: 1 };
 const returned = { ...item, positionId: 'position-3', indicatorCode: 'DEMO-V1-03', name: 'Tempo de resposta', meta: '48', direction: 'menor_melhor', weight: '25',
   max: '8760', unit: 'h', status: 'devolvida', version: 5, valor: '96', returnReason: 'Confirme outubro.' };
-const empty = { ...item, positionId: 'position-2', indicatorCode: 'DEMO-V1-02', status: 'ausente', version: 1, estadoDado: null, valor: null, fonte: null, motivo: null, revisionNumber: null };
-const batch = { unitId: 'unit', unitCode: 'ACADEMIC-NORTE-1', items: [item, empty, returned] };
+const empty = { ...item, positionId: 'position-2', indicatorCode: 'DEMO-V1-02', status: 'ausente', version: 1, estadoDado: null, valor: null, fonte: null, motivo: null, periodoFonte: null, revisionNumber: null };
+const batch = { unitId: 'unit', unitCode: 'ACADEMIC-NORTE-1', mode: 'zero', items: [item, empty, returned] };
 const input = { estadoDado: 'valor' as const, valor: '90,0', fonte: ' Painel ', periodoFonte: '2026-10-01', motivo: '' };
 const items: BatchItem[] = [
   { context: { ...context, actorId: 'untrusted' } as typeof context, positionId: 'position-1', expectedVersion: 2, input, correction: null },
@@ -40,6 +40,10 @@ describe('unit batch read', () => {
     { ...batch, items: [{ ...item, person: 'someone' }] },
     { ...batch, items: [{ ...item, version: 0 }] },
     { ...batch, items: [item, item] },
+    { ...batch, mode: 'misto' },
+    { ...batch, mode: undefined },
+    { ...batch, items: [{ ...item, periodoFonte: '2026-13-01' }] },
+    { ...batch, items: [{ ...item, periodoFonte: 'outubro' }] },
   ])('rejects a malformed batch', async (value) => {
     await expect(loadUnitBatch(transport(() => json(value)), [context], 'unit')).rejects.toMatchObject({ code: 'invalid_input' });
   });

@@ -117,13 +117,13 @@ reset role;
 select pg_temp.login_account('lideranca');
 set local role authenticated;
 select is(public.get_leadership_aggregates(pg_temp.ctx('lideranca','lideranca','ACADEMIC-NORTE','DEMO-V1-01','ACADEMIC-V3-2026-10')),
- jsonb_build_object('acceptedPercent','68.75',
+ jsonb_build_object('acceptedPercent','68.75','mode','zero',
   'districts',jsonb_build_array(jsonb_build_object('districtCode','ACADEMIC-NORTE','average',null,'completeUnits',0,'totalUnits',2),
    jsonb_build_object('districtCode','ACADEMIC-SUL','average','84.46','completeUnits',2,'totalUnits',2)),
   'attention',jsonb_build_array(jsonb_build_object('unitCode','ACADEMIC-NORTE-1','pending',3),jsonb_build_object('unitCode','ACADEMIC-NORTE-2','pending',2))),
  'leadership sees both districts in October: 11 of 16 accepted, Sul averages its complete units, Norte needs action');
 select is(public.get_leadership_aggregates(pg_temp.ctx('lideranca','lideranca','ACADEMIC-SUL','DEMO-V1-03','ACADEMIC-V3-2026-09')),
- jsonb_build_object('acceptedPercent','100.00',
+ jsonb_build_object('acceptedPercent','100.00','mode','zero',
   'districts',jsonb_build_array(jsonb_build_object('districtCode','ACADEMIC-NORTE','average','94.31','completeUnits',2,'totalUnits',2),
    jsonb_build_object('districtCode','ACADEMIC-SUL','average','92.51','completeUnits',2,'totalUnits',2)),
   'attention','[]'::jsonb),

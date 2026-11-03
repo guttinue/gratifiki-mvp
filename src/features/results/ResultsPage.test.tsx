@@ -69,7 +69,7 @@ describe('ResultsPage', () => {
     const explainer = screen.getByRole('region', { name: 'Cálculo de DEMO-V1-01' });
     expect(within(explainer).getByText('min(90 ÷ 95; 1) × 30')).toBeTruthy();
     expect(within(explainer).getByText(/Peso efetivo: 30/)).toBeTruthy();
-    expect(within(explainer).getByText(/pesos mantidos/i)).toBeTruthy();
+    expect(within(explainer).getByText('Modo: ausências valem zero.')).toBeTruthy();
     expect(within(explainer).getByText(/= 28,42 pontos/)).toBeTruthy();
     fireEvent.click(within(explainer).getByRole('button', { name: 'Fechar' }));
     expect(screen.queryByRole('region', { name: 'Cálculo de DEMO-V1-01' })).toBeNull();
@@ -77,11 +77,12 @@ describe('ResultsPage', () => {
 
   it('says when the effective weight was redistributed', async () => {
     const redistributed = { ...completeUnit, items: completeUnit.items.map((item, index) => index === 0 ? { ...item, effectiveWeight: '33.3333333333' } : item) };
-    const { client } = rpcClient(() => results(redistributed));
+    const { client } = rpcClient(() => ({ ...results(redistributed), mode: 'redistribuir' }));
     render(<ResultsPage client={client} group={group} />);
     fireEvent.click((await screen.findAllByRole('button', { name: 'Como foi calculado?' }))[0]);
     const explainer = screen.getByRole('region', { name: 'Cálculo de DEMO-V1-01' });
     expect(within(explainer).getByText(/redistribuídos/i)).toBeTruthy();
+    expect(within(explainer).getByText('Modo: pesos redistribuídos.')).toBeTruthy();
     expect(within(explainer).getByText(/Peso efetivo: 33,3333333333/)).toBeTruthy();
   });
 

@@ -10,7 +10,10 @@ function assertLoopback(client: SupabaseClient) {
 }
 // Credentials create missing synthetic users only. Re-running does not rotate
 // existing credentials or overwrite mutable business/catalog state.
-export async function bootstrapAcademicDemo(client: SupabaseClient, credentials: AcademicCredentials): Promise<{ actors: Record<Role, string> }> {
+// legacyOnly is for the upgrade/restore check on the schema before
+// 20261102100000: model-2 rows only, that schema's 3-column link key, no
+// DEMO-v1 set, months, links or V3 states (seeded after the last migration).
+export async function bootstrapAcademicDemo(client: SupabaseClient, credentials: AcademicCredentials, { legacyOnly = false }: { legacyOnly?: boolean } = {}): Promise<{ actors: Record<Role, string> }> {
   assertLoopback(client);
   const secondary = secondaryCredentials(credentials);
   const allCredentials = [...academicRoles.map(role => credentials[role]),...Object.values(secondary)];
@@ -20,8 +23,10 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   const { data: rule, error: rootError } = await client.from('regras').select('id,indicador_id,versao,fator').eq('id',academicRule).single();
   if (rootError || !rule || rule.indicador_id!==academicIndicator || rule.versao!==1 || String(rule.fator)!=='0.8') throw new Error('Academic synthetic rule roots missing or incompatible');
   // The DEMO-v1 catalogue comes only from its migration; the bootstrap never writes rules.
-  const { data: ruleSets, error: setError } = await client.from('conjuntos_regra').select('id,codigo,versao').in('id',[demoRuleSet.id]);
-  if (setError || ruleSets?.length!==1 || ruleSets[0].codigo!==demoRuleSet.codigo || ruleSets[0].versao!==demoRuleSet.versao) throw new Error('Academic DEMO-v1 rule set missing or incompatible');
+  if (!legacyOnly) {
+    const { data: ruleSets, error: setError } = await client.from('conjuntos_regra').select('id,codigo,versao').in('id',[demoRuleSet.id]);
+    if (setError || ruleSets?.length!==1 || ruleSets[0].codigo!==demoRuleSet.codigo || ruleSets[0].versao!==demoRuleSet.versao) throw new Error('Academic DEMO-v1 rule set missing or incompatible');
+  }
   // Only rows that are really absent are sent. Closed-cycle guards run BEFORE
   // INSERT, ahead of ON CONFLICT, so resending existing rows would fail; the
   // conflict policy stays only to absorb a concurrent bootstrap.
@@ -61,7 +66,7 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   const partialCam = await ensureIdentity(secondary.partialCam,'CAM com cobertura parcial');
   await insertOnly('escopos',academicScopes.slice(0,2));
   await insertOnly('escopos',academicScopes.slice(2));
-  await insertOnly('competencias',[...academicMonths,...academicV3Months]);
+  await insertOnly('competencias',legacyOnly?academicMonths:[...academicMonths,...academicV3Months]);
   const north = new Set([academicId(10),academicId(12),academicId(13)]);
   const units = academicScopes.filter(s=>s.tipo==='unidade');
   const informant = (scope:string) => north.has(scope)?actors.area_tecnica:southTechnical;
@@ -69,7 +74,7 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   const months = [
     ...academicMonths.map((month,monthIndex)=>({month,positions:academicScopes.map((scope,index)=>({id:academicId(100+monthIndex*10+index),competencia_id:month.id,indicador_id:academicIndicator,alvo_id:scope.id,regra_id:academicRule,informante_id:informant(scope.id),revisor_id:reviewer(scope.id)}))})),
     // Model 3: 4 units x 4 DEMO-v1 indicators, each pinned to its set item rule.
-    ...academicV3Months.map((month,monthIndex)=>({month,positions:units.flatMap((scope,unitIndex)=>demoIndicators.map((indicator,index)=>({id:academicId(200+monthIndex*16+unitIndex*4+index),competencia_id:month.id,indicador_id:indicator.id,alvo_id:scope.id,regra_id:indicator.regraId,informante_id:informant(scope.id),revisor_id:reviewer(scope.id)})))})),
+    ...(legacyOnly?[]:academicV3Months).map((month,monthIndex)=>({month,positions:units.flatMap((scope,unitIndex)=>demoIndicators.map((indicator,index)=>({id:academicId(200+monthIndex*16+unitIndex*4+index),competencia_id:month.id,indicador_id:indicator.id,alvo_id:scope.id,regra_id:indicator.regraId,informante_id:informant(scope.id),revisor_id:reviewer(scope.id)})))})),
   ];
   const { data: closures, error: closureError } = await client.from('fechamentos').select('competencia_id').in('competencia_id',months.map(m=>m.month.id));
   if (closureError || !closures) throw new Error('Academic bootstrap could not inspect closed competences; existing state was not reset');
@@ -95,7 +100,7 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
   link(partialCam,'cam',academicId(10));
   link(southTechnical,'cam',academicId(14));
   // V3: one link per DEMO-v1 indicator. Leadership sees both districts.
-  for (const indicator of demoIndicators) {
+  for (const indicator of legacyOnly?[]:demoIndicators) {
     for (const scope of units) {
       link(informant(scope.id),'area_tecnica',scope.id,indicator.id);
       link(reviewer(scope.id),'revisor_tecnico',scope.id,indicator.id);
@@ -107,7 +112,8 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
     link(actors.lideranca,'lideranca',academicId(11),indicator.id);
     link(actors.administrador,'administrador',academicId(10),indicator.id);
   }
-  await insertOnly('vinculos',links,'actor_id,papel,escopo_id,indicador_id');
+  await insertOnly('vinculos',links,legacyOnly?'actor_id,papel,escopo_id':'actor_id,papel,escopo_id,indicador_id');
+  if (legacyOnly) return { actors };
   await seedV3States(client,{
     technical:{...credentials.area_tecnica,id:actors.area_tecnica},reviewer:{...credentials.revisor_tecnico,id:actors.revisor_tecnico},
     southTechnical:{...secondary.southTechnical,id:southTechnical},southReviewer:{...secondary.southReviewer,id:southReviewer},cam:{...credentials.cam,id:actors.cam},

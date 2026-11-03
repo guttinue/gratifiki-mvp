@@ -65,13 +65,13 @@ grant select on alfa_contexts to authenticated;
 select pg_temp.login_account('Conta acadêmica area_tecnica');
 set local role authenticated;
 create temp table alfa_batch as select public.get_unit_batch((select c from alfa_contexts),pg_temp.unit('ACADEMIC-NORTE-1')) b;
-select is((select b-'items' from alfa_batch),jsonb_build_object('unitId',pg_temp.unit('ACADEMIC-NORTE-1'),'unitCode','ACADEMIC-NORTE-1'),'the batch names its unit');
+select is((select b-'items' from alfa_batch),jsonb_build_object('unitId',pg_temp.unit('ACADEMIC-NORTE-1'),'unitCode','ACADEMIC-NORTE-1','mode','zero'),'the batch names its unit and the absence mode');
 select is((select string_agg(i->>'indicatorCode'||'='||(i->>'status')||'/'||(i->>'version'),' ' order by i->>'indicatorCode') from alfa_batch,jsonb_array_elements(b->'items')i),
  'DEMO-V1-01=rascunho/2 DEMO-V1-02=enviada/3 DEMO-V1-03=devolvida/5 DEMO-V1-04=validada/5','Alfa lists its four October positions with states and versions');
 select is((select i from alfa_batch,jsonb_array_elements(b->'items')i where i->>'indicatorCode'='DEMO-V1-01'),
  jsonb_build_object('positionId',pg_temp.pos('ACADEMIC-NORTE-1','DEMO-V1-01'),'indicatorCode','DEMO-V1-01','name','Registros conferidos','meta','95','direction','maior_melhor',
   'weight','30','decimals',2,'max','100','unit','%','status','rascunho','version',2,'estadoDado','valor','valor','90','fonte','Painel sintético de acompanhamento',
-  'motivo','','returnReason',null,'revisionNumber',1),'an item carries its rule, weight, limits and current draft');
+  'motivo','','periodoFonte','2026-10-01','returnReason',null,'revisionNumber',1),'an item carries its rule, weight, limits and current draft');
 select is((select jsonb_build_object('returnReason',i->>'returnReason','valor',i->>'valor','revisionNumber',i->'revisionNumber') from alfa_batch,jsonb_array_elements(b->'items')i where i->>'indicatorCode'='DEMO-V1-03'),
  jsonb_build_object('returnReason','A fonte informada é de setembro. Confirme o tempo de resposta de outubro e reenvie.','valor','96','revisionNumber',1),
  'the returned item carries the return reason');
@@ -119,6 +119,11 @@ select is(pg_temp.failure((select items||items||items||items||jsonb_build_array(
  jsonb_build_object('state','22023','message','invalid_input','detail',null),'9 items are rejected');
 select is(pg_temp.failure((select jsonb_build_array(items->0,items->0) from good),'twice'),
  jsonb_build_object('state','22023','message','invalid_input','detail',null),'a position cannot appear twice');
+-- M-d: without a correction, the input carries no explanation (not even on a returned item).
+select is(pg_temp.failure(jsonb_build_array(pg_temp.item('ACADEMIC-NORTE-1','DEMO-V1-03',pg_temp.input('40')||jsonb_build_object('explanation','Usei outubro.'))),'stray-explanation'),
+ jsonb_build_object('state','22023','message','invalid_input','detail',jsonb_build_object('positionId',pg_temp.pos('ACADEMIC-NORTE-1','DEMO-V1-03'),'code','invalid_input')),
+ 'an explanation inside the input of an item without correction is rejected');
+select is(pg_temp.operations('stray-explanation'),0,'the stray-explanation batch records no operation');
 select is(pg_temp.state('ACADEMIC-NORTE-1'),(select s from alfa_before),'Alfa is still unchanged after every failure');
 
 -- A valid Alfa batch: 01 = 90 submitted from its draft, 03 corrected to 40.
@@ -149,5 +154,29 @@ select is(pg_temp.failure((select jsonb_build_array(i) from beta_item),'revoked'
  jsonb_build_object('state','42501','message','access_denied','detail',null),'focus 1: a link revoked after the read denies the batch');
 select is(pg_temp.state('ACADEMIC-NORTE-2'),(select s from beta_before),'the revoked batch writes nothing');
 reset role;
+
+-- M-c: only area-técnica contexts submit a batch; a reviewer or CAM context is denied.
+create function pg_temp.role_item(label text,role text,scope text,indicator text) returns jsonb language sql security definer set search_path='' as $$
+ select jsonb_build_object('contexto',jsonb_build_object('vinculoId',v.id,'competenciaId',c.id,'indicadorId',v.indicador_id),'positionId',p.id,'expectedVersion',p.lock_version,
+  'input',pg_temp.input('91'),'correction',null)
+ from public.vinculos v join public.escopos s on s.id=v.escopo_id join public.indicadores i on i.id=v.indicador_id
+ join public.competencias c on c.codigo='ACADEMIC-V3-2026-10' join public.posicoes_esperadas p on p.id=pg_temp.pos(scope,indicator)
+ where v.actor_id=pg_temp.actor(label) and v.papel=role and s.codigo=scope and i.codigo=indicator$$;
+create temp table role_items as select pg_temp.role_item('Conta acadêmica revisor_tecnico','revisor_tecnico','ACADEMIC-NORTE-2','DEMO-V1-01') reviewer,
+ pg_temp.role_item('Conta acadêmica cam','cam','ACADEMIC-NORTE-2','DEMO-V1-01') cam;
+grant select on role_items to authenticated;
+select pg_temp.login_account('Conta acadêmica revisor_tecnico');
+set local role authenticated;
+select ok((select reviewer from role_items) is not null,'the reviewer holds a context for Beta DEMO-V1-01');
+select is(pg_temp.failure((select jsonb_build_array(reviewer) from role_items),'reviewer'),
+ jsonb_build_object('state','42501','message','access_denied','detail',null),'a reviewer context cannot submit a unit batch');
+reset role;
+select pg_temp.login_account('Conta acadêmica cam');
+set local role authenticated;
+select ok((select cam from role_items) is not null,'the CAM holds a context for Beta DEMO-V1-01');
+select is(pg_temp.failure((select jsonb_build_array(cam) from role_items),'cam'),
+ jsonb_build_object('state','42501','message','access_denied','detail',null),'a CAM context cannot submit a unit batch');
+reset role;
+select is(pg_temp.operations('reviewer')+pg_temp.operations('cam'),0,'the denied batches record no operation');
 
 select * from finish();rollback;

@@ -5,7 +5,7 @@ import { DomainCommandError } from '../pilot/commandApi';
 import { formatDecimal, parseInputDecimal, previewPoints } from '../pilot/decimal';
 import { validateRuleValue } from '../entry/valueValidation';
 import { saveDraft } from '../submission/positionApi';
-import { directionSymbol } from '../results/CalculationExplainer';
+import { absenceCopy, directionSymbol } from '../results/CalculationExplainer';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { BatchCommandError, loadUnitBatch, submitUnitBatch, type BatchItem, type UnitBatch, type UnitBatchItem } from './batchApi';
 import { loadGroupPositions, statusLabels, type GroupPosition } from './groupPositions';
@@ -25,7 +25,7 @@ const itemMessages: Record<string, string> = {
 };
 const conflictMessage = 'Os dados mudaram desde que você abriu esta unidade. Recarregue a unidade; o que você digitou foi mantido.';
 
-// The source period is the month of the competence unless the technician changes it.
+// R-29: the source period is the month of the competence only when none was saved.
 const defaultPeriod = (competence: string) => { const match = /(\d{4})-(\d{2})$/.exec(competence); return match ? `${match[1]}-${match[2]}-01` : ''; };
 const validDate = (text: string) => /^\d{4}-\d{2}-\d{2}$/.test(text) && new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) === text;
 const without = <T,>(all: Record<string, T>, key: string) => Object.fromEntries(Object.entries(all).filter(([id]) => id !== key));
@@ -51,8 +51,6 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
   const [batch, setBatch] = useState<UnitBatch | null>(null);
   const [edits, setEdits] = useState<Record<string, Edit>>({});
   const [touched, setTouched] = useState<Record<string, true>>({});
-  // The server does not return a draft's source period; what was saved in this session is kept here.
-  const [savedPeriods, setSavedPeriods] = useState<Record<string, string>>({});
   const [cardNotes, setCardNotes] = useState<Record<string, string>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -102,7 +100,7 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
   }, [problem]);
 
   const initial = (item: UnitBatchItem): Edit => ({ estado: item.estadoDado ?? 'valor', valor: item.valor ? formatDecimal(item.valor) : '',
-    fonte: item.fonte ?? '', periodo: savedPeriods[item.positionId] ?? period, motivo: item.motivo ?? '', explicacao: '' });
+    fonte: item.fonte ?? '', periodo: item.periodoFonte ?? period, motivo: item.motivo ?? '', explicacao: '' });
   const current = (item: UnitBatchItem) => edits[item.positionId] ?? initial(item);
   const editable = (item: UnitBatchItem) => open && !!byPosition.get(item.positionId)?.position.aplicavel && ['ausente', 'rascunho', 'devolvida'].includes(item.status);
   const items = batch?.items ?? [];
@@ -162,9 +160,9 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
       if (!active.current) return;
       draftOperations.current.delete(item.positionId);
       setBatch(loaded => loaded && { ...loaded, items: loaded.items.map(row => row.positionId !== item.positionId ? row : { ...row, status: 'rascunho', version: receipt.version,
-        estadoDado: e.estado, valor: normalized.valor === null ? null : parseInputDecimal(normalized.valor), fonte: normalized.fonte, motivo: normalized.motivo }) });
+        estadoDado: e.estado, valor: normalized.valor === null ? null : parseInputDecimal(normalized.valor), fonte: normalized.fonte, motivo: normalized.motivo,
+        periodoFonte: normalized.periodoFonte || null }) });
       setEdits(all => without(all, item.positionId));
-      if (normalized.periodoFonte) setSavedPeriods(all => ({ ...all, [item.positionId]: normalized.periodoFonte }));
       setCardNotes(all => ({ ...all, [item.positionId]: 'Rascunho salvo.' }));
     } catch (cause) {
       if (!active.current) return;
@@ -227,7 +225,7 @@ export function BatchEntryPage({ client, group }: { client: SupabaseClient; grou
             <span className="v3-label">Pontos (prévia)</span>
             <output className="batch-points">{preview ? formatDecimal(preview.points, 2) : '–'}</output>
             <span className="v3-sub">de {formatDecimal(item.weight)} possíveis · o cálculo oficial é o do servidor</span>
-            <span className="batch-formula">{preview ? preview.expression : e.estado === 'valor' ? 'Informe o valor para ver o cálculo.' : 'Sem pontuação numérica. A CAM define o tratamento; não vira zero.'}</span>
+            <span className="batch-formula">{preview ? preview.expression : e.estado === 'valor' ? 'Informe o valor para ver o cálculo.' : batch && absenceCopy[batch.mode]}</span>
           </div>
           <div className="batch-actions">
             {item.status !== 'devolvida' && <button type="button" disabled={busy || visible.includes('valor')} onClick={() => void saveCard(item, e)}>Salvar rascunho</button>}

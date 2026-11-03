@@ -404,7 +404,7 @@ export function App() {
         <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
       </section></main>}
       <div hidden={verifying}><AcademicLoadBoundary key={authorized.group.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
-        <AcademicWorkspace client={academicClient} group={authorized.group} contextPicker={choices}
+        <AcademicWorkspace client={academicClient} group={authorized.group} contexts={authorized.contexts} contextPicker={choices}
           onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
       </Suspense></AcademicLoadBoundary></div>
     </>;

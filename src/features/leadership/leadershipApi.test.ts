@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeLeadershipOverview, loadLeadershipOverview } from './leadershipApi';
 
 const context = { vinculoId: 'link', competenciaId: 'month', indicadorId: 'indicator' };
-const overview = { acceptedPercent: '68.75',
+const overview = { acceptedPercent: '68.75', mode: 'zero',
   districts: [{ districtCode: 'ACADEMIC-NORTE', average: null, completeUnits: 0, totalUnits: 2 }, { districtCode: 'ACADEMIC-SUL', average: '84.46', completeUnits: 2, totalUnits: 2 }],
   attention: [{ unitCode: 'ACADEMIC-NORTE-1', pending: 3 }, { unitCode: 'ACADEMIC-NORTE-2', pending: 2 }] };
 
@@ -19,6 +19,8 @@ describe('model-3 leadership boundary', () => {
     ['an attention row without pending items', { ...overview, attention: [{ unitCode: 'ACADEMIC-NORTE-1', pending: 0 }] }],
     ['an individual value', { ...overview, attention: [{ unitCode: 'ACADEMIC-NORTE-1', pending: 3, points: '20' }] }],
     ['a model-2 aggregate array', []],
+    ['an unknown absence mode', { ...overview, mode: 'misto' }],
+    ['a missing absence mode', { ...overview, mode: undefined }],
   ])('rejects %s', (_label, value) => {
     expect(() => decodeLeadershipOverview(value)).toThrow(expect.objectContaining({ code: 'invalid_input' }));
   });

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CompetenceState, ContextGroup, PositionSummary } from '../pilot/types';
+import type { AuthorizedContext, CompetenceState, ContextGroup, PositionSummary } from '../pilot/types';
 import { toCommandContext } from '../context/contextApi';
 import { listPositions, loadPositionDetail, type PositionDetail } from '../submission/positionApi';
 import { DraftForm } from '../submission/DraftForm';
@@ -23,14 +23,16 @@ import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
 const competenceStateLabels:Record<CompetenceState,string>={aberta:'Aberta',em_revisao:'Em revisão',em_consolidacao:'Em consolidação',fechada:'Fechada',invalidada:'Invalidada'};
-export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }
+// contexts: every authorized context of the actor (all groups); the model-3 CAM
+// decides each pending item with the context of that item's unit and indicator.
+export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; contexts?:AuthorizedContext[]; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null }
 export function AcademicWorkspace(props:AcademicWorkspaceProps) {
  // Key the owned data/edit subtree to the group and to each of its contexts; no
  // response from a previous actor/link/month, and nothing loaded for a context
  // the group no longer holds, can populate the next selection.
  return <NavigationSafety key={`${props.group.key}|${props.group.contexts.map(({key})=>key).join('|')}`}><AcademicContextWorkspace {...props} /></NavigationSafety>;
 }
-function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSigningOut=false,signOutError}:AcademicWorkspaceProps) {
+function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker,isSigningOut=false,signOutError}:AcademicWorkspaceProps) {
  // Model-2 pages still operate on one context; the model-3 pages (results,
  // dashboards, rule catalogue) read what they need from the current group.
  const context=group.contexts[0];
@@ -103,7 +105,7 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
   :page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
   {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
   {context.role==='lideranca'&&<LeadershipPage client={client} context={context}/>}
-  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).filter(destination=>!v3||destination.id!=='rules').map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
+  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).filter(destination=>!v3||(destination.id!=='rules'&&destination.id!=='competences')).map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{v3&&<p className="v3-note">A configuração do modelo 3 é feita por migração/seed.</p>}{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
   {v3&&context.role==='area_tecnica'&&page==='preenchimento'?<BatchEntryPage client={client} group={group}/>
   :context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
    <h2>Rascunhos do indicador</h2>
@@ -129,7 +131,7 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
    </section>}
   </section>}
   {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
-  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} authorizedPositions={camPositions} onOpenPosition={id=>{setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate('entradas');}} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
+  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={id=>{setPositionRequest(previous=>({id,key:(previous?.key??0)+1}));if(v3)navigate('entradas');}} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
  </main></div></div>;
