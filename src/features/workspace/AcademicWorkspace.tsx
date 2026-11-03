@@ -115,7 +115,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   catch {if(detailGeneration.current===request)setError('Não foi possível carregar o detalhe autorizado.');}
  }
  return <div className="academic-app"><a className="skip-link" href="#academic-content" onClick={event=>{event.preventDefault();contentRef.current?.focus();}}>Pular para o conteúdo</a>
-  <aside ref={menuRef} id="academic-menu" className="academic-side" aria-label="Menu" data-open={menuOpen} onBlur={event=>{if(menuOpen&&!event.currentTarget.contains(event.relatedTarget as Node|null))setMenuOpen(false);}}><div className="academic-brand"><span className="academic-brand-mark" aria-hidden="true">G</span><span><b>Gratifiki</b><span>Avaliação por desempenho</span></span></div>
+  <aside ref={menuRef} id="academic-menu" className="academic-side" aria-label="Menu" data-open={menuOpen} onBlur={event=>{if(menuOpen&&event.relatedTarget instanceof Node&&!event.currentTarget.contains(event.relatedTarget))setMenuOpen(false);}}><div className="academic-brand"><span className="academic-brand-mark" aria-hidden="true">G</span><span><b>Gratifiki</b><span>Avaliação por desempenho</span></span></div>
    <AcademicNavigation role={context.role} page={page} onNavigate={navigate}/>
    {v3&&<p className="academic-side-foot">Regra fictícia DEMO-v1 com 4 indicadores. Sem efeito institucional.</p>}</aside>
   <div className="academic-body"><header className="academic-top">

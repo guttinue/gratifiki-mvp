@@ -385,6 +385,9 @@ it('moves focus into the opened menu and closes it when focus leaves for the con
  expect(document.activeElement).toBe(within(menu).getAllByRole('button')[0]);
  fireEvent.focusOut(document.activeElement!,{relatedTarget:within(menu).getByRole('button',{name:'Histórico'})});
  expect(menu.dataset.open).toBe('true');
+ // Safari and macOS Firefox do not focus a clicked button: the blur has no target and must not close the menu.
+ fireEvent.focusOut(within(menu).getAllByRole('button')[0],{relatedTarget:null});
+ expect(menu.dataset.open).toBe('true');
  fireEvent.focusOut(within(menu).getByRole('button',{name:'Histórico'}),{relatedTarget:screen.getByRole('main')});
  expect(menu.dataset.open).toBe('false');
  expect(toggle.getAttribute('aria-expanded')).toBe('false');
