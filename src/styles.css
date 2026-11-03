@@ -1877,3 +1877,54 @@ td code,
 .academic-app dialog { max-width: min(90vw, 540px); border: 1px solid #becadd; border-radius: 12px; padding: 24px; color: #29364b; }
 .academic-app dialog::backdrop { background: rgb(20 30 50 / 45%); }
 .academic-app .skip-link { max-width: calc(100% - 20px); white-space: normal; }
+
+/* V3 screens (results, dashboards, leadership, rule catalogue). Tables scroll
+   inside .table-scroll; nothing here may widen the page. */
+.v3-page { min-width: 0; }
+.v3-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; margin: 16px 0; }
+.v3-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border: 1px solid #dce2ec; border-radius: 10px; background: #fafbfd; }
+.v3-metric-lead { border-color: #b9cbe8; background: #eef4ff; }
+.v3-label { color: #4a586d; font-size: 13px; font-weight: 600; }
+.v3-score { font-size: clamp(32px, 7vw, 44px); font-weight: 700; line-height: 1.1; color: #1f3558; }
+.v3-score-max { color: #5b697d; font-size: 18px; font-weight: 500; }
+.v3-score-empty, .v3-value { font-size: 22px; font-weight: 700; color: #1f3558; }
+.v3-sub, .v3-cell-sub, .v3-note { color: #4a586d; font-size: 13px; }
+.v3-cell-sub { display: block; }
+.v3-delta { font-weight: 600; }
+.v3-delta.up { color: #1f6b4b; }
+.v3-delta.down { color: #9b2f2a; }
+.v3-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 12px 0; }
+.v3-tabs button[aria-selected="true"] { border-color: #375e9c; background: #e9effa; font-weight: 600; }
+.v3-panel { min-width: 0; margin: 16px 0; padding: 14px; border: 1px solid #dce2ec; border-radius: 10px; }
+.v3-panel > header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.v3-panel h3, .v3-explainer h4 { margin: 0; }
+.v3-status { color: #4a586d; font-size: 13px; }
+.v3-table { min-width: 640px; font-size: 14px; color: #29364b; }
+.v3-table th { padding: 8px 10px; font-size: 12px; text-align: left; }
+.v3-table td { padding: 10px; vertical-align: top; }
+.v3-table .r { text-align: right; }
+.v3-table button { margin: 0; }
+.v3-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #c4d0e2; background: #f5f8fe; color: #294c83; font-size: 12px; font-weight: 600; }
+.v3-badge-valor { border-color: #9fcdb7; background: #edf6f0; color: #1f6b4b; }
+.v3-badge-sem_envio, .v3-badge-decisao_pendente { border-color: #e0c79a; background: #fbf4e8; color: #7a5518; }
+.v3-explainer { padding: 12px; border: 1px solid #b9cbe8; border-radius: 8px; background: #f7faff; }
+.v3-explainer ul { margin: 8px 0; padding-left: 18px; }
+.v3-explainer li { margin: 2px 0; }
+.v3-next { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0; padding: 14px; border: 1px solid #b9cbe8; border-radius: 10px; background: #eef4ff; }
+.v3-next-alert { border-color: #e0a8a4; background: #fff1f0; }
+.v3-next h3, .v3-next p { margin: 2px 0; }
+.v3-kicker { color: #4a586d; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.v3-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 12px; margin: 0; }
+.v3-facts dt { color: #4a586d; font-size: 13px; }
+.v3-facts dd { margin: 0; font-size: 22px; font-weight: 700; }
+.v3-tabcounts { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 0; list-style: none; }
+.v3-tabcounts li { display: flex; gap: 6px; margin: 0; }
+.v3-tabcounts li span:last-child { font-weight: 700; }
+.v3-stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 8px; margin: 16px 0; padding: 0; list-style: none; }
+.v3-stepper li { display: flex; flex-direction: column; margin: 0; padding: 10px; border: 1px solid #dce2ec; border-radius: 8px; color: #4a586d; font-size: 13px; }
+.v3-stepper li.done { border-color: #9fcdb7; background: #edf6f0; }
+.v3-stepper li.current { border-color: #375e9c; background: #e9effa; color: #1f3558; }
+.v3-stepper b { color: #29364b; }
+.v3-bar { height: 8px; margin-top: 6px; border-radius: 4px; background: #dce2ec; overflow: hidden; }
+.v3-bar span { display: block; height: 100%; background: #375e9c; }
+.v3-metric progress { width: 100%; height: 10px; }

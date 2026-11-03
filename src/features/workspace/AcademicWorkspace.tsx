@@ -15,7 +15,9 @@ import { ScopeAdminPage } from '../admin/ScopeAdminPage';
 import { AccessAdminPage } from '../admin/AccessAdminPage';
 import { CompetenceAdminPage } from '../admin/CompetenceAdminPage';
 import { RuleAdminPage } from '../admin/RuleAdminPage';
-import { AcademicDashboard } from './DashboardPage';
+import { RuleCatalogPage } from '../admin/RuleCatalogPage';
+import { ResultsPage } from '../results/ResultsPage';
+import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
@@ -28,9 +30,11 @@ export function AcademicWorkspace(props:AcademicWorkspaceProps) {
  return <NavigationSafety key={`${props.group.key}|${props.group.contexts.map(({key})=>key).join('|')}`}><AcademicContextWorkspace {...props} /></NavigationSafety>;
 }
 function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSigningOut=false,signOutError}:AcademicWorkspaceProps) {
- // Task 2: the pages still operate on one context. Tasks 9 and 11 replace them
- // with pages that use the whole group.
+ // Model-2 pages still operate on one context; the model-3 pages (results,
+ // dashboards, rule catalogue) read what they need from the current group.
  const context=group.contexts[0];
+ const v3=group.modelo===3;
+ const manager=context.role==='gestor_unidade'||context.role==='gestor_distrital';
  const [page,setPage]=useState(()=>academicPageFromHash(context.role,window.location.hash));
  const [adminPage,setAdminPage]=useState<'scopes'|'links'|'competences'|'rules'>('scopes');
  const [positions,setPositions]=useState<PositionSummary[]>([]);
@@ -91,10 +95,14 @@ function AcademicContextWorkspace({client,group,onSignOut,contextPicker,isSignin
   {contextPicker}
   <button type="button" className="academic-signout" disabled={isSigningOut} onClick={()=>{if(requestAcademicLeave())onSignOut();}}>Sair</button></div>
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">
-  {page==='historico'?<AuditPage client={client} context={context}/>:page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
-  {(context.role==='gestor_unidade'||context.role==='gestor_distrital')&&<EvaluationPage client={client} context={context}/>}
+  {page==='historico'?<AuditPage client={client} context={context}/>
+  :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
+  :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate}/>
+  :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
+  :page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
+  {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
   {context.role==='lideranca'&&<LeadershipPage client={client} context={context}/>}
-  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
+  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).filter(destination=>!v3||destination.id!=='rules').map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
   {context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
    <h2>Rascunhos do indicador</h2>
    {loading&&<p role="status">Carregando posições…</p>}

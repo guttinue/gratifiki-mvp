@@ -34,6 +34,8 @@ export type CycleChecklist = { version: number; expected: number; received: numb
   reviewed: number; decidedUnavailable: number; canConsolidate: boolean; canClose: boolean;
   state: 'aberta'|'em_consolidacao'|'fechada'; unavailable:number; notApplicable:number;
   fullCoverage:boolean; snapshotId:string|null; publication:'nao_publicada'|'publicada_demo'; publicationId:string|null;
+  // Model 3 only: positions with a final situation (value, or unavailable/not applicable decided).
+  ready?:number;
   blockers: { positionId: string | null; code: string; message: string }[] };
 export type AggregateRow = { competencia: string; distritoCodigo: string; unidadeMedida: string;
   publishedUnits: number; calculableUnits: number; resultSum: DecimalText | null };

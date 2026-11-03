@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from './AcademicWorkspace';
 import type { AuthorizedContext } from '../pilot/types';
 import { groupContexts } from '../context/contextGroups';
+import { completeUnit } from '../results/resultsFixtures';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(()=>{cleanup();vi.restoreAllMocks();window.history.replaceState({},'', '/');});
 const context:AuthorizedContext={key:'context',actorId:'actor',role:'area_tecnica',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
@@ -165,4 +166,77 @@ it('offers "Não se aplica" in the draft only for a model-3 group',async()=>{
  render(<AcademicWorkspace client={client} group={grp({...context,modelo:3})} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
  expect(within(await screen.findByLabelText('Estado do dado')).getAllByRole('option').map(o=>o.textContent)).toEqual(['Valor','Indisponível','Não se aplica']);
+});
+
+// ---- Task 9: V3 screens for model-3 groups; model-2 groups keep their pages ----
+const v3=(role:AuthorizedContext['role'],extra:Partial<AuthorizedContext>={}):AuthorizedContext=>({...context,role,modelo:3,escopoCodigo:'ACADEMIC-NORTE-1',competenciaCodigo:'ACADEMIC-V3-2026-10',...extra});
+const rpc=(handler:(name:string)=>unknown)=>{
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>{
+  const name=String(url).split('/rpc/')[1];calls.push(name);return new Response(JSON.stringify(handler(name)),{headers:{'content-type':'application/json'}});
+ }}});
+ return {client,calls};
+};
+const unitResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',units:[completeUnit]};
+it.each(['painel','resultados'])('mounts the unit results for a model-3 manager on %s instead of the model-2 evaluations',async page=>{
+ openAcademicPage(page);
+ const {client,calls}=rpc(()=>unitResults);
+ render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
+ expect(calls).toEqual(['get_unit_results']);
+ expect(screen.queryByRole('heading',{name:'Avaliações autorizadas'})).toBeNull();
+});
+it('mounts the unit results on resultados for the CAM of a model-3 group, and the cycle dashboard on painel',async()=>{
+ openAcademicPage('resultados');
+ const {client,calls}=rpc(name=>name==='get_unit_results'?unitResults:{});
+ const view=render(<AcademicWorkspace client={client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ expect(calls).toEqual(['get_unit_results']);
+ view.unmount();cleanup();
+ openAcademicPage('painel');
+ const second=rpc(name=>name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:0,reviewed:0,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:5,blockers:[]}:{});
+ render(<AcademicWorkspace client={second.client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('5 de 16 prontas')).toBeTruthy();
+ expect(second.calls).toEqual(['get_cycle_checklist']);
+});
+it('mounts the V3 dashboard for the technical area and navigates to the fill screen from it',async()=>{
+ openAcademicPage('painel');
+ const {client,calls}=rpc(name=>name==='get_dashboard'?{expected:2,received:0,reviewed:0,unavailable:0,cards:[{id:'todas',label:'todas',count:2,filter:null},{id:'ausente',label:'ausente',count:2,filter:null}]}:{items:[],total:0,page:1,pageSize:25});
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento'}));
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(await screen.findByRole('heading',{name:'Rascunhos do indicador'})).toBeTruthy();
+ expect(calls).toContain('get_dashboard');
+});
+it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
+ const {client,calls}=rpc(()=>({acceptedPercent:'100.00',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
+ render(<AcademicWorkspace client={client} group={grp(v3('lideranca'))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('100,00%')).toBeTruthy();
+ expect(calls).toEqual(['get_leadership_aggregates']);
+ expect(screen.queryByRole('heading',{name:'Agregados de unidades publicadas'})).toBeNull();
+});
+it('opens the read-only rule catalogue for a model-3 administrator on regras, without the future-rule form',async()=>{
+ openAcademicPage('regras');
+ const catalog={ruleSets:[{id:'set',code:'DEMO',version:1,mode:'zero',synthetic:true,validFrom:'2026-09-01',reference:'DEMO-v1 · regra fictícia acadêmica',inUse:true,items:[{indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',decimals:2,maximum:'100',unit:'%',weight:'100'}]}]};
+ const {client,calls}=rpc(()=>catalog);
+ render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+ expect(calls).toEqual(['get_rule_catalog']);
+ expect(screen.queryByRole('button',{name:/Agendar|Regras futuras|Salvar|Criar|Editar/})).toBeNull();
+});
+it('keeps the administration landing for a model-3 administrator on painel but without the model-2 future-rule screen',async()=>{
+ const {client}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]}));
+ render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Vínculos de negócio'})).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
+});
+it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
+ openAcademicPage('regras');
+ const {client,calls}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-01'}]}));
+ render(<AcademicWorkspace client={client} group={grp({...context,role:'administrador'})} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ expect(screen.getByRole('button',{name:'Regras futuras'})).toBeTruthy();
+ expect(calls.every(name=>name==='get_admin_catalog')).toBe(true);
 });
