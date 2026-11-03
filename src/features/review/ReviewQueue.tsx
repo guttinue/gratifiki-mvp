@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { AuthorizedContext, CommandReceipt, ContextGroup, PositionSummary } from '../pilot/types';
 import { formatDecimal } from '../pilot/decimal';
+import { directionSymbol } from '../results/CalculationExplainer';
 import { loadGroupPositions, statusLabels, type GroupPosition } from '../batch/groupPositions';
 import { toCommandContext } from '../context/contextApi';
 import { DomainCommandError } from '../pilot/commandApi';
@@ -126,6 +127,9 @@ function V3Evidence({detail}:{detail:PositionDetail}) {
  const previous=current&&detail.revisions.find(row=>row.number===current.number-1);
  const memory=detail.memories.find(row=>row.revisionId===current?.id);
  return <>
+  {detail.indicator&&<div role="group" aria-label="Indicador e meta"><dl><dt>Indicador</dt><dd>{detail.indicator.code} · {detail.indicator.name}</dd>
+   <dt>Meta</dt><dd>{directionSymbol(detail.indicator.direction)} {formatDecimal(detail.indicator.meta)}{detail.indicator.unit?` ${detail.indicator.unit}`:''} · peso {formatDecimal(detail.indicator.weight)}</dd>
+   <dt>Mês anterior</dt><dd>{detail.previous?(detail.previous.valor!==null?`${formatDecimal(detail.previous.valor)} (${detail.previous.competencia})`:`${detail.previous.estadoDado==='nao_aplicavel'?'Não se aplica':'Indisponível'} (${detail.previous.competencia})`):'Sem valor aceito no mês anterior'}</dd></dl></div>}
   {(previous||current?.correctionExplanation)&&<div role="group" aria-label="Versão anterior">
    {previous&&<><h4>Versão anterior · revisão {previous.number}</h4><dl><dt>Valor</dt><dd>{previous.value?formatDecimal(previous.value):'Sem valor numérico'}</dd><dt>Fonte</dt><dd>{previous.source}</dd></dl></>}
    {current?.correctionExplanation&&<p><strong>O que foi corrigido:</strong> {current.correctionExplanation}</p>}
@@ -195,7 +199,7 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
    {tab.label} ({rows.filter(row=>inTab(row,tab)).length})</button>)}</div>
   <div id="queue-panel" role="tabpanel" aria-labelledby={`queue-tab-${active.id}`}>
    {loading&&<p role="status">Carregando fila…</p>}
-   <ul>{list.map(row=><li key={row.position.id}><button type="button" onClick={()=>void openRow(row)}>{row.position.escopoCodigo} · {statusLabels[row.position.status]}{row.position.inputValue!==null?` · ${formatDecimal(row.position.inputValue)}`:''}</button></li>)}</ul>
+   <ul>{list.map(row=><li key={row.position.id}><button type="button" onClick={()=>void openRow(row)}>{row.position.escopoCodigo} · {statusLabels[row.position.status]}{row.position.indicatorCode?` · ${row.position.indicatorCode} ${row.position.indicatorName}`:''}{row.position.inputValue!==null?` · ${formatDecimal(row.position.inputValue)}`:''}</button></li>)}</ul>
    {!loading&&!list.length&&!error&&<p>Nenhuma posição nesta aba.</p>}
   </div>
   {error&&<p role="alert">{error}</p>}

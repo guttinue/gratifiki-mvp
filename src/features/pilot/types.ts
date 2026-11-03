@@ -22,7 +22,9 @@ export type DomainErrorCode = 'access_denied' | 'invalid_input' | 'version_confl
 export type PositionSummary = { id: string; escopoId: string; escopoCodigo: string;
   escopoTipo: 'unidade' | 'distrito'; aplicavel: boolean; status: EntryStatus | 'ausente';
   estadoDado: 'valor' | 'indisponivel' | 'nao_aplicavel' | null; version: number;
-  revisionId: string | null; inputValue: DecimalText | null; resultValue: DecimalText | null };
+  revisionId: string | null; inputValue: DecimalText | null; resultValue: DecimalText | null;
+  // Model 3 only (R-28): which indicator the position is.
+  indicatorCode?: string; indicatorName?: string };
 export type Page<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type PositionFilter = { status?: string; search?: string; page: number; pageSize: number };
 export type EvaluationItem = Pick<PositionSummary,'id'|'escopoId'|'escopoCodigo'|'escopoTipo'|

@@ -60,6 +60,37 @@ describe("operational position boundary", () => {
     expect((await read(revision)).revisions[0].correctionExplanation).toBeNull();
     for (const correctionExplanation of ["", " ", 12]) await expect(read({ ...revision, correctionExplanation })).rejects.toThrow();
   });
+  describe("model-3 indicator and previous month (R-28)", () => {
+    const indicator = { code: "DEMO-V1-01", name: "Registros conferidos", meta: "95", direction: "maior_melhor", weight: "30", unit: "%" };
+    const previous = { competencia: "ACADEMIC-V3-2026-09", valor: "88", estadoDado: "valor" };
+    const read = (extra: Record<string, unknown>) => loadPositionDetail(transport({ position, revisions: [], decisions: [], memories: [], ...extra }), context, "position");
+    it("decodes the block as exact decimal text and leaves a model-2 detail without the keys", async () => {
+      const detail = await read({ indicator, previous });
+      expect(detail.indicator).toEqual(indicator);
+      expect(detail.previous).toEqual(previous);
+      const model2 = await read({});
+      expect("indicator" in model2).toBe(false);
+      expect("previous" in model2).toBe(false);
+    });
+    it("accepts a null previous month, a null unit and a previous state without a number", async () => {
+      expect((await read({ indicator: { ...indicator, unit: null }, previous: null })).previous).toBeNull();
+      expect((await read({ indicator, previous: { competencia: "ACADEMIC-V3-2026-09", valor: null, estadoDado: "nao_aplicavel" } })).previous?.valor).toBeNull();
+    });
+    it.each([
+      { indicator: { ...indicator, meta: 95 } }, { indicator: { ...indicator, extra: 1 } }, { indicator: { ...indicator, direction: "up" } }, { indicator: { ...indicator, code: "" } },
+      { indicator: null }, { indicator, previous: { ...previous, valor: 88 } }, { indicator, previous: { ...previous, valor: null } },
+      { indicator, previous: { ...previous, estadoDado: "indisponivel" } }, { indicator, previous: { ...previous, who: "someone" } }, { indicator, previous: {} },
+    ])("rejects a malformed block %j", async (extra) => {
+      await expect(read(extra)).rejects.toThrow();
+    });
+    it("decodes the indicator code and name of a queue row, both or neither", async () => {
+      const row = { ...position, indicatorCode: "DEMO-V1-01", indicatorName: "Registros conferidos" };
+      const page = await listPositions(transport({ items: [row, position], total: 2, page: 1, pageSize: 25 }), context, { page: 1, pageSize: 25 });
+      expect(page.items[0]).toMatchObject({ indicatorCode: "DEMO-V1-01", indicatorName: "Registros conferidos" });
+      expect("indicatorCode" in page.items[1]).toBe(false);
+      await expect(listPositions(transport({ items: [{ ...position, indicatorCode: "DEMO-V1-01" }], total: 1, page: 1, pageSize: 25 }), context, { page: 1, pageSize: 25 })).rejects.toThrow();
+    });
+  });
   it("rejects malformed typed histories", async () => {
     await expect(loadPositionDetail(transport({ position, revisions: [], decisions: [{ type: "invented" }], memories: [] }), context, "position")).rejects.toThrow();
   });

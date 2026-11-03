@@ -1,5 +1,5 @@
 import { groupContexts } from '../context/contextGroups';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, expect, it } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
@@ -137,7 +137,7 @@ it('opens a model-3 position whose memory has no factor',async()=>{
 // ---- Task 11: model-3 queue with tabs, local search, no bulk action, previous version and explanation ----
 const v3Reviewer=(n:number):AuthorizedContext=>({...context,key:`rev-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,escopoCodigo:'ACADEMIC-NORTE',competenciaCodigo:'ACADEMIC-V3-2026-10'});
 const v3Group=(role:'revisor_tecnico'|'cam'='revisor_tecnico')=>groupContexts([1,2].map(n=>({...v3Reviewer(n),role})))[0];
-const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoCodigo:code,status,revisionId:`rev-${id}`,...extra});
+const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoCodigo:code,status,revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos',...extra});
 const v3Rows:Record<string,ReturnType<typeof row>[]>={'indicator-1':[row('p1','ALFA','enviada'),row('p2','BETA','em_revisao'),row('p5','EPSILON','ausente',{revisionId:null,estadoDado:null,inputValue:null,resultValue:null})],
  'indicator-2':[row('p3','GAMA','devolvida'),row('p4','DELTA','validada',{resultValue:'28.42'})]};
 const v3Revision=(id:string,number:number,value:string,source:string,extra:object={})=>({id,number,authorId:'author',estadoDado:'valor',value,source,sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null,...extra});
@@ -149,7 +149,7 @@ function v3Api(){
   if(name==='get_position_detail'){
    const found=Object.values(v3Rows).flat().find(p=>p.id===body.p_position_id)!;
    const returned=found.id==='p3';
-   return response({position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
+   return response({indicator:{code:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',unit:'%'},previous:found.id==='p4'?null:{competencia:'ACADEMIC-V3-2026-09',valor:'88',estadoDado:'valor'},position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
     decisions:[],memories:[{revisionId:`rev-${found.id}`,ruleVersion:1,method:'meta_peso',factor:null,inputValue:returned?'40':'90',resultValue:returned?'25':'28.42'}]});
   }
   return response({resourceId:body.p_position_id,version:4,revisionId:`rev-${body.p_position_id}`,status:name==='start_position_review'?'em_revisao':body.p_decision==='return'?'devolvida':'validada',resultValue:'28.42'});
@@ -221,4 +221,21 @@ it('V3 CAM entries: read-only list of every entry, including the ones still abse
  expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo|Autorizar retificação|Decidir/})).toBeNull();
  expect(screen.queryByLabelText('Motivo da conferência')).toBeNull();
  fireEvent.click(tab(/Todas/));expect(screen.getByRole('button',{name:/EPSILON · Não enviado/})).toBeTruthy();
+});
+
+it('V3 reviewer: queue rows name the indicator and the detail shows its target and last month\'s value',async()=>{
+ await queue();
+ expect((await screen.findByRole('button',{name:/ALFA · Aguardando conferência/})).textContent).toContain('DEMO-V1-01 Registros conferidos');
+ fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
+ const facts=await screen.findByRole('group',{name:'Indicador e meta'});
+ expect(facts.textContent).toContain('DEMO-V1-01 · Registros conferidos');
+ expect(facts.textContent).toContain('≥ 95 %');
+ expect(facts.textContent).toContain('peso 30');
+ expect(within(facts).getByText('Mês anterior').nextElementSibling?.textContent).toBe('88 (ACADEMIC-V3-2026-09)');
+});
+it('V3 reviewer: says so when there is no accepted value last month',async()=>{
+ await queue();fireEvent.click(tab(/Aceitas/));
+ fireEvent.click(await screen.findByRole('button',{name:/DELTA/}));
+ const facts=await screen.findByRole('group',{name:'Indicador e meta'});
+ expect(within(facts).getByText('Mês anterior').nextElementSibling?.textContent).toBe('Sem valor aceito no mês anterior');
 });
