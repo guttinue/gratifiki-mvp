@@ -297,7 +297,7 @@ it('shows the registry summary on the painel of a model-3 administrator, with sh
  expect(within(summary).getByText('Vínculos ativos')).toBeTruthy();
  expect(within(summary).getByText('2')).toBeTruthy();
  expect(within(summary).getByText('de 3 cadastrados')).toBeTruthy();
- expect(within(summary).getByText('1 indicadores')).toBeTruthy();
+ expect(within(summary).getByText('1 indicador')).toBeTruthy();
  expect(within(summary).getByText('Aberta')).toBeTruthy();
  expect(within(summary).getByText('Outubro/2026')).toBeTruthy();
  expect([...new Set(calls)].sort()).toEqual(['get_admin_catalog','get_rule_catalog']);
@@ -308,11 +308,20 @@ it('shows the registry summary on the painel of a model-3 administrator, with sh
  expect(window.location.hash).toBe('#academico/regras');
  expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
 });
+it('uses the plural for several rule indicators and the singular for one registered link',async()=>{
+ const item=ruleCatalog.ruleSets[0].items[0];
+ const {client}=rpc(name=>name==='get_rule_catalog'?{ruleSets:[{...ruleCatalog.ruleSets[0],items:['01','02','03','04'].map(code=>({...item,indicatorCode:`DEMO-V1-${code}`,weight:'25'}))}]}:{...adminCatalog,links:[adminLink]});
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ const summary=await screen.findByRole('region',{name:'Resumo dos cadastros'});
+ expect(await within(summary).findByText('4 indicadores')).toBeTruthy();
+ expect(await within(summary).findByText('de 1 cadastrado')).toBeTruthy();
+});
 it('reports a failed registry read on the model-3 administrator painel with each reader message',async()=>{
  const {client}=rpc(name=>name==='get_rule_catalog'?{code:'42501'}:{});
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
  expect(await screen.findByText('Não foi possível confirmar o catálogo de regras.')).toBeTruthy();
- expect((await screen.findAllByRole('alert')).length).toBe(2);
+ expect(await screen.findByText('Os dados ou a resposta da operação são inválidos.')).toBeTruthy();
+ expect((await screen.findAllByRole('alert')).map(alert=>alert.textContent).sort()).toEqual(['Não foi possível confirmar o catálogo de regras.','Os dados ou a resposta da operação são inválidos.']);
 });
 it('opens business links first for a model-3 administrator',async()=>{
  const {client}=adminRpc();
@@ -329,6 +338,11 @@ it('opens business links first for a model-3 administrator',async()=>{
  expect(screen.getByText('A configuração do modelo 3 é feita por migração/seed.')).toBeTruthy();
  fireEvent.click(tabs[1]);
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ // A later visit through the shortcut opens on the business links again.
+ fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Painel'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir usuários e vínculos'}));
+ expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
+ expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
 });
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');

@@ -98,6 +98,8 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   setMenuOpen(false);
   if(destination===page||!getAcademicDestinations(context.role).some(d=>d.id===destination)||!requestAcademicLeave())return false;
   detailGeneration.current++;setDetail(null);setPage(destination);
+  // AD-02: every model-3 visit to "Usuários e vínculos" opens on the business links.
+  if(v3&&destination==='vinculos')setAdminPage('links');
   window.history.pushState({},'',`#academico/${destination}`);
   contentRef.current?.focus();
   return true;

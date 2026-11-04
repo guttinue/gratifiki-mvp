@@ -7,6 +7,8 @@ import { competenceLabel, competenceStateLabels } from '../workspace/displayName
 import { loadRuleCatalog } from './adminApi';
 import { useAdminCatalog } from './useAdminCatalog';
 
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 // Model-3 administrator painel: counts and names only, never a value or a score.
 export function AdminSummary({ client, group, onNavigate }: { client: SupabaseClient; group: ContextGroup; onNavigate: (destination: string) => void }) {
   const context = group.contexts[0];
@@ -16,19 +18,19 @@ export function AdminSummary({ client, group, onNavigate }: { client: SupabaseCl
   useEffect(() => {
     let current = true;
     setRules(null); setRulesError(false);
-    void loadRuleCatalog(client, toCommandContext(group.contexts[0])).then(value => { if (current) setRules(value); }).catch(() => { if (current) setRulesError(true); });
+    void loadRuleCatalog(client, toCommandContext(context)).then(value => { if (current) setRules(value); }).catch(() => { if (current) setRulesError(true); });
     return () => { current = false; };
-  }, [client, group]);
+  }, [client, context]);
   const set = rules?.ruleSets.find(candidate => candidate.inUse);
   return <>
     <section aria-label="Resumo dos cadastros" className="v3-metrics">
       <div className="v3-metric v3-metric-lead"><span className="v3-label">Vínculos ativos</span>
         {error ? <p role="alert">{error}</p> : !catalog ? <span role="status">Carregando vínculos…</span> : <>
-          <strong className="v3-value">{catalog.links.filter(link => link.ativo).length}</strong><span className="v3-sub">{`de ${catalog.links.length} cadastrados`}</span></>}</div>
+          <strong className="v3-value">{catalog.links.filter(link => link.ativo).length}</strong><span className="v3-sub">{`de ${count(catalog.links.length, 'cadastrado', 'cadastrados')}`}</span></>}</div>
       <div className="v3-metric"><span className="v3-label">Regra em uso</span>
         {rulesError ? <p role="alert">Não foi possível confirmar o catálogo de regras.</p> : !rules ? <span role="status">Carregando catálogo…</span>
           : !set ? <span className="v3-sub">Nenhuma regra em uso.</span> : <>
-          <strong className="v3-value">{`${set.code}-v${set.version}`}</strong><span className="v3-sub">{`${set.items.length} indicadores`}</span></>}</div>
+          <strong className="v3-value">{`${set.code}-v${set.version}`}</strong><span className="v3-sub">{count(set.items.length, 'indicador', 'indicadores')}</span></>}</div>
       <div className="v3-metric"><span className="v3-label">Competência</span>
         <strong className="v3-value">{context.competenciaEstado ? competenceStateLabels[context.competenciaEstado] : '–'}</strong><span className="v3-sub">{competenceLabel(group.competenciaCodigo)}</span></div>
     </section>

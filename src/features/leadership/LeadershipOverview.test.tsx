@@ -13,10 +13,10 @@ const overview = { acceptedPercent: '68.75', mode: 'zero', districts: [
 it('shows the model-3 aggregate overview: accepted share, where to act and the district averages, with no person', async () => {
   const { client, calls } = rpcClient(() => overview);
   render(<LeadershipPage client={client} context={{ ...context, competenciaEstado: 'aberta' }} />);
-  expect(await screen.findByText('69 %')).toBeTruthy();
+  expect(await screen.findByText('68 %')).toBeTruthy();
   const bar = screen.getByRole('progressbar', { name: 'Entradas aceitas' });
   expect(bar.getAttribute('aria-valuenow')).toBe('68.75');
-  expect(bar.getAttribute('aria-valuetext')).toBe('69 %');
+  expect(bar.getAttribute('aria-valuetext')).toBe('68 %');
   expect(screen.getByText('Etapa do ciclo: Aberta')).toBeTruthy();
   // The shell renders the page title and subtitle.
   expect(screen.queryByRole('heading', { name: 'Visão agregada' })).toBeNull();
@@ -35,7 +35,7 @@ it('shows the model-3 aggregate overview: accepted share, where to act and the d
   expect(screen.queryByRole('button', { name: /Detalhe|Entrada|Avaliação própria/ })).toBeNull();
   expect(calls).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Atualizar agregados' }));
-  await screen.findByText('69 %');
+  await screen.findByText('68 %');
   expect(calls).toHaveLength(2);
 });
 
@@ -57,4 +57,11 @@ it('says the weight is redistributed in redistribuir mode', async () => {
   const { client } = rpcClient(() => ({ ...overview, mode: 'redistribuir' }));
   render(<LeadershipPage client={client} context={context} />);
   expect(await screen.findByText(/Indisponível ou não se aplica não pontua; o peso é redistribuído entre os demais indicadores, após decisão da CAM\./)).toBeTruthy();
+});
+
+it.each([['93.75', '93 %'], ['99.38', '99 %'], ['99.99', '99 %']])('rounds the accepted share %s down to %s while entries are pending', async (percent, shown) => {
+  const { client } = rpcClient(() => ({ ...overview, acceptedPercent: percent }));
+  render(<LeadershipPage client={client} context={context} />);
+  expect(await screen.findByText(shown)).toBeTruthy();
+  expect(screen.getByRole('progressbar', { name: 'Entradas aceitas' }).getAttribute('aria-valuetext')).toBe(shown);
 });
