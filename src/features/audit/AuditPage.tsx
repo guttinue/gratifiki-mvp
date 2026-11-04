@@ -43,7 +43,10 @@ function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextG
             namesTargets.has(group.role) ? loadGroupPositions(client, group) : [],
         ]).then(([pages, positions]) => {
             const targets = new Map(positions.map(({ position: p }) => [p.id, [scopeName(p.escopoCodigo), p.indicatorCode].filter(Boolean).join(' · ')]));
-            if (current) setData({ ...mergeAuditPages(pages), targets });
+            const merged = mergeAuditPages(pages);
+            // A cut context lacks events before its oldest shown one; drop the others' older ones so no gap stays hidden.
+            const cutoff = Math.max(...pages.filter(p => p.items.length && p.total > p.items.length).map(p => Math.min(...p.items.map(i => Date.parse(i.occurredAt)))));
+            if (current) setData({ ...merged, items: merged.items.filter(i => Date.parse(i.occurredAt) >= cutoff), targets });
         }).catch(() => {
             if (current) setError(true);
         });

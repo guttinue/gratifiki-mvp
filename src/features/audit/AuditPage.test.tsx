@@ -72,3 +72,19 @@ it('shows the newest events of a context with more than 100 and notes the older 
  expect(last.at(-1)?.textContent).toBe('Aceitou: evento 40');
  expect((screen.getByRole('button',{name:'Próximos eventos'}) as HTMLButtonElement).disabled).toBe(true);
 });
+// Ponytail final #1: a context cut at its newest 100 must not leave a silent gap beside another context's older events.
+it('hides events older than the oldest one shown of a cut context',async()=>{
+ const events=Array.from({length:140},(_,n)=>({id:`e${String(n).padStart(3,'0')}`,occurredAt:new Date(Date.UTC(2026,9,10)+n*60_000).toISOString(),action:'posicao_validada',resourceId:'p',version:1,reason:`evento ${n}`}));
+ const old={id:'old',occurredAt:'2026-10-01T12:00:00Z',action:'posicao_validada',resourceId:'p',version:1,reason:'antigo'};
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const {p_contexto:{indicadorId},p_filters:{page,pageSize}}=JSON.parse(String(init?.body));
+  const all=!String(url).includes('get_scoped_audit')?[]:indicadorId==='indicator-1'?events:[old];
+  return new Response(JSON.stringify({items:all.slice((page-1)*pageSize,page*pageSize),total:all.length,page,pageSize}),{headers:{'content-type':'application/json'}});
+ }}});
+ const group=groupContexts([v3(1,'revisor_tecnico'),v3(2,'revisor_tecnico')])[0];
+ render(<AuditPage client={client} context={group.contexts[0]} group={group}/>);
+ await screen.findAllByText(/^Aceitou: evento /);
+ for(let n=0;n<3;n++)fireEvent.click(screen.getByRole('button',{name:'Próximos eventos'}));
+ expect(screen.getAllByText(/^Aceitou: evento /).at(-1)?.textContent).toBe('Aceitou: evento 40');
+ expect((screen.getByRole('button',{name:'Próximos eventos'}) as HTMLButtonElement).disabled).toBe(true);
+});
