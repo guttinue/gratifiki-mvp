@@ -8,8 +8,11 @@ import { groupContexts, pickDefaultGroup } from "./contextGroups";
 // mounted but hidden; the App must never display it in those states.
 type Status = "idle" | "loading" | "ready" | "error" | "revalidating" | "unverified";
 
+// The month's state is not part of the authorization: the CAM moving it (e.g.
+// to consolidation) must not close the view and lose unsaved edits (I3).
 function sameContext(a: AuthorizedContext, b: AuthorizedContext): boolean {
-  return (Object.keys(a) as (keyof AuthorizedContext)[]).every((field) => a[field] === b[field]);
+  return (Object.keys({ ...a, ...b }) as (keyof AuthorizedContext)[])
+    .every((field) => field === "competenciaEstado" || a[field] === b[field]);
 }
 
 // The selection is a group (model 3: role + competence; models 1/2: role +
@@ -61,8 +64,9 @@ export function useAuthorizedContext(client: SupabaseClient): {
   }, [client]);
 
   // Rechecks the selected group without unmounting it. Only a discovery that
-  // still lists every context of the group, unchanged, reveals it again. If any
-  // one of them is gone or changed the whole group is dropped, so nothing from a
+  // still lists every context of the group, unchanged but for the month's state
+  // (which is refreshed), reveals it again. If any one of them is gone or
+  // changed the whole group is dropped, so nothing from a
   // revoked context stays on screen (the narrowed group is offered again by the
   // picker). An unknown answer keeps it hidden until a later positive recheck.
   // `visible` skips the hiding while asking (a denied read may be no revocation).
@@ -80,8 +84,12 @@ export function useAuthorizedContext(client: SupabaseClient): {
       if (generation.current !== request) return false;
       const groups = groupContexts(contexts);
       choices.current = groups;
-      if (current.contexts.every((context) => contexts.some((listed) => sameContext(listed, context)))) {
-        setState({ contexts, groups, group: current, status: "ready", error: null });
+      const fresh = current.contexts.map((context) => contexts.find((listed) => sameContext(listed, context)));
+      if (fresh.every((context): context is AuthorizedContext => context !== undefined)) {
+        // Same group object unless the month's state changed, so the screens only reload then.
+        const group = fresh.some((context, index) => context.competenciaEstado !== current.contexts[index].competenciaEstado)
+          ? { ...current, contexts: fresh } : current;
+        setState({ contexts, groups, group, status: "ready", error: null });
         return true;
       }
       setState({ contexts, groups, group: null, status: "ready", error: "O acesso a este contexto não está mais autorizado. O conteúdo carregado foi descartado." });

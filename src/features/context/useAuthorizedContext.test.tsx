@@ -130,3 +130,16 @@ it("revoking one unit of a model-3 view drops the whole view", async () => {
   await act(async () => { await result.current.refresh(""); });
   expect(result.current.group).toBeNull();
 });
+
+it("keeps a model-3 view open when the CAM moves its month to another state, showing the new state", async () => {
+  const alfa = { ...september, key: "alfa", vinculoId: "alfa", escopoId: "alfa", escopoCodigo: "ALFA" };
+  const beta = { ...september, key: "beta", vinculoId: "beta", escopoId: "beta", escopoCodigo: "BETA" };
+  const { hook: { result }, set } = groupedHook([alfa, beta]);
+  await act(async () => { await result.current.refresh(); });
+  set([{ ...alfa, competenciaEstado: "em_consolidacao" }, { ...beta, competenciaEstado: "em_consolidacao" }]);
+  await act(async () => { expect(await result.current.revalidate()).toBe(true); });
+  expect(result.current.status).toBe("ready");
+  expect(result.current.error).toBeNull();
+  expect(result.current.group?.key).toBe("area_tecnica:sep");
+  expect(result.current.group?.contexts.map(({ competenciaEstado }) => competenciaEstado)).toEqual(["em_consolidacao", "em_consolidacao"]);
+});
