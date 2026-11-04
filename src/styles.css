@@ -1941,7 +1941,7 @@ td code,
 .v3-panel > header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .v3-panel h3, .v3-explainer h4 { margin: 0; }
 .timeline { margin: 0; padding: 0; list-style: none; }
-.academic-app .timeline li { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; margin: 0; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.academic-app .timeline li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 16px; margin: 0; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .academic-app .timeline li:last-child { border-bottom: 0; }
 .timeline time { color: var(--muted); font-family: var(--mono); font-size: 13px; }
 @media (max-width: 767px) { .academic-app .timeline li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }

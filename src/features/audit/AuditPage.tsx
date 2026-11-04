@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
 import { loadGroupPositions } from '../batch/groupPositions';
 import { auditActions, roleLabels, scopeName } from '../workspace/displayNames';
-import { loadAudit, mergeAuditPages } from './auditApi';
+import { loadAudit, loadNewestAudit, mergeAuditPages } from './auditApi';
 type Props = {
     client: SupabaseClient;
     context: AuthorizedContext;
@@ -23,7 +23,7 @@ export function AuditPage(props: Props) {
 // Only these roles have operational_read; for the others a position read would be refused (42501).
 const namesTargets = new Set(['area_tecnica', 'revisor_tecnico', 'cam']);
 const pageSize = 25;
-// §4.7: get_scoped_audit answers per context, so the view reads each one, merges and pages locally.
+// §4.7: get_scoped_audit answers per context, so the view reads each one's newest 100, merges and pages locally.
 function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextGroup }) {
     const [page, setPage] = useState(1);
     const [search, setSearch] = useState('');
@@ -37,9 +37,9 @@ function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextG
         let current = true;
         setData(null);
         setError(false);
-        const filters = { page: 1, pageSize: 100, ...(query ? { search: query } : {}), ...(filterAction ? { status: filterAction } : {}) };
+        const filters = { ...(query ? { search: query } : {}), ...(filterAction ? { status: filterAction } : {}) };
         void Promise.all([
-            Promise.all(group.contexts.map(c => loadAudit(client, toCommandContext(c), filters))),
+            Promise.all(group.contexts.map(c => loadNewestAudit(client, toCommandContext(c), filters))),
             namesTargets.has(group.role) ? loadGroupPositions(client, group) : [],
         ]).then(([pages, positions]) => {
             const targets = new Map(positions.map(({ position: p }) => [p.id, [scopeName(p.escopoCodigo), p.indicatorCode].filter(Boolean).join(' · ')]));

@@ -12,11 +12,11 @@ it('merges context pages once each, newest first, and flags older events', () =>
   expect(merged.truncated).toBe(true);
 });
 
-// CAM-04: the model-3 CAM audit answered 200 with a draft whose reason is an
-// empty string; the decoder rejected it and the page showed the read error.
+// CAM-04: the model-3 CAM audit answered 200 with an acceptance whose reason is an
+// empty string (review commands btrim the reason); the decoder rejected it.
 it('reads an event saved without a reason as having no reason', async () => {
   const body = { items: [
-    { id: 'draft', occurredAt: '2026-10-20T12:00:00Z', action: 'rascunho_salvo', resourceId: 'p', version: 1, reason: '' },
+    { id: 'accepted', occurredAt: '2026-10-20T12:00:00Z', action: 'posicao_validada', resourceId: 'p', version: 1, reason: '' },
     { id: 'sent', occurredAt: '2026-10-21T12:00:00Z', action: 'posicao_enviada', resourceId: 'p', version: 2, reason: 'Fonte conferida' },
   ], total: 2, page: 1, pageSize: 100 };
   const client = createClient('http://localhost:54321', 'key', { auth: { persistSession: false, storageKey: crypto.randomUUID() },

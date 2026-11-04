@@ -24,6 +24,8 @@ select lives_ok(format('select public.get_scoped_audit(%L::jsonb,%L::jsonb)',pg_
  'the model-3 CAM reads its scoped audit with the history page size');
 select ok((public.get_scoped_audit(pg_temp.ctx('cam','cam','ACADEMIC-NORTE-1','DEMO-V1-01','ACADEMIC-V3-2026-10'),'{"page":1,"pageSize":100}')->>'total')::integer>0,
  'the model-3 CAM history is not empty (October has drafts, submissions and a return)');
+select ok(exists(select 1 from jsonb_array_elements(public.get_scoped_audit(pg_temp.ctx('cam','cam','ACADEMIC-NORTE-1','DEMO-V1-01','ACADEMIC-V3-2026-10'),'{"page":1,"pageSize":100}')->'items') i where i->'reason'='""'::jsonb),
+ 'CAM-04 cause: a review without reason reaches the client as an empty string (the client reads it as no reason)');
 reset role;
 
 select pg_temp.login_account('area_tecnica');

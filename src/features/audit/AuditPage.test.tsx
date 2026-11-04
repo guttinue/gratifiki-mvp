@@ -26,9 +26,9 @@ it('offers authorized target search alongside the exact operational action filte
 });
 // T7 (HI-01): the model-3 view reads every context and writes readable lines.
 const v3=(n:number,role:AuthorizedContext['role']):AuthorizedContext=>({...context,key:`v3-${n}`,role,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,escopoCodigo:'ACADEMIC-NORTE-1',competenciaCodigo:'ACADEMIC-V3-2026-10',modelo:3});
-function v3Client(){
+const returned={id:'returned',occurredAt:'2026-10-21T12:00:00Z',action:'posicao_devolvida',resourceId:'pos-alfa-03',version:2,reason:'fonte de setembro'};
+function v3Client(event:object=returned){
  const calls:{name:string;indicadorId:string}[]=[];
- const event={id:'returned',occurredAt:'2026-10-21T12:00:00Z',action:'posicao_devolvida',resourceId:'pos-alfa-03',version:2,reason:'fonte de setembro'};
  const position={id:'pos-alfa-03',escopoId:'alfa',escopoCodigo:'ACADEMIC-NORTE-1',escopoTipo:'unidade',aplicavel:true,status:'devolvida',estadoDado:'valor',version:2,revisionId:'rev',inputValue:'10',resultValue:null,indicatorCode:'DEMO-V1-03',indicatorName:'Rotinas concluídas'};
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
   const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(init?.body));calls.push({name,indicadorId:body.p_contexto.indicadorId});
@@ -48,9 +48,27 @@ it('reads every context of a model-3 view and writes readable lines',async()=>{
  expect(calls.filter(c=>c.name==='get_scoped_audit').map(c=>c.indicadorId).sort()).toEqual(['indicator-1','indicator-2']);
 });
 it('does not read positions for a model-3 manager history',async()=>{
- const {client,calls}=v3Client();
+ // Managers only receive posicao_validada and ciclo_publicado_demo, never a reason.
+ const {client,calls}=v3Client({...returned,action:'posicao_validada',reason:null});
  const group=groupContexts([v3(1,'gestor_unidade'),v3(2,'gestor_unidade')])[0];
  render(<AuditPage client={client} context={group.contexts[0]} group={group}/>);
- expect(await screen.findByText('Devolveu: fonte de setembro')).toBeTruthy();
+ expect((await screen.findByText('Aceitou')).closest('li')?.textContent).toContain('Revisor técnico');
  expect(calls.some(c=>c.name==='get_operational_positions')).toBe(false);
+});
+// get_scoped_audit pages oldest first (order by ocorrido_em,id), so the newest events sit on the last page.
+it('shows the newest events of a context with more than 100 and notes the older ones',async()=>{
+ const events=Array.from({length:140},(_,n)=>({id:`e${String(n).padStart(3,'0')}`,occurredAt:new Date(Date.UTC(2026,9,1)+n*60_000).toISOString(),action:'posicao_validada',resourceId:'p',version:1,reason:`evento ${n}`}));
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const {p_filters:{page,pageSize}}=JSON.parse(String(init?.body));
+  const items=String(url).includes('get_scoped_audit')?events.slice((page-1)*pageSize,page*pageSize):[];
+  return new Response(JSON.stringify({items,total:String(url).includes('get_scoped_audit')?events.length:0,page,pageSize}),{headers:{'content-type':'application/json'}});
+ }}});
+ const group=groupContexts([v3(1,'revisor_tecnico')])[0];
+ render(<AuditPage client={client} context={group.contexts[0]} group={group}/>);
+ expect((await screen.findAllByText(/^Aceitou: evento /))[0].textContent).toBe('Aceitou: evento 139');
+ expect(screen.getByText('Há eventos mais antigos; use o filtro de ação.')).toBeTruthy();
+ for(let n=0;n<3;n++)fireEvent.click(screen.getByRole('button',{name:'Próximos eventos'}));
+ const last=screen.getAllByText(/^Aceitou: evento /);
+ expect(last.at(-1)?.textContent).toBe('Aceitou: evento 40');
+ expect((screen.getByRole('button',{name:'Próximos eventos'}) as HTMLButtonElement).disabled).toBe(true);
 });
