@@ -1,12 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AuthorizedContext } from '../pilot/types';
+import type { AuthorizedContext, ContextGroup } from '../pilot/types';
 import type { AuditItem } from '../pilot/types';
 import { useEffect, useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
-import { loadAudit } from './auditApi';
+import { loadGroupPositions } from '../batch/groupPositions';
+import { auditActions, roleLabels, scopeName } from '../workspace/displayNames';
+import { loadAudit, mergeAuditPages } from './auditApi';
 type Props = {
     client: SupabaseClient;
     context: AuthorizedContext;
+    group?: ContextGroup;
 };
 const auditTime = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Recife' });
 function formatAuditTime(value: string) {
@@ -14,7 +17,73 @@ function formatAuditTime(value: string) {
     return Number.isFinite(date.getTime()) ? auditTime.format(date) : 'Horário indisponível';
 }
 export function AuditPage(props: Props) {
-    return <ContextAudit key={props.context.key} {...props}/>;
+    return props.group?.modelo === 3 ? <GroupAudit key={props.group.key} client={props.client} group={props.group}/>
+        : <ContextAudit key={props.context.key} {...props}/>;
+}
+// Only these roles have operational_read; for the others a position read would be refused (42501).
+const namesTargets = new Set(['area_tecnica', 'revisor_tecnico', 'cam']);
+const pageSize = 25;
+// §4.7: get_scoped_audit answers per context, so the view reads each one, merges and pages locally.
+function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextGroup }) {
+    const [page, setPage] = useState(1);
+    const [search, setSearch] = useState('');
+    const [query, setQuery] = useState('');
+    const [action, setAction] = useState('');
+    const [filterAction, setFilterAction] = useState('');
+    const [data, setData] = useState<{ items: AuditItem[]; truncated: boolean; targets: Map<string, string> } | null>(null);
+    const [error, setError] = useState(false);
+    const [retry, setRetry] = useState(0);
+    useEffect(() => {
+        let current = true;
+        setData(null);
+        setError(false);
+        const filters = { page: 1, pageSize: 100, ...(query ? { search: query } : {}), ...(filterAction ? { status: filterAction } : {}) };
+        void Promise.all([
+            Promise.all(group.contexts.map(c => loadAudit(client, toCommandContext(c), filters))),
+            namesTargets.has(group.role) ? loadGroupPositions(client, group) : [],
+        ]).then(([pages, positions]) => {
+            const targets = new Map(positions.map(({ position: p }) => [p.id, [scopeName(p.escopoCodigo), p.indicatorCode].filter(Boolean).join(' · ')]));
+            if (current) setData({ ...mergeAuditPages(pages), targets });
+        }).catch(() => {
+            if (current) setError(true);
+        });
+        return () => { current = false; };
+    }, [client, group, query, filterAction, retry]);
+    const line = (row: AuditItem) => {
+        const known = Object.hasOwn(auditActions, row.action) ? auditActions[row.action] : null;
+        const target = data?.targets.get(row.resourceId);
+        return { text: known ? `${known.verb}${target ? ` ${target}` : ''}${row.reason ? `: ${row.reason}` : ''}` : row.action, role: known && roleLabels[known.role] };
+    };
+    return <section aria-label="Histórico autorizado">
+        <form onSubmit={e => {
+            e.preventDefault();
+            setQuery(search);
+            setFilterAction(action);
+            setPage(1);
+        }}>
+            <label>{group.role === 'administrador' ? 'Buscar ação' : 'Buscar ação ou alvo'}
+                <input value={search} onChange={e => setSearch(e.target.value)}/>
+            </label>
+            <label>Ação exata<input value={action} onChange={e => setAction(e.target.value)}/></label>
+            <button type="submit">Filtrar histórico</button>
+        </form>
+        {error ? <p role="alert">Não foi possível confirmar o histórico autorizado. Verifique os filtros e o acesso.</p>
+            : !data ? <p role="status">Carregando histórico…</p> : <div className="v3-panel">
+                {data.truncated && <p className="v3-note">Há eventos mais antigos; use o filtro de ação.</p>}
+                {!data.items.length && <p>Nenhum evento autorizado neste filtro.</p>}
+                <ol className="timeline">{data.items.slice((page - 1) * pageSize, page * pageSize).map(row => {
+                    const { text, role } = line(row);
+                    return <li key={row.id}>
+                        <time dateTime={row.occurredAt}>{formatAuditTime(row.occurredAt)}</time>
+                        <div><strong>{text}</strong>{role && <span className="v3-cell-sub">{role}</span>}</div>
+                    </li>;
+                })}</ol>
+                <button type="button" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Eventos anteriores</button>
+                <span> Página {page} </span>
+                <button type="button" disabled={page * pageSize >= data.items.length} onClick={() => setPage(p => p + 1)}>Próximos eventos</button>
+            </div>}
+        <button type="button" onClick={() => setRetry(n => n + 1)}>Atualizar histórico</button>
+    </section>;
 }
 function ContextAudit({ client, context }: Props) {
     const [page, setPage] = useState(1);

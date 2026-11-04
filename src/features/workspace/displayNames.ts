@@ -41,3 +41,24 @@ export const competenceStateLabels: Readonly<Record<CompetenceState, string>> = 
 export const publicationLabels: Readonly<Record<CycleChecklist['publication'], string>> = {
   nao_publicada: 'Não publicada', publicada_demo: 'Publicada na demonstração',
 };
+
+// History lines (§4.7): the verb of each audited action and the role that performs it.
+export const auditActions: Readonly<Record<string, { verb: string; role: Role }>> = {
+  rascunho_salvo: { verb: 'Salvou rascunho de', role: 'area_tecnica' },
+  posicao_enviada: { verb: 'Enviou', role: 'area_tecnica' },
+  posicao_corrigida: { verb: 'Corrigiu', role: 'area_tecnica' },
+  posicao_em_revisao: { verb: 'Iniciou a conferência de', role: 'revisor_tecnico' },
+  posicao_validada: { verb: 'Aceitou', role: 'revisor_tecnico' },
+  posicao_devolvida: { verb: 'Devolveu', role: 'revisor_tecnico' },
+  retificacao_autorizada: { verb: 'Autorizou retificação de', role: 'cam' },
+  indisponibilidade_decidida: { verb: 'Decidiu a indisponibilidade de', role: 'cam' },
+  ciclo_em_consolidacao: { verb: 'Iniciou a consolidação do ciclo', role: 'cam' },
+  ciclo_reaberto: { verb: 'Reabriu o ciclo', role: 'cam' },
+  ciclo_fechado: { verb: 'Fechou o ciclo', role: 'cam' },
+  ciclo_publicado_demo: { verb: 'Publicou a demonstração', role: 'cam' },
+  escopo_demo_salvo: { verb: 'Salvou escopo', role: 'administrador' },
+  vinculo_demo_alterado: { verb: 'Alterou vínculo', role: 'administrador' },
+  competencia_demo_aberta: { verb: 'Abriu competência', role: 'administrador' },
+  posicao_demo_reatribuida: { verb: 'Reatribuiu posição', role: 'administrador' },
+  regra_demo_agendada: { verb: 'Agendou regra', role: 'administrador' },
+};

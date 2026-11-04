@@ -151,7 +151,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   {v3&&othersOpen&&<div id="academic-other-contexts" className="academic-other-contexts">{contextPicker}</div>}
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">
   {v3&&<div className="academic-page-head"><h2>{heading.title}</h2><p>{heading.subtitle}</p></div>}
-  {page==='historico'?<AuditPage client={client} context={context}/>
+  {page==='historico'?<AuditPage client={client} context={context} group={group}/>
   :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
   :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition}/>
   :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
