@@ -85,6 +85,9 @@ for (const role of roles) {
         await expect(page.getByRole('heading', { level: 2, name: title, exact: true })).toBeVisible();
         const { scrollWidth, innerWidth } = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
         expect(scrollWidth, `${role} V3, ${destination.label}, ${width}px: page scrollWidth`).toBeLessThanOrEqual(innerWidth);
+        // Tabs that do not fit scroll inside their bar; a tab shrunk below its label would paint over its neighbour.
+        const squeezed = await page.evaluate(() => [...document.querySelectorAll('[role=tab]')].filter(tab => tab.scrollWidth > tab.clientWidth + 1).map(tab => tab.textContent));
+        expect(squeezed, `${role} V3, ${destination.label}, ${width}px: tabs narrower than their label`).toEqual([]);
         // A closed menu is out of the Tab order.
         if (width === 375) await expect(page.locator('#academic-menu:not([data-open="true"])')).toHaveCSS('visibility', 'hidden');
         await page.screenshot({ path: test.info().outputPath(`${role}-${destination.id}-${width}.png`), fullPage: true });

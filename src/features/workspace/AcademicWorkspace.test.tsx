@@ -242,6 +242,12 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
  expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
  expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
  expect(batches).toEqual(['beta']);
+ // The painel's unit applies to that visit only: a later menu visit opens the first unit.
+ const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
+ fireEvent.click(within(menu).getByRole('button',{name:'Painel'}));
+ fireEvent.click(await within(menu).findByRole('button',{name:'Preenchimento'}));
+ expect(await screen.findByRole('heading',{name:'Unidade Alfa',level:3})).toBeTruthy();
+ expect(batches).toEqual(['beta','alfa']);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
  const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
@@ -253,7 +259,8 @@ it('shows the aggregate overview to model-3 leadership and the published aggrega
 const ruleCatalog={ruleSets:[{id:'set',code:'DEMO',version:1,mode:'zero',synthetic:true,validFrom:'2026-09-01',reference:'DEMO-v1 · regra fictícia acadêmica',inUse:true,items:[{indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',decimals:2,maximum:'100',unit:'%',weight:'100'}]}]};
 const adminLink={id:'l1',actorId:'tech',role:'area_tecnica',escopoId:'alfa',indicadorId:'indicator',ativo:true,vigenciaInicio:'2026-01-01',vigenciaFim:null,version:1};
 const adminCatalog={scopes:[{id:'alfa',codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:null,ativo:true,version:1}],accounts:[{actorId:'tech',label:'Conta acadêmica area_tecnica',ativo:true}],
- links:[adminLink,{...adminLink,id:'l2',role:'revisor_tecnico'},{...adminLink,id:'l3',role:'cam',ativo:false}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]};
+ // l4/l5: an administrator link and the admin's own link, which "Usuários e vínculos" does not list, so the painel does not count them.
+ links:[adminLink,{...adminLink,id:'l2',role:'revisor_tecnico'},{...adminLink,id:'l3',role:'cam',ativo:false},{...adminLink,id:'l4',actorId:'other-admin',role:'administrador'},{...adminLink,id:'l5',actorId:'actor'}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]};
 const adminRpc=()=>rpc(name=>name==='get_rule_catalog'?ruleCatalog:adminCatalog);
 const v3Admin=()=>grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE',competenciaEstado:'aberta'}));
 // One model-3 view holds Norte and Sul for leadership (seed): one read with the
@@ -344,6 +351,16 @@ it('opens business links first for a model-3 administrator',async()=>{
  expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
  expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
 });
+it('opens business links first when a model-3 administrator comes back to vinculos through browser history',async()=>{
+ openAcademicPage('vinculos');
+ const {client}=adminRpc();
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Escopos'}));
+ expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ for(const page of ['painel','vinculos'])act(()=>{window.location.hash=`#academico/${page}`;window.dispatchEvent(new HashChangeEvent('hashchange'));});
+ expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
+ expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+});
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');
  const {client,calls}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-01'}]}));
@@ -380,6 +397,21 @@ it('model-3 CAM: Ciclo shows the cycle and its decisions only; "Ver entrada" ope
  expect(screen.getByRole('heading',{name:'ACADEMIC-NORTE-3',level:3})).toBeTruthy();
  expect(screen.queryByRole('heading',{name:'Decisões pendentes da CAM'})).toBeNull();
  expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo/})).toBeNull();
+});
+it('model-3 CAM: a position opened from Ciclo is not reopened by a later menu visit to Todas as entradas',async()=>{
+ openAcademicPage('ciclo');
+ const {client,calls}=camV3Client();
+ render(<AcademicWorkspace client={client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3'}));
+ expect(await screen.findByText('Unidade sem este serviço.')).toBeTruthy();
+ const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
+ fireEvent.click(within(menu).getByRole('button',{name:'Ciclo e fechamento'}));
+ expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
+ fireEvent.click(within(menu).getByRole('button',{name:'Todas as entradas'}));
+ expect(await screen.findByText('1 de 1 entradas')).toBeTruthy();
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,50));});
+ expect(screen.queryByText('Unidade sem este serviço.')).toBeNull();
+ expect(calls.filter(name=>name==='get_position_detail')).toHaveLength(1);
 });
 it('model-3 technical area: the fill screen is the batch page, so no single-position correction form exists to send a correction without its explanation',async()=>{
  openAcademicPage('preenchimento');

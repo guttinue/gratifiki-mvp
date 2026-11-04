@@ -4,7 +4,7 @@ import type { ContextGroup } from '../pilot/types';
 import { toCommandContext } from '../context/contextApi';
 import type { RuleCatalog } from '../results/resultsApi';
 import { competenceLabel, competenceStateLabels } from '../workspace/displayNames';
-import { loadRuleCatalog } from './adminApi';
+import { businessLinks, loadRuleCatalog } from './adminApi';
 import { useAdminCatalog } from './useAdminCatalog';
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -22,11 +22,13 @@ export function AdminSummary({ client, group, onNavigate }: { client: SupabaseCl
     return () => { current = false; };
   }, [client, context]);
   const set = rules?.ruleSets.find(candidate => candidate.inUse);
+  // Count what "Usuários e vínculos" lists.
+  const links = catalog ? businessLinks(catalog, context.actorId) : [];
   return <>
     <section aria-label="Resumo dos cadastros" className="v3-metrics">
       <div className="v3-metric v3-metric-lead"><span className="v3-label">Vínculos ativos</span>
         {error ? <p role="alert">{error}</p> : !catalog ? <span role="status">Carregando vínculos…</span> : <>
-          <strong className="v3-value">{catalog.links.filter(link => link.ativo).length}</strong><span className="v3-sub">{`de ${count(catalog.links.length, 'cadastrado', 'cadastrados')}`}</span></>}</div>
+          <strong className="v3-value">{links.filter(link => link.ativo).length}</strong><span className="v3-sub">{`de ${count(links.length, 'cadastrado', 'cadastrados')}`}</span></>}</div>
       <div className="v3-metric"><span className="v3-label">Regra em uso</span>
         {rulesError ? <p role="alert">Não foi possível confirmar o catálogo de regras.</p> : !rules ? <span role="status">Carregando catálogo…</span>
           : !set ? <span className="v3-sub">Nenhuma regra em uso.</span> : <>

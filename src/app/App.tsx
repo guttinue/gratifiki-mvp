@@ -278,7 +278,8 @@ export function App() {
     const isCurrent = () => authGeneration.current === requestGeneration
       && signOutGeneration.current === requestSignOutGeneration && authActorId.current === actorId;
     readGeneration.current += 1;
-    const selectedKey = authorizedContextRef.current?.key;
+    // A group closed by a revocation stays closed if the sign-out fails (its reduced form keeps the key).
+    const selectedKey = selectionClosedRef.current ? "" : authorizedContextRef.current?.key;
     clearContexts();
     setContext(null);
     setReadState({ contextKey: null, status: "idle", entries: [] });

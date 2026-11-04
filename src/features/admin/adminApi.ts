@@ -2,8 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CommandContext, CommandReceipt, Role } from '../pilot/types';
 import { DomainCommandError, runCommand } from '../pilot/commandApi';
 import { readArray, readInteger, readNullableText, readObject, readRpc, readText } from '../workspace/academicDashboardApi';
-import type { AdminCatalog, BusinessLinkInput, ScopeInput } from './adminTypes';
+import type { AdminCatalog, AdminLink, BusinessLinkInput, ScopeInput } from './adminTypes';
 import { decodeRuleCatalog, type RuleCatalog } from '../results/resultsApi';
+// The links an administrator manages: other accounts' business links, never an administrator link.
+export const businessLinks=(catalog:AdminCatalog,actorId:string):AdminLink[]=>catalog.links.filter(l=>l.actorId!==actorId&&l.role!=='administrador');
 export const businessRoles:Exclude<Role,'administrador'>[]=['area_tecnica','revisor_tecnico','cam','gestor_unidade','gestor_distrital','lideranca'];
 function invalid():never{throw new DomainCommandError('invalid_input');}
 function boolean(value:unknown):boolean{return typeof value==='boolean'?value:invalid();}

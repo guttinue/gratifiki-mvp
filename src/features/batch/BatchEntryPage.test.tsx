@@ -346,6 +346,32 @@ describe('BatchEntryPage', () => {
     expect(screen.queryByRole('heading', { name: 'Preenchimento da unidade' })).toBeNull();
   });
 
+  it('sends only the active unit and keeps what was typed in the other unit', async () => {
+    const betaItem = { ...items[0], positionId: 'position-5', status: 'ausente', version: 1, estadoDado: null, valor: null, fonte: null, revisionNumber: null };
+    const view = rpc(call => {
+      const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
+      if (call.name === 'get_operational_positions' && call.body.p_contexto.indicadorId === 'indicator-1') {
+        return json({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 });
+      }
+      if (call.name === 'get_unit_batch' && call.body.p_unidade_id === 'beta') return json({ unitId: 'beta', unitCode: 'ACADEMIC-NORTE-2', mode: 'zero', items: [betaItem] });
+      return call.name === 'submit_unit_batch' ? json({ items: [receipt(5, 2, '28.42')] }) : undefined;
+    });
+    render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '91' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
+    expect(await screen.findByRole('heading', { name: 'Unidade Beta', level: 3 })).toBeTruthy();
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '80' } });
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Fonte do dado'), { target: { value: 'Relatório Beta' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar 1 item' }));
+    expect(await screen.findByText('1 item enviado para conferência.')).toBeTruthy();
+    const submit = view.calls.find(c => c.name === 'submit_unit_batch')!;
+    expect(submit.body.p_itens.map(item => item.positionId)).toEqual(['position-5']);
+    fireEvent.click(screen.getByRole('button', { name: /^Unidade Alfa/ }));
+    expect(await screen.findByRole('heading', { name: 'Unidade Alfa', level: 3 })).toBeTruthy();
+    expect((within(card('DEMO-V1-01')).getByLabelText('Valor apurado') as HTMLInputElement).value).toBe('91');
+  });
+
   it('shows a load failure without inventing cards', async () => {
     const view = rpc(call => call.name === 'get_operational_positions' ? new Response('{}', { status: 500 }) : undefined);
     render(<BatchEntryPage client={view.client} group={group} />);

@@ -24,5 +24,9 @@ export async function loadGroupPositions(client: SupabaseClient, group: ContextG
   return [...rows.values()];
 }
 
+// The contexts allowed to read one unit's batch: the distinct contexts that listed a position of that unit.
+export const unitContexts = (rows: GroupPosition[], unitId: string): AuthorizedContext[] =>
+  [...new Map(rows.filter(row => row.position.escopoId === unitId).map(row => [row.context.key, row.context])).values()];
+
 export const statusLabels: Record<EntryStatus | 'ausente', string> = { ausente: 'Não enviado', rascunho: 'Rascunho', devolvida: 'Devolvida',
   enviada: 'Aguardando conferência', em_revisao: 'Em conferência', validada: 'Aceita', invalidada: 'Invalidada' };

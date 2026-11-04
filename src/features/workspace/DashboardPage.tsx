@@ -9,7 +9,7 @@ import { toCommandContext } from '../context/contextApi';
 import { loadDashboard } from './academicDashboardApi';
 import { listPositions } from '../submission/positionApi';
 import { loadCycleChecklist } from '../cycle/cycleApi';
-import { loadGroupPositions, statusLabels, type GroupPosition } from '../batch/groupPositions';
+import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
 import { loadUnitBatch } from '../batch/batchApi';
 import { competenceStateLabels, monthName, publicationLabels, scopeName } from './displayNames';
 import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
@@ -36,9 +36,8 @@ async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Prom
  const returned=rows.find(row=>row.position.status==='devolvida');
  if(!returned||group.role!=='area_tecnica')return{kind:'positions',rows,returnReason:null};
  const unitId=returned.position.escopoId;
- const contexts=[...new Map(rows.filter(row=>row.position.escopoId===unitId).map(row=>[row.context.key,row.context])).values()];
  // The reason is a hint here; without it the step still points at the correction.
- const returnReason=await loadUnitBatch(client,contexts,unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
+ const returnReason=await loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
  return{kind:'positions',rows,returnReason};
 }
 function NextStep({kicker,title,text,action,alert}:{kicker:string;title:string;text:string;action?:{label:string;go:()=>void};alert?:boolean}){

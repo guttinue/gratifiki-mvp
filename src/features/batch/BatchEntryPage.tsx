@@ -8,7 +8,7 @@ import { saveDraft } from '../submission/positionApi';
 import { absenceCopy, directionSymbol } from '../results/CalculationExplainer';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { BatchCommandError, loadUnitBatch, submitUnitBatch, type BatchItem, type UnitBatch, type UnitBatchItem } from './batchApi';
-import { loadGroupPositions, statusLabels, type GroupPosition } from './groupPositions';
+import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from './groupPositions';
 import { competenceLabel, scopeName } from '../workspace/displayNames';
 
 type Situation = DraftInput['estadoDado'];
@@ -94,10 +94,9 @@ export function BatchEntryPage({ client, group, initialUnitId }: { client: Supab
   useEffect(() => {
     if (!rows || !activeUnit) return;
     const request = ++batchGeneration.current;
-    const contexts = [...new Map(rows.filter(row => row.position.escopoId === activeUnit).map(row => [row.context.key, row.context])).values()];
     setBatch(current => current && current.unitId === activeUnit ? current : null);
     setLoadError(null);
-    void loadUnitBatch(client, contexts, activeUnit).then(loaded => { if (batchGeneration.current === request) { setBatch(loaded); setLoadError(null); } })
+    void loadUnitBatch(client, unitContexts(rows, activeUnit), activeUnit).then(loaded => { if (batchGeneration.current === request) { setBatch(loaded); setLoadError(null); } })
       .catch(() => { if (batchGeneration.current === request) setLoadError('Não foi possível carregar os indicadores da unidade.'); });
     return () => { batchGeneration.current++; };
   }, [client, rows, activeUnit]);

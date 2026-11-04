@@ -204,7 +204,7 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
     {list.length>0&&<><div className="table-scroll"><table className="v3-table">
      <thead><tr><th scope="col">Unidade</th><th scope="col">Indicador</th><th scope="col" className="r">Valor</th><th scope="col" className="r">Pontos</th><th scope="col">Situação</th></tr></thead>
      <tbody>{list.map(row=>{const {position}=row;const selected=open?.row.position.id===position.id;
-      return <tr key={position.id} className={selected?'selected':undefined} aria-selected={selected}>
+      return <tr key={position.id} className={selected?'selected':undefined} aria-current={selected||undefined}>
        <td><button type="button" onClick={()=>void openRow(row)}>{scopeName(position.escopoCodigo)}</button></td>
        <td>{position.indicatorCode}<span className="v3-cell-sub">{position.indicatorName}</span></td>
        <td className="r">{position.inputValue!==null?formatDecimal(position.inputValue):'–'}</td>

@@ -679,6 +679,24 @@ describe("App academic access boundary", () => {
     expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
   });
 
+  it("keeps a revoked group closed when the sign-out that follows fails", async () => {
+    const { overrides } = academicBoundary();
+    const secondIndicator = { ...academicTechnical, key: "academic-technical-2", vinculoId: "academic-technical-2", indicadorId: "indicator-2" };
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+    await openDraftAndEdit();
+    acceptLeave();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    authMocks.signOut.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Sair" })));
+    expect(await screen.findByText("Não foi possível encerrar a sessão agora. Você pode tentar novamente.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+    expect(workspaceHeading()).toBeNull();
+  });
+
   it("asks before a header month change discards an unsaved edit", async () => {
     const boundary = createAuthBoundary();
     const month = (id: string, estado: "aberta" | "fechada") => ({

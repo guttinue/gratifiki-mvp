@@ -44,4 +44,12 @@ describe("workspace responsive stylesheet", () => {
     expect(/\.v3-st-validada\s*\{[^}]*var\(--success/s.test(stylesheet)).toBe(true);
     expect(/\.academic-app button\.primary\s*\{[^}]*background:\s*var\(--blue\)/s.test(stylesheet)).toBe(true);
   });
+
+  it("scrolls the tab bar instead of shrinking tabs over each other", () => {
+    expect(/\.v3-tabs button\s*\{[^}]*flex:\s*none/s.test(stylesheet)).toBe(true);
+  });
+
+  it("keeps whole words in V3 table cells, which scroll inside their container", () => {
+    expect(/\.v3-table\s*\{[^}]*overflow-wrap:\s*normal/s.test(stylesheet)).toBe(true);
+  });
 });

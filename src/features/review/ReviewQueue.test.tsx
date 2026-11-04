@@ -190,7 +190,9 @@ it('V3 reviewer: lists entries in a table with names and opens one',async()=>{
  const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
  expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
  expect(within(evidence).getByText('DEMO-V1-02 · Rotinas concluídas')).toBeTruthy();
- expect(screen.getByRole('row',{name:/DEMO-V1-02/}).getAttribute('aria-selected')).toBe('true');
+ // A plain table announces the open row as current; aria-selected is only read inside a grid.
+ expect(screen.getByRole('row',{name:/DEMO-V1-02/}).getAttribute('aria-current')).toBe('true');
+ expect(screen.getAllByRole('row').filter(line=>line.hasAttribute('aria-current')||line.hasAttribute('aria-selected'))).toHaveLength(1);
  expect(table.closest('.v3-split')).toBeTruthy();
 });
 it('V3 reviewer: searches by unit name, unit code and indicator, ignoring case',async()=>{
@@ -298,5 +300,5 @@ it('V3 reviewer: "Conferir agora" on the painel opens the first entry in the tab
  const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
  expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
  expect(tab(/Em conferência/).getAttribute('aria-selected')).toBe('true');
- expect(screen.getByRole('row',{name:/Unidade Alfa/}).getAttribute('aria-selected')).toBe('true');
+ expect(screen.getByRole('row',{name:/Unidade Alfa/}).getAttribute('aria-current')).toBe('true');
 });

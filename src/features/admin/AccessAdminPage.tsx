@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CommandContext } from '../pilot/types';
 import { DomainCommandError } from '../pilot/commandApi';
 import type { BusinessLinkInput } from './adminTypes';
-import { businessRoles, setDemoBusinessLink } from './adminApi';
+import { businessLinks, businessRoles, setDemoBusinessLink } from './adminApi';
 import { useAdminCatalog } from './useAdminCatalog';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { requestAcademicLeave } from '../workspace/academicNavigation';
@@ -26,7 +26,7 @@ export function AccessAdminPage({client,context,actorId}:{client:SupabaseClient;
   <button type="button" disabled={busy||!!pending} onClick={refresh}>Atualizar vínculos</button>
   {!catalog&&!loadError&&<p role="status">Carregando vínculos…</p>}
   {catalog&&<><div className="table-scroll"><table className="v3-table" aria-label="Vínculos cadastrados"><thead><tr><th scope="col">Pessoa</th><th scope="col">Papel</th><th scope="col">Escopo</th><th scope="col">Indicador</th><th scope="col">Situação</th><th scope="col" className="r">Versão</th><th scope="col"><span className="sr-only">Ação</span></th></tr></thead>
-   <tbody>{catalog.links.filter(l=>l.actorId!==actorId&&l.role!=='administrador').map(l=>{const label=catalog.accounts.find(a=>a.actorId===l.actorId)?.label??l.actorId;const scope=catalog.scopes.find(s=>s.id===l.escopoId)?.codigo??l.escopoId;return<tr key={l.id}>
+   <tbody>{businessLinks(catalog,actorId).map(l=>{const label=catalog.accounts.find(a=>a.actorId===l.actorId)?.label??l.actorId;const scope=catalog.scopes.find(s=>s.id===l.escopoId)?.codigo??l.escopoId;return<tr key={l.id}>
     <td>{label}</td><td>{roleLabels[l.role]}</td><td>{scopeName(scope)}</td><td>{catalog.indicators.find(i=>i.id===l.indicadorId)?.codigo??l.indicadorId}</td><td>{l.ativo?'Ativo':'Inativo'}</td><td className="r">{l.version}</td>
     <td><button type="button" disabled={busy||!!pending||!catalog.accounts.some(a=>a.actorId===l.actorId&&a.ativo)} onClick={()=>{if(!requestAcademicLeave())return;setTarget(l.actorId);setInput({role:l.role as BusinessLinkInput['role'],escopoId:l.escopoId,indicadorId:l.indicadorId,ativo:l.ativo,vigenciaInicio:l.vigenciaInicio,vigenciaFim:l.vigenciaFim});setSuccess(false);}}>Editar <span className="sr-only">{`vínculo ${label} · ${l.role} · ${scope}`}</span></button></td></tr>;})}</tbody></table></div>
    <form onChangeCapture={()=>setSuccess(false)} onSubmit={e=>{e.preventDefault();void save();}}><fieldset disabled={busy||!!pending}><legend>Conceder, atualizar ou revogar vínculo</legend>

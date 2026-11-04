@@ -80,6 +80,15 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   const target=held.find(g=>g.competenciaCodigo===group.competenciaCodigo)??pickDefaultGroup(held);
   if(target)onSelectGroup?.(target.key);
  }
+ // Every page change, from the menu or from browser history, starts the page clean: the painel's
+ // position and unit requests apply to the visit they were made for, and "vinculos" opens on the links (AD-02).
+ function enterPage(next:string){
+  detailGeneration.current++;setDetail(null);setPage(next);
+  // Keep the key so the model-2 queue never sees an older one; an empty id requests nothing.
+  setPositionRequest(previous=>previous&&{...previous,id:''});setUnitRequest(undefined);
+  if(v3&&next==='vinculos')setAdminPage('links');
+  contentRef.current?.focus();
+ }
  useEffect(()=>{
   function syncPage(){
    const next=academicPageFromHash(context.role,window.location.hash);
@@ -88,7 +97,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
     window.history.replaceState({},'',`#academico/${pageRef.current}`);return;
    }
    window.history.replaceState({},'',`#academico/${next}`);
-   if(changed){detailGeneration.current++;setDetail(null);setPage(next);contentRef.current?.focus();}
+   if(changed)enterPage(next);
   }
   window.history.replaceState({},'',`#academico/${pageRef.current}`);
   window.addEventListener('hashchange',syncPage);
@@ -97,15 +106,12 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  function navigate(destination:string):boolean{
   setMenuOpen(false);
   if(destination===page||!getAcademicDestinations(context.role).some(d=>d.id===destination)||!requestAcademicLeave())return false;
-  detailGeneration.current++;setDetail(null);setPage(destination);
-  // AD-02: every model-3 visit to "Usuários e vínculos" opens on the business links.
-  if(v3&&destination==='vinculos')setAdminPage('links');
   window.history.pushState({},'',`#academico/${destination}`);
-  contentRef.current?.focus();
+  enterPage(destination);
   return true;
  }
  // The painel's "Abrir" opens the fill screen on that unit.
- function openUnit(unitId:string){setUnitRequest(unitId);navigate('preenchimento');}
+ function openUnit(unitId:string){if(navigate('preenchimento'))setUnitRequest(unitId);}
  // Opens one position in the queue page of the role; model 2 shows the queue on every page.
  function openPosition(id:string){
   const target=context.role==='cam'?'entradas':'conferencia';
