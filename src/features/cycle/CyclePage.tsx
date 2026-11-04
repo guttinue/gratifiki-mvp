@@ -60,8 +60,8 @@ const positionLabel=(position:PositionSummary)=>[scopeName(position.escopoCodigo
 export function CycleBlockers({blockers,positions,label,onOpenPosition}:{blockers:CycleChecklist['blockers'];positions:PositionSummary[];label:string;onOpenPosition?:(id:string)=>void}){
  return <ul aria-label={label}>{blockers.map((b,i)=>{
   const positionId=b.positionId;const target=positions.find(position=>position.id===positionId);
-  // An accepted "indisponível" stays "Aceita" until the CAM decides; say what it waits for.
-  const reason=target&&(b.code==='unavailability_pending'?'Aguarda decisão da CAM':statusLabels[target.status]);
+  // Only status blockers read from the entry status; an accepted "indisponível" waits for the CAM, and rule/territory blockers keep the server reason.
+  const reason=target&&(b.code==='missing_submission'||b.code==='review_pending'?statusLabels[target.status]:b.code==='unavailability_pending'?'Aguarda decisão da CAM':b.message);
   return <li key={`${positionId}-${b.code}-${i}`}><span>{target?`${positionLabel(target)}${target.indicatorName?` ${target.indicatorName}`:''}: ${reason}`:b.message}</span>
    {positionId&&onOpenPosition&&<button type="button" aria-label={target?`Ver entrada ${positionLabel(target)}`:undefined} onClick={()=>onOpenPosition(positionId)}>{target?'Ver entrada':`Ver pendência: ${b.message}`}</button>}</li>;
  })}</ul>;

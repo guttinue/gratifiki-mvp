@@ -310,6 +310,13 @@ it('labels the V3 cycle and its blockers by name',async()=>{
  fireEvent.click(within(blockers).getByRole('button',{name:'Ver entrada Unidade Alfa · DEMO-V1-01'}));
  expect(opened).toEqual(['late']);
 });
+it('V3 cycle: a rule blocker on an accepted entry keeps the server reason',async()=>{
+ const {api}=v3Cycle([{positionId:'un',code:'rule_inconsistent',message:'Regra ou alvo inconsistente.'}]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onOpenPosition={()=>{}} />);
+ const blockers=await screen.findByRole('list',{name:'Bloqueios'});
+ expect(await within(blockers).findByText('Unidade Beta · DEMO-V1-02 Rotinas concluídas: Regra ou alvo inconsistente.')).toBeTruthy();
+ expect(within(blockers).queryByText(/Aceita/)).toBeNull();
+});
 it('keeps the cycle fields inside Fechamento e publicação',async()=>{
  const {api}=v3Cycle([]);
  render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
@@ -348,6 +355,8 @@ it('V3 cycle: a cancelled leave prompt keeps the cycle page and opens no entry l
  fireEvent.change(screen.getByLabelText('Motivo do ciclo'),{target:{value:''}});
  fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Todas as entradas'}));
  await waitFor(()=>expect(window.location.hash).toBe('#academico/entradas'));
- await waitFor(()=>expect(calls.filter(c=>c.name==='get_operational_positions').length).toBeGreaterThan(2));
+ // The queue rendered its rows (all reads settled) and still opened no entry.
+ expect(await screen.findByText('Unidade Alfa')).toBeTruthy();
  expect(calls.some(c=>c.name==='get_position_detail')).toBe(false);
+ confirm.mockRestore();
 });
