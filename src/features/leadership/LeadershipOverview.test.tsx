@@ -12,9 +12,14 @@ const overview = { acceptedPercent: '68.75', mode: 'zero', districts: [
 
 it('shows the model-3 aggregate overview: accepted share, where to act and the district averages, with no person', async () => {
   const { client, calls } = rpcClient(() => overview);
-  render(<LeadershipPage client={client} context={context} />);
-  expect(await screen.findByText('68,75%')).toBeTruthy();
-  expect(screen.getByRole('progressbar', { name: 'Entradas aceitas' }).getAttribute('aria-valuenow')).toBe('68.75');
+  render(<LeadershipPage client={client} context={{ ...context, competenciaEstado: 'aberta' }} />);
+  expect(await screen.findByText('69 %')).toBeTruthy();
+  const bar = screen.getByRole('progressbar', { name: 'Entradas aceitas' });
+  expect(bar.getAttribute('aria-valuenow')).toBe('68.75');
+  expect(bar.getAttribute('aria-valuetext')).toBe('69 %');
+  expect(screen.getByText('Etapa do ciclo: Aberta')).toBeTruthy();
+  // The shell renders the page title and subtitle.
+  expect(screen.queryByRole('heading', { name: 'Visão agregada' })).toBeNull();
   const attention = screen.getByRole('region', { name: 'Onde agir' });
   expect(within(attention).getByText('Unidade Alfa: 3 entradas pendentes.')).toBeTruthy();
   expect(within(attention).getByText('Unidade Beta: 1 entrada pendente.')).toBeTruthy();
@@ -30,15 +35,16 @@ it('shows the model-3 aggregate overview: accepted share, where to act and the d
   expect(screen.queryByRole('button', { name: /Detalhe|Entrada|Avaliação própria/ })).toBeNull();
   expect(calls).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Atualizar agregados' }));
-  await screen.findByText('68,75%');
+  await screen.findByText('69 %');
   expect(calls).toHaveLength(2);
 });
 
 it('says nothing needs action when no entry is pending', async () => {
   const { client } = rpcClient(() => ({ ...overview, acceptedPercent: '100.00', attention: [] }));
   render(<LeadershipPage client={client} context={context} />);
-  expect(await screen.findByText('100,00%')).toBeTruthy();
+  expect(await screen.findByText('100 %')).toBeTruthy();
   expect(screen.getByText('Nenhuma pendência nas unidades.')).toBeTruthy();
+  expect(screen.queryByText(/Etapa do ciclo/)).toBeNull();
 });
 
 it('reports a failed aggregate read', async () => {

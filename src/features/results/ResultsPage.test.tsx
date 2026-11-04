@@ -14,6 +14,10 @@ describe('ResultsPage', () => {
     expect(await screen.findByText('93,42')).toBeTruthy();
     expect(screen.getByText('/ 100')).toBeTruthy();
     expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Como foi calculado?' }).length).toBeGreaterThan(0);
+    // The shell renders the page title; the page does not repeat it.
+    expect(screen.queryByRole('heading', { name: 'Resultados' })).toBeNull();
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
     expect(screen.queryByText('Pontuação parcial')).toBeNull();
     expect(screen.getByText('Unidade Alfa', { selector: 'h3' })).toBeTruthy();
     expect(calls).toHaveLength(1);

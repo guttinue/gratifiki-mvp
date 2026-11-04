@@ -18,6 +18,7 @@ import { AccessAdminPage } from '../admin/AccessAdminPage';
 import { CompetenceAdminPage } from '../admin/CompetenceAdminPage';
 import { RuleAdminPage } from '../admin/RuleAdminPage';
 import { RuleCatalogPage } from '../admin/RuleCatalogPage';
+import { AdminSummary } from '../admin/AdminSummary';
 import { ResultsPage } from '../results/ResultsPage';
 import { BatchEntryPage } from '../batch/BatchEntryPage';
 import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
@@ -42,7 +43,8 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  const v3=group.modelo===3;
  const manager=context.role==='gestor_unidade'||context.role==='gestor_distrital';
  const [page,setPage]=useState(()=>academicPageFromHash(context.role,window.location.hash));
- const [adminPage,setAdminPage]=useState<'scopes'|'links'|'competences'|'rules'>('scopes');
+ // Model 3 opens "Usuários e vínculos" on the business links (AD-02); model 2 keeps scopes first.
+ const [adminPage,setAdminPage]=useState<'scopes'|'links'|'competences'|'rules'>(v3?'links':'scopes');
  const [positions,setPositions]=useState<PositionSummary[]>([]);
  const [detail,setDetail]=useState<PositionDetail|null>(null);
  const [error,setError]=useState<string|null>(null);
@@ -155,10 +157,11 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
   :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition}/>
   :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
+  :v3&&page==='painel'&&context.role==='administrador'?<AdminSummary client={client} group={group} onNavigate={navigate}/>
   :page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
   {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
   {context.role==='lideranca'&&<LeadershipPage client={client} context={context}/>}
-  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{([{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).filter(destination=>!v3||(destination.id!=='rules'&&destination.id!=='competences')).map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{v3&&<p className="v3-note">A configuração do modelo 3 é feita por migração/seed.</p>}{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
+  {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{(v3?[{id:'links',label:'Vínculos de negócio'},{id:'scopes',label:'Escopos'}] as const:[{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{v3&&<p className="v3-note">A configuração do modelo 3 é feita por migração/seed.</p>}{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
   {v3&&context.role==='area_tecnica'&&page==='preenchimento'?<BatchEntryPage client={client} group={group} initialUnitId={unitRequest}/>
   :context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
    <h2>Rascunhos do indicador</h2>

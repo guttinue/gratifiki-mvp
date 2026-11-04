@@ -3,14 +3,12 @@ import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from 'react
 import type { ContextGroup } from '../pilot/types';
 import { formatDecimal } from '../pilot/decimal';
 import { toCommandContext } from '../context/contextApi';
-import { monthName, unitDisplayNames } from '../workspace/displayNames';
+import { competenceStateLabels, monthName, scopeName } from '../workspace/displayNames';
 import { CalculationExplainer, directionSymbol } from './CalculationExplainer';
 import { loadUnitResults, type ReviewStatus, type UnitResult, type UnitResults } from './resultsApi';
 
 const statusLabels: Record<ReviewStatus, string> = { valor: 'Aceita', indisponivel: 'Indisponível', nao_aplicavel: 'Não se aplica',
   sem_envio: 'Não enviada', em_conferencia: 'Em conferência', decisao_pendente: 'Aguardando decisão da CAM' };
-const stateLabels: Record<UnitResults['state'], string> = { aberta: 'Aberta', em_consolidacao: 'Em consolidação', fechada: 'Fechada' };
-const unitName = (code: string) => unitDisplayNames[code] ?? code;
 const signed = (delta: string) => delta.startsWith('-') ? `−${formatDecimal(delta.slice(1), 2)}` : `+${formatDecimal(delta, 2)}`;
 
 function Score({ unit, previousLabel }: { unit: UnitResult; previousLabel: string }) {
@@ -60,20 +58,18 @@ export function ResultsPage({ client, group }: { client: SupabaseClient; group: 
     select(next.unitId);
     tabs.current.get(next.unitId)?.focus();
   }
-  const phase = data && `${stateLabels[data.state]}${data.publication === 'publicada_demo' ? ' · publicada na demonstração' : ''}`;
+  const phase = data && `${competenceStateLabels[data.state]}${data.publication === 'publicada_demo' ? ' · publicada na demonstração' : ''}`;
 
   return <section aria-label="Resultados autorizados" className="v3-page">
-    <h2>Resultados</h2>
-    <p>{`${group.competenciaCodigo} · só entradas aceitas geram pontos. Pendências não viram zero.`}</p>
     {error ? <p role="alert">Não foi possível confirmar os resultados autorizados.</p>
       : !data ? <p role="status">Carregando resultados…</p>
       : !unit ? <p>Nenhuma unidade autorizada nesta competência.</p> : <>
       {units.length > 1 && <div role="tablist" aria-label="Unidade" className="v3-tabs">{units.map((candidate, index) =>
         <button key={candidate.unitId} type="button" role="tab" id={`v3-tab-${candidate.unitId}`} aria-selected={candidate.unitId === unit.unitId} aria-controls="v3-unit-panel"
           tabIndex={candidate.unitId === unit.unitId ? 0 : -1} ref={node => { if (node) tabs.current.set(candidate.unitId, node); else tabs.current.delete(candidate.unitId); }}
-          onClick={() => select(candidate.unitId)} onKeyDown={event => moveTab(event, index)}>{unitName(candidate.unitCode)}</button>)}</div>}
+          onClick={() => select(candidate.unitId)} onKeyDown={event => moveTab(event, index)}>{scopeName(candidate.unitCode)}</button>)}</div>}
       <section id="v3-unit-panel" role={units.length > 1 ? 'tabpanel' : undefined} aria-labelledby={units.length > 1 ? `v3-tab-${unit.unitId}` : undefined} className="v3-panel">
-        <header><h3>{unitName(unit.unitCode)}</h3><span className="v3-status">{`Situação da competência: ${phase}`}</span></header>
+        <header><h3>{scopeName(unit.unitCode)}</h3><span className="v3-status">{`Situação da competência: ${phase}`}</span></header>
         <Score unit={unit} previousLabel={unit.previous ? monthName(unit.previous.competencia).replace(/^./, letter => letter.toUpperCase()) : ''} />
         <div className="table-scroll"><table className="v3-table" aria-label="Indicadores">
           <thead><tr><th scope="col">Indicador</th><th scope="col">Meta</th><th scope="col" className="r">Valor validado</th><th scope="col" className="r">Pontos</th><th scope="col">Situação</th><th scope="col">Memória</th></tr></thead>

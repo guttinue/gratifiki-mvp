@@ -70,6 +70,8 @@ it('integrates catalogue and business links without operational reads for admin'
  }}});
  render(<AcademicWorkspace client={client} group={grp({...context,role:'administrador'})} onSignOut={()=>{}}/>);
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+ expect(within(screen.getByRole('navigation',{name:'Administração'})).getAllByRole('button').map(tab=>tab.textContent)).toEqual(['Escopos','Vínculos de negócio','Competências e atribuições','Regras futuras']);
+ expect(screen.getByRole('button',{name:'Escopos'}).getAttribute('aria-pressed')).toBe('true');
  fireEvent.click(screen.getByRole('button',{name:'Vínculos de negócio'}));
  expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
  expect(calls.every(url=>url.endsWith('/rpc/get_admin_catalog'))).toBe(true);
@@ -244,33 +246,89 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
  const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
  render(<AcademicWorkspace client={client} group={grp(v3('lideranca'))} onSignOut={()=>{}}/>);
- expect(await screen.findByText('100,00%')).toBeTruthy();
+ expect(await screen.findByText('100 %')).toBeTruthy();
  expect(calls).toEqual(['get_leadership_aggregates']);
  expect(screen.queryByRole('heading',{name:'Agregados de unidades publicadas'})).toBeNull();
 });
+const ruleCatalog={ruleSets:[{id:'set',code:'DEMO',version:1,mode:'zero',synthetic:true,validFrom:'2026-09-01',reference:'DEMO-v1 · regra fictícia acadêmica',inUse:true,items:[{indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',decimals:2,maximum:'100',unit:'%',weight:'100'}]}]};
+const adminLink={id:'l1',actorId:'tech',role:'area_tecnica',escopoId:'alfa',indicadorId:'indicator',ativo:true,vigenciaInicio:'2026-01-01',vigenciaFim:null,version:1};
+const adminCatalog={scopes:[{id:'alfa',codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:null,ativo:true,version:1}],accounts:[{actorId:'tech',label:'Conta acadêmica area_tecnica',ativo:true}],
+ links:[adminLink,{...adminLink,id:'l2',role:'revisor_tecnico'},{...adminLink,id:'l3',role:'cam',ativo:false}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]};
+const adminRpc=()=>rpc(name=>name==='get_rule_catalog'?ruleCatalog:adminCatalog);
+const v3Admin=()=>grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE',competenciaEstado:'aberta'}));
+// One model-3 view holds Norte and Sul for leadership (seed): one read with the
+// first context answers both districts (server: 22_model3_read_models.test.sql).
+it('keeps both districts visible when one model-3 leadership view holds Norte and Sul',async()=>{
+ const bodies:{p_contexto:{vinculoId:string}}[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(_url,init)=>{
+  bodies.push(JSON.parse(String(init?.body)) as {p_contexto:{vinculoId:string}});
+  return new Response(JSON.stringify({acceptedPercent:'68.75',mode:'zero',attention:[{unitCode:'ACADEMIC-NORTE-1',pending:5}],districts:[
+   {districtCode:'ACADEMIC-NORTE',average:null,completeUnits:0,totalUnits:2},{districtCode:'ACADEMIC-SUL',average:'84.46',completeUnits:2,totalUnits:2}]}),{headers:{'content-type':'application/json'}});
+ }}});
+ const group=groupContexts([v3('lideranca',{key:'sul',vinculoId:'sul',escopoId:'sul',escopoCodigo:'ACADEMIC-SUL'}),v3('lideranca',{key:'norte',vinculoId:'norte',escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})])[0];
+ expect(group.contexts).toHaveLength(2);
+ render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+ const rows=within(await screen.findByRole('table',{name:'Médias por distrito'})).getAllByRole('row');
+ expect(rows.slice(1).map(row=>within(row).getAllByRole('cell')[0].textContent)).toEqual(['Distrito Norte','Distrito Sul']);
+ expect(bodies.map(body=>body.p_contexto.vinculoId)).toEqual(['norte']);
+});
+it('shows every unit of the district to a model-3 district manager',async()=>{
+ const {client,calls}=rpc(()=>({competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[
+  {...completeUnit,unitId:'alfa',unitCode:'ACADEMIC-NORTE-1'},{...completeUnit,unitId:'beta',unitCode:'ACADEMIC-NORTE-2'}]}));
+ const group=groupContexts(['i1','i2','i3','i4'].map(i=>v3('gestor_distrital',{key:i,vinculoId:i,indicadorId:i,escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})))[0];
+ render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+ const tabs=within(await screen.findByRole('tablist',{name:'Unidade'})).getAllByRole('tab');
+ expect(tabs.map(tab=>tab.textContent)).toEqual(['Unidade Alfa','Unidade Beta']);
+ expect(calls).toEqual(['get_unit_results']);
+});
 it('opens the read-only rule catalogue for a model-3 administrator on regras, without the future-rule form',async()=>{
  openAcademicPage('regras');
- const catalog={ruleSets:[{id:'set',code:'DEMO',version:1,mode:'zero',synthetic:true,validFrom:'2026-09-01',reference:'DEMO-v1 · regra fictícia acadêmica',inUse:true,items:[{indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',decimals:2,maximum:'100',unit:'%',weight:'100'}]}]};
- const {client,calls}=rpc(()=>catalog);
- render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
+ const {client,calls}=rpc(()=>ruleCatalog);
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
  expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
  expect(calls).toEqual(['get_rule_catalog']);
  expect(screen.queryByRole('button',{name:/Agendar|Regras futuras|Salvar|Criar|Editar/})).toBeNull();
 });
-it('keeps the administration landing for a model-3 administrator on painel but without the model-2 future-rule screen',async()=>{
- const {client}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]}));
- render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
- expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
- expect(screen.getByRole('button',{name:'Vínculos de negócio'})).toBeTruthy();
+it('shows the registry summary on the painel of a model-3 administrator, with shortcuts and without the admin tabs',async()=>{
+ const {client,calls}=adminRpc();
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('DEMO-v1')).toBeTruthy();
+ const summary=screen.getByRole('region',{name:'Resumo dos cadastros'});
+ expect(within(summary).getByText('Vínculos ativos')).toBeTruthy();
+ expect(within(summary).getByText('2')).toBeTruthy();
+ expect(within(summary).getByText('de 3 cadastrados')).toBeTruthy();
+ expect(within(summary).getByText('1 indicadores')).toBeTruthy();
+ expect(within(summary).getByText('Aberta')).toBeTruthy();
+ expect(within(summary).getByText('Outubro/2026')).toBeTruthy();
+ expect([...new Set(calls)].sort()).toEqual(['get_admin_catalog','get_rule_catalog']);
+ expect(screen.queryByRole('navigation',{name:'Administração'})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Salvar escopo'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Abrir indicadores e regras'}));
+ expect(window.location.hash).toBe('#academico/regras');
+ expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
 });
-// I-5: the model-2 competence/assignment commands refuse model-3 contexts; the tab is replaced by a read-only notice.
-it('hides "Competências e atribuições" from a model-3 administrator and says how model 3 is configured',async()=>{
- const {client}=rpc(()=>({scopes:[],accounts:[],links:[],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]}));
- render(<AcademicWorkspace client={client} group={grp(v3('administrador',{escopoCodigo:'ACADEMIC-NORTE'}))} onSignOut={()=>{}}/>);
- expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
+it('reports a failed registry read on the model-3 administrator painel with each reader message',async()=>{
+ const {client}=rpc(name=>name==='get_rule_catalog'?{code:'42501'}:{});
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('Não foi possível confirmar o catálogo de regras.')).toBeTruthy();
+ expect((await screen.findAllByRole('alert')).length).toBe(2);
+});
+it('opens business links first for a model-3 administrator',async()=>{
+ const {client}=adminRpc();
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir usuários e vínculos'}));
+ expect(window.location.hash).toBe('#academico/vinculos');
+ const tabs=within(screen.getByRole('navigation',{name:'Administração'})).getAllByRole('button');
+ expect(tabs.map(tab=>tab.textContent)).toEqual(['Vínculos de negócio','Escopos']);
+ expect(tabs[0].getAttribute('aria-pressed')).toBe('true');
+ expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ // I-5: the model-2 competence/assignment commands refuse model-3 contexts; the tab is replaced by a read-only notice.
  expect(screen.queryByRole('button',{name:'Competências e atribuições'})).toBeNull();
+ expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
  expect(screen.getByText('A configuração do modelo 3 é feita por migração/seed.')).toBeTruthy();
+ fireEvent.click(tabs[1]);
+ expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
 });
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');
