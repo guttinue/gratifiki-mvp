@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
-import { openAcademicPage } from './academicFlowSupport';
+import { openAcademicPage, openContextPicker } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { saveDraft, listPositions } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -37,7 +37,7 @@ test('CAM downloads canonical synthetic CSV and manifest from durable closed sna
  checklist=await loadCycleChecklist(cam,cc);const sid=checklist.snapshotId!;expect(checklist.publication).toBe('nao_publicada');
  const partial=await signedIn('partialCam');clients.push(partial);await expect(requestSnapshotExport(partial,toCommandContext((await contexts(partial,'cam'))[0]),sid,crypto.randomUUID())).rejects.toMatchObject({code:'access_denied'});
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential('cam').email);await page.getByLabel('Senha').fill(academicCredential('cam').password);await page.getByRole('button',{name:'Entrar',exact:true}).click();
- const choose=async()=>{const picker=page.getByLabel('Contexto autorizado');await picker.selectOption((await picker.locator('option').filter({hasText:'cam · ACADEMIC-NORTE · ACADEMIC-2026-10'}).getAttribute('value'))!);await openAcademicPage(page,'Ciclo e fechamento');};
+ const choose=async()=>{const picker=await openContextPicker(page);await picker.selectOption((await picker.locator('option').filter({hasText:'cam · ACADEMIC-NORTE · ACADEMIC-2026-10'}).getAttribute('value'))!);await openAcademicPage(page,'Ciclo e fechamento');};
  await choose();await expect(page.getByText(`Snapshot fechado: ${sid}`)).toBeVisible();
  const download=async(name:string)=>{const pending=page.waitForEvent('download');await page.getByRole('button',{name,exact:true}).click();const file=await pending;const path=await file.path();expect(path).toBeTruthy();return{bytes:await readFile(path!),name:file.suggestedFilename()};};
  const csv=await download('Baixar CSV');expect(csv.name).toBe(`gratifiki-demo-${sid}-p0.csv`);expect(csv.bytes.subarray(0,3).toString('hex')).not.toBe('efbbbf');

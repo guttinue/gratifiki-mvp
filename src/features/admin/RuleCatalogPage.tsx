@@ -24,7 +24,6 @@ export function RuleCatalogPage({ client, group }: { client: SupabaseClient; gro
     return () => { current = false; };
   }, [client, group, retry]);
   return <section aria-label="Indicadores e regras" className="v3-page">
-    <h2>Indicadores e regras</h2>
     <p>Catálogo da regra fictícia. Uma regra em uso não muda; mudanças valem só para competências futuras e entram por migração ou carga de dados.</p>
     {error ? <p role="alert">Não foi possível confirmar o catálogo de regras.</p>
       : !catalog ? <p role="status">Carregando catálogo…</p>

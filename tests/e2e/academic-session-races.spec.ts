@@ -129,10 +129,8 @@ test('academic module loading failure shows a recoverable error without silently
   let intercepted = 0;
   await page.route(modulePattern, route => { intercepted += 1; return route.abort('failed'); });
   await page.reload();
-  // The selected key is not persisted. Re-discovery still requires choosing
-  // one of this authenticated actor's real contexts before loading its module.
-  const picker = page.getByLabel('Contexto autorizado');
-  await picker.selectOption({ label: 'gestor_unidade · ACADEMIC-NORTE-1 · ACADEMIC-2026-10 · acadêmico' });
+  // The selected key is not persisted: re-discovery lands on this actor's own
+  // latest open model-3 month, so its module is requested right after the reload.
   await expect(page.getByRole('alert')).toContainText('Não foi possível carregar o espaço acadêmico');
   await expect(page.getByRole('button', { name: 'Recarregar espaço', exact: true })).toBeVisible();
   expect(intercepted).toBeGreaterThan(0);

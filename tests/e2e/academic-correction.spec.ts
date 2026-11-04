@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
-import { openAcademicPage } from './academicFlowSupport';
+import { openAcademicPage, openContextPicker } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -15,7 +15,7 @@ async function signedIn(identity:Identity){const c=createClient(process.env.VITE
 async function ctx(client:SupabaseClient,role:string){const found=(await loadAuthorizedContexts(client)).find(c=>c.role===role&&c.escopoCodigo==='ACADEMIC-SUL'&&c.competenciaCodigo==='ACADEMIC-2026-10');expect(found).toBeDefined();return found!;}
 async function login(page:Page,identity:Identity,role:string){
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential(identity).email);await page.getByLabel('Senha').fill(academicCredential(identity).password);await page.getByRole('button',{name:'Entrar',exact:true}).click();
- const picker=page.getByLabel('Contexto autorizado');const option=picker.locator('option').filter({hasText:`${role} · ACADEMIC-SUL · ACADEMIC-2026-10`});await expect(option).toHaveCount(1);await picker.selectOption((await option.getAttribute('value'))!);
+ const picker=await openContextPicker(page);const option=picker.locator('option').filter({hasText:`${role} · ACADEMIC-SUL · ACADEMIC-2026-10`});await expect(option).toHaveCount(1);await picker.selectOption((await option.getAttribute('value'))!);
  await openAcademicPage(page,role==='cam'?'Ciclo e fechamento':'Preenchimento');
 }
 async function logout(page:Page){await page.getByRole('button',{name:'Sair',exact:true}).click();await expect(page.getByLabel('E-mail')).toBeVisible();}
@@ -48,7 +48,7 @@ test('persistent correction preserves old 8, creates 9.6 and requires independen
  await page.getByRole('button',{name:'ACADEMIC-SUL · devolvida',exact:true}).click();
  await expect(page.getByText('Motivo da retificação CAM: T08 synthetic rectification')).toBeVisible();
  await page.reload();
- const technicalPicker=page.getByLabel('Contexto autorizado');
+ const technicalPicker=await openContextPicker(page);
  const technicalOption=technicalPicker.locator('option').filter({hasText:'area_tecnica · ACADEMIC-SUL · ACADEMIC-2026-10'});
  await technicalPicker.selectOption((await technicalOption.getAttribute('value'))!);
  await page.getByRole('button',{name:'ACADEMIC-SUL · devolvida',exact:true}).click();
@@ -66,7 +66,7 @@ test('persistent correction preserves old 8, creates 9.6 and requires independen
  const claim3=await startReview(reviewer,rc,initial.id,unavailable.position.version,crypto.randomUUID());await reviewPosition(reviewer,rc,initial.id,claim3.version,'accept','T08 unavailable evidence independently checked',crypto.randomUUID());
  await logout(page);await login(page,'cam','cam');await page.getByRole('button',{name:'ACADEMIC-SUL · validada',exact:true}).click();await page.getByLabel('Motivo CAM').fill('T08 synthetic decision');await page.getByLabel('Referência de demonstração').fill('DEMO-T08');await page.getByRole('button',{name:'Decidir indisponibilidade'}).click();await expect(page.getByText('Decisão CAM confirmada: validada.')).toBeVisible();
  const final=await loadPositionDetail(technical,tc,initial.id);expect(final.revisions).toHaveLength(3);expect(final.position.resultValue).toBeNull();expect(final.memories.some(m=>m.revisionId===final.position.revisionId)).toBe(false);expect(final.decisions.filter(d=>d.revisionId===final.position.revisionId).map(d=>d.type)).toEqual(['iniciar_revisao','validar','decidir_indisponibilidade']);expect(final.revisions.find(r=>r.id===old.id)).toEqual(old);expect(final.decisions.find(d=>d.id===priorAcceptance.id)).toEqual(priorAcceptance);
- await page.reload();const picker=page.getByLabel('Contexto autorizado');await picker.selectOption((await picker.locator('option').filter({hasText:'cam · ACADEMIC-SUL · ACADEMIC-2026-10'}).getAttribute('value'))!);await page.getByRole('button',{name:'ACADEMIC-SUL · validada',exact:true}).click();await expect(page.getByText('decidir_indisponibilidade: T08 synthetic decision')).toBeVisible();
+ await page.reload();const picker=await openContextPicker(page);await picker.selectOption((await picker.locator('option').filter({hasText:'cam · ACADEMIC-SUL · ACADEMIC-2026-10'}).getAttribute('value'))!);await page.getByRole('button',{name:'ACADEMIC-SUL · validada',exact:true}).click();await expect(page.getByText('decidir_indisponibilidade: T08 synthetic decision')).toBeVisible();
  await expect(authorizeCorrection(technical,tc,initial.id,final.position.version,'No CAM authority',crypto.randomUUID())).rejects.toMatchObject({code:'access_denied'});
  for(const client of [technical,reviewer,cam])await client.auth.signOut();
 });

@@ -10,7 +10,7 @@ import { reviewPosition, startReview } from '../../src/features/review/reviewApi
 import { loadCycleChecklist, transitionCycle } from '../../src/features/cycle/cycleApi';
 import { requestSnapshotExport } from '../../src/features/export/exportApi';
 import { loadAudit } from '../../src/features/audit/auditApi';
-import { openAcademicPage } from './academicFlowSupport';
+import { openAcademicPage, openContextPicker } from './academicFlowSupport';
 
 test.use({trace:'off'});
 test.skip(!process.env.ACADEMIC_ADMINISTRADOR_EMAIL,'Requires protected isolated academic fixture');
@@ -22,7 +22,7 @@ async function selected(client:SupabaseClient,scope:string,month='2026-10'){
  const context=(await loadAuthorizedContexts(client)).find(c=>c.competenciaCodigo===`ACADEMIC-${month}`&&c.escopoCodigo===scope&&c.role!=='cam');
  expect(context).toBeTruthy();return context!;
 }
-async function choose(page:Page,label:string){const picker=page.getByLabel('Contexto autorizado');await picker.selectOption((await picker.locator('option').filter({hasText:label}).getAttribute('value'))!);}
+async function choose(page:Page,label:string){const picker=await openContextPicker(page);await picker.selectOption((await picker.locator('option').filter({hasText:label}).getAttribute('value'))!);}
 async function browserLogin(page:Page,role:Parameters<typeof academicCredential>[0],label:string){
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential(role).email);await page.getByLabel('Senha').fill(academicCredential(role).password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await choose(page,label);
 }

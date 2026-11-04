@@ -20,6 +20,8 @@ describe('RuleCatalogPage', () => {
     render(<RuleCatalogPage client={client} group={group} />);
     expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'DEMO-v1' })).toBeTruthy();
+    // The model-3 shell already renders the page heading; a second h2 would repeat it.
+    expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
     expect(screen.getByText(/Vigência a partir de 01\/09\/2026/)).toBeTruthy();
     expect(screen.getByText(/regra fictícia acadêmica/)).toBeTruthy();
     const table = screen.getByRole('table', { name: 'Indicadores da regra DEMO-v1' });

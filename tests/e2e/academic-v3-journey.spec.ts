@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { chooseAcademicContext, loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
+import { loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
@@ -8,16 +8,15 @@ test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic f
 // V3 journey on the T7 seed (model 3, ACADEMIC-V3-2026-10, DEMO-v1 rule set).
 // Nothing is intercepted: every read and write goes through the real API and SQL.
 const MONTH = 'ACADEMIC-V3-2026-10';
-const ALFA = 'ACADEMIC-NORTE-1';
-const BETA = 'ACADEMIC-NORTE-2';
 
-const login = (page: Page, identity: Parameters<typeof loginAcademic>[1], scope: string) => loginAcademic(page, identity, identity, scope, MONTH);
+// Model 3 lands each role directly in the month, with every unit of the role at once.
+const login = (page: Page, identity: Parameters<typeof loginAcademic>[2]) => loginAcademic(page, identity, identity, undefined, MONTH);
 const card = (page: Page, code: string) => page.getByRole('region', { name: new RegExp(`^${code} ·`) });
 
-async function review(page: Page, tab: string, code: string) {
+async function review(page: Page, tab: string, code: string, unit: string) {
   await page.getByRole('tab', { name: new RegExp(`^${tab} \\(`) }).click();
-  await page.getByRole('button', { name: new RegExp(`${code} `) }).click();
-  if (tab === 'Pendentes') {
+  await page.getByRole('row', { name: new RegExp(code) }).filter({ hasText: unit }).getByRole('button', { name: unit, exact: true }).click();
+  if (tab === 'Aguardando você') {
     await page.getByRole('button', { name: 'Iniciar revisão', exact: true }).click();
     await expect(page.getByText('Conferência confirmada: em_revisao.')).toBeVisible();
   }
@@ -34,7 +33,7 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // 1. The Norte technician fills Alfa: types 01 = 90, corrects the returned 03 = 40 and sends the batch.
-  await login(page, 'area_tecnica', ALFA);
+  await login(page, 'area_tecnica');
   await openAcademicPage(page, 'Preenchimento');
   await card(page, 'DEMO-V1-01').getByLabel('Valor apurado').fill('90');
   const returned = card(page, 'DEMO-V1-03');
@@ -52,18 +51,20 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await expect(page.getByText('2 itens enviados')).toBeVisible();
   await logoutAcademic(page);
 
-  // 2. The reviewer accepts Alfa 01, 02 and 03 one at a time, then Beta 01, which was already in review.
-  await login(page, 'revisor_tecnico', ALFA);
+  // 2. The reviewer accepts Alfa 01, 02 and 03 one at a time, then Beta 01, which was already in review, from the same queue.
+  await login(page, 'revisor_tecnico');
   await openAcademicPage(page, 'Conferência');
-  for (const code of ['DEMO-V1-01', 'DEMO-V1-02', 'DEMO-V1-03']) await review(page, 'Pendentes', code);
-  await expect(page.getByRole('tab', { name: /^Aceitas \(4\)/ })).toBeVisible();
-  await chooseAcademicContext(page, 'revisor_tecnico', BETA, MONTH);
-  await review(page, 'Em conferência', 'DEMO-V1-01');
+  for (const code of ['DEMO-V1-01', 'DEMO-V1-02', 'DEMO-V1-03']) await review(page, 'Aguardando você', code, 'Unidade Alfa');
+  // Alfa 01-04 plus Beta 03 and 04, accepted in the seed (octoberPlan).
+  await expect(page.getByRole('tab', { name: /^Aceitas \(6\)/ })).toBeVisible();
+  await review(page, 'Em conferência', 'DEMO-V1-01', 'Unidade Beta');
   await logoutAcademic(page);
 
   // 3. The technician sends Beta 02 = 20 and the reviewer accepts it.
-  await login(page, 'area_tecnica', BETA);
+  await login(page, 'area_tecnica');
   await openAcademicPage(page, 'Preenchimento');
+  // The fill screen opens on Alfa, the first unit by code.
+  await page.getByRole('button', { name: /^Unidade Beta/ }).click();
   const routine = card(page, 'DEMO-V1-02');
   await routine.getByLabel('Valor apurado').fill('20');
   await routine.getByLabel('Fonte do dado').fill('Painel sintético de rotinas');
@@ -71,25 +72,25 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await page.getByRole('button', { name: 'Enviar 1 item', exact: true }).click();
   await expect(page.getByText('1 item enviado')).toBeVisible();
   await logoutAcademic(page);
-  await login(page, 'revisor_tecnico', BETA);
+  await login(page, 'revisor_tecnico');
   await openAcademicPage(page, 'Conferência');
-  await review(page, 'Pendentes', 'DEMO-V1-02');
+  await review(page, 'Aguardando você', 'DEMO-V1-02', 'Unidade Beta');
   await logoutAcademic(page);
 
   // 4. The CAM sees every position ready, consolidates, closes and publishes with a reference.
-  await login(page, 'cam', ALFA);
+  await login(page, 'cam');
   await openAcademicPage(page, 'Ciclo e fechamento');
   await expect(page.getByText('16 de 16 prontas')).toBeVisible();
   await page.getByRole('button', { name: 'Iniciar consolidação', exact: true }).click();
-  await expect(page.getByText('Estado do ciclo: em_consolidacao')).toBeVisible();
+  await expect(page.getByText('Situação do ciclo: Em consolidação')).toBeVisible();
   await page.getByLabel('Referência do ciclo').fill('DEMO-DECISAO-V3-OUT');
   await page.getByRole('button', { name: 'Fechar ciclo', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar fechamento', exact: true }).click();
-  await expect(page.getByText('Estado do ciclo: fechada')).toBeVisible();
+  await expect(page.getByText('Situação do ciclo: Fechada')).toBeVisible();
   await page.getByLabel('Referência do ciclo').fill('DEMO-PUBLICACAO-V3-OUT');
   await page.getByRole('button', { name: 'Publicar demonstração', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar publicação', exact: true }).click();
-  await expect(page.getByText('Publicação: publicada_demo')).toBeVisible();
+  await expect(page.getByText('Publicação: Publicada na demonstração')).toBeVisible();
 
   // 8. The downloaded CSV carries the frozen points column.
   const download = page.waitForEvent('download');
@@ -109,7 +110,7 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await logoutAcademic(page);
 
   // 5-6. The Alfa manager sees the published score, the comparison and the calculation.
-  await login(page, 'gestor_unidade', ALFA);
+  await login(page, 'gestor_unidade');
   await expect(page.locator('.v3-score')).toContainText('93,42');
   await expect(page.getByText('+4,80 vs. setembro')).toBeVisible();
   await page.getByRole('row', { name: /DEMO-V1-01/ }).getByRole('button', { name: 'Como foi calculado?' }).click();
@@ -117,7 +118,7 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await logoutAcademic(page);
 
   // 7. Leadership sees both districts with their average.
-  await login(page, 'lideranca', 'ACADEMIC-NORTE');
+  await login(page, 'lideranca');
   const districts = page.getByRole('table', { name: 'Médias por distrito' });
   // Norte: (93,42 + 96,67) / 2. Sul: (99,05 + 69,87) / 2, with Delta's decided "indisponível" at zero (DEMO-v1 is mode zero).
   await expect(districts.getByRole('row', { name: /Distrito Norte/ })).toContainText('2 de 2');

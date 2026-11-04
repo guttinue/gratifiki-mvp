@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { academicCredential } from './e2eSupport';
-import { openAcademicPage } from './academicFlowSupport';
+import { openAcademicPage, openContextPicker } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail, saveDraft } from '../../src/features/submission/positionApi';
 import { submitPosition } from '../../src/features/submission/submitApi';
@@ -16,7 +16,7 @@ async function login(page: Page, profile: 'area_tecnica' | 'southTechnical', sco
     await page.getByLabel('E-mail').fill(academicCredential(profile).email);
     await page.getByLabel('Senha').fill(academicCredential(profile).password);
     await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-    const picker = page.getByLabel('Contexto autorizado');
+    const picker = await openContextPicker(page);
     const option = picker.locator('option').filter({ hasText: `area_tecnica · ${scope} · ${month}` });
     await expect(option).toHaveCount(1);
     const key = (await option.getAttribute('value'))!;
@@ -52,7 +52,7 @@ test('real UI restores a committed response-loss retry after reload with identic
     await expect(page.getByRole('alert')).toBeVisible();
     page.once('dialog', dialog => dialog.accept());
     await page.reload();
-    await page.getByLabel('Contexto autorizado').selectOption(key);
+    await (await openContextPicker(page)).selectOption(key);
     await page.getByRole('button', { name: /ACADEMIC-SUL-1 · enviada/ }).click();
     await page.getByRole('button', { name: 'Repetir envio pendente' }).click();
     await expect(page.getByText('Envio confirmado. Dados fixados para revisão.')).toBeVisible();
