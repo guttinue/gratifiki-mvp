@@ -4,7 +4,7 @@ import { afterEach,it,expect } from 'vitest';
 import { EvaluationPage } from './EvaluationPage';
 import type { AuthorizedContext } from '../pilot/types';
 afterEach(cleanup);
-const context:AuthorizedContext={key:'k',actorId:'a',role:'gestor_distrital',vinculoId:'v',competenciaId:'c',indicadorId:'i',escopoId:'s',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'k',actorId:'a',role:'gestor_distrital',vinculoId:'v',competenciaId:'c',indicadorId:'i',escopoId:'s',escopoCodigo:'NORTE',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 const row={id:'p',escopoId:'s',escopoCodigo:'NORTE',escopoTipo:'distrito',estadoDado:'valor',inputValue:'100',resultValue:'80',ruleVersion:1,publication:'preliminar',snapshotId:null,factor:'0.8',unidadeMedida:'pontos sintéticos'};
 it('separates district own from territorial units and keeps rule versions noncomparable',async()=>{
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(_url,init)=>{const request=JSON.parse(String(init?.body));const items=request.p_view==='own'?[row]:[{...row,id:'u1',escopoId:'u1',escopoCodigo:'ALFA',escopoTipo:'unidade',inputValue:'10',resultValue:'8'},{...row,id:'u2',escopoId:'u2',escopoCodigo:'BETA',escopoTipo:'unidade',ruleVersion:2,inputValue:'12',resultValue:'9.6'}];return new Response(JSON.stringify({items,total:items.length,page:1,pageSize:25}),{headers:{'content-type':'application/json'}});}}});

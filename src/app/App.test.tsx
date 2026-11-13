@@ -25,8 +25,10 @@ vi.mock("../features/context/contextApi", async (importOriginal) => ({
 
 const legacyContext = {
   key: "legacy-link", vinculoId: "legacy-link", ...technicalContext,
-  role: technicalContext.papel, mode: "legacy" as const,
+  role: technicalContext.papel, mode: "legacy" as const, modelo: 1 as const,
 };
+// Picker values are model 1/2 group keys: role, competence and scope of the fixtures.
+const groupKeyOf = (role: string) => `${role}:${technicalContext.competenciaId}:${technicalContext.escopoId}`;
 
 function createAuthBoundary(hasSession = true) {
   const authListener = vi.fn();
@@ -87,11 +89,11 @@ describe("App", () => {
       legacyContext, { ...legacyContext, key: "second", vinculoId: "second", mode: "academic", role: "cam" },
     ]);
     render(<App />);
-    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: "legacy-link" } });
+    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
     await screen.findByRole("heading", { name: "Visão geral" });
     await act(async () => authListener(event, { user: { id: technicalContext.actorId } }));
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeTruthy();
-    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("legacy-link");
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe(groupKeyOf("area_tecnica"));
   });
 
   it.each(["TOKEN_REFRESHED", "USER_UPDATED"])("never auto-switches from a revoked selected key to the remaining role during %s", async (event) => {
@@ -221,11 +223,32 @@ describe("App", () => {
     render(<App />);
     expect(await screen.findByLabelText("Contexto autorizado")).toBeTruthy();
     expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
-    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: "academic-link" } });
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("lideranca") } });
     expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
     expect(screen.queryByText("Visão geral", { exact: true })).toBeNull();
     expect(screen.queryByRole("button", { name: /registrar entrada/i })).toBeNull();
     expect(readModelMocks.loadPilotEntries).not.toHaveBeenCalled();
+  });
+
+  it("opens the model 3 group after login and keeps the model 2 group reachable from the picker", async () => {
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([
+      { ...legacyContext, key: "m2", vinculoId: "m2", mode: "academic", role: "cam", modelo: 2, escopoCodigo: "DISTRITO" },
+      ...[1, 2].map((n) => ({ ...legacyContext, key: `m3-${n}`, vinculoId: `m3-${n}`, indicadorId: `ind-${n}`, mode: "academic", modelo: 3 })),
+    ]);
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+    expect((screen.getByLabelText("Competência") as HTMLSelectElement).value).toBe(`area_tecnica:${technicalContext.competenciaId}`);
+    expect(screen.queryByLabelText("Contexto autorizado")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Outros contextos" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Setembro/2026", "Selecione um contexto", "Área técnica · Setembro/2026", "cam · DISTRITO · DEMO-2026-09 · acadêmico",
+    ]);
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("cam") } });
+    expect(await screen.findByText("Perfil cam · DISTRITO · DEMO-2026-09")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: `area_tecnica:${technicalContext.competenciaId}` } });
+    expect(await screen.findByLabelText("Competência")).toBeTruthy();
+    expect(screen.queryByText(/Perfil /)).toBeNull();
+    expect(screen.getByRole("button", { name: "Outros contextos" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("clears visible data and ignores an older read when the context changes", async () => {
@@ -236,9 +259,9 @@ describe("App", () => {
     ]);
     readModelMocks.loadPilotEntries.mockReturnValueOnce(delayedRead.promise);
     render(<App />);
-    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: "legacy-link" } });
+    fireEvent.change(await screen.findByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
     await screen.findByRole("heading", { name: "Visão geral" });
-    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: "academic-link" } });
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("cam") } });
     await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" });
     await act(async () => delayedRead.resolve(pilotEntries));
     expect(screen.queryByRole("navigation", { name: "Navegação principal" })).toBeNull();
@@ -474,6 +497,242 @@ describe("App", () => {
     expect(document.activeElement).toBe(screen.getByRole("main"));
     await waitFor(() => expect(window.location.hash).toBe("#history"));
     expect(screen.getByRole("heading", { level: 1, name: "Histórico e auditoria" })).toBeTruthy();
+  });
+});
+
+describe("App academic access boundary", () => {
+  const academicTechnical = {
+    ...legacyContext, key: "academic-technical", vinculoId: "academic-technical", mode: "academic" as const,
+    role: "area_tecnica" as const, escopoCodigo: "NORTE", competenciaCodigo: "2026-10",
+  };
+  const position = {
+    id: "pos", escopoId: "scope", escopoCodigo: "NORTE-1", escopoTipo: "unidade", aplicavel: true, status: "ausente",
+    estadoDado: null, version: 1, revisionId: null, inputValue: null, resultValue: null,
+  };
+  const editedSource = "Fonte sintética em edição";
+  type RpcResult = { data: unknown; error: unknown };
+  function academicBoundary() {
+    const boundary = createAuthBoundary();
+    const overrides = new Map<string, () => Promise<RpcResult>>();
+    vi.mocked(boundary.client.rpc).mockImplementation(((name: string) => {
+      const override = overrides.get(name);
+      if (override) { overrides.delete(name); return override(); }
+      if (name === "get_operational_positions") return Promise.resolve({ data: { items: [position], total: 1, page: 1, pageSize: 25 }, error: null });
+      if (name === "get_position_detail") return Promise.resolve({ data: { position, revisions: [], decisions: [], memories: [] }, error: null });
+      return Promise.resolve({ data: null, error: null });
+    }) as never);
+    authMocks.getAuthClient.mockReturnValue(boundary.client);
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    return { ...boundary, overrides };
+  }
+  async function openDraftAndEdit() {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /NORTE-1 · ausente/ }));
+    fireEvent.change(await screen.findByLabelText("Fonte"), { target: { value: editedSource } });
+  }
+  const denied = () => Promise.resolve({ data: null, error: { code: "42501", message: "access_denied" } });
+  const workspaceHeading = () => screen.queryByRole("heading", { name: "Contexto acadêmico autorizado" });
+  // Refreshing a list with an unsaved draft asks before leaving; accept it.
+  const acceptLeave = () => vi.spyOn(window, "confirm").mockReturnValue(true);
+  beforeEach(() => window.history.replaceState({}, "", "/#academico/preenchimento"));
+  afterEach(() => vi.restoreAllMocks());
+
+  it("hides the workspace while a valid renewal revalidates and then restores the same unsaved edit", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    const pending = deferred<typeof academicTechnical[]>();
+    contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Fonte" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/Verificando o acesso/);
+    await act(async () => pending.resolve([academicTechnical]));
+    expect(workspaceHeading()).not.toBeNull();
+    expect((screen.getByRole("textbox", { name: "Fonte" }) as HTMLInputElement).value).toBe(editedSource);
+  });
+
+  it("discards the hidden edit when the renewal shows the context was revoked", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByDisplayValue(editedSource)).toBeNull();
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+  });
+
+  it("keeps content hidden while authorization is unknown and restores it only after a positive recheck", async () => {
+    const { authListener } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    const retry = await screen.findByRole("button", { name: "Verificar acesso novamente" });
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Fonte" })).toBeNull();
+    await act(async () => fireEvent.click(retry));
+    expect(workspaceHeading()).not.toBeNull();
+    expect((screen.getByRole("textbox", { name: "Fonte" }) as HTMLInputElement).value).toBe(editedSource);
+  });
+
+  it("removes previously loaded detail after a read is denied and discovery confirms the revocation", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    acceptLeave();
+    expect(screen.getByRole("heading", { name: "NORTE-1" })).toBeTruthy();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+    expect(screen.queryByDisplayValue(editedSource)).toBeNull();
+  });
+
+  it("keeps the workspace when a denial is not a revocation and treats network failures as non-revoking", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    acceptLeave();
+    const discoveryCalls = contextMocks.loadAuthorizedContexts.mock.calls.length;
+    overrides.set("get_operational_positions", () => Promise.resolve({ data: null, error: { message: "Failed to fetch" } }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(discoveryCalls);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    await waitFor(() => expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(discoveryCalls + 1));
+    expect(workspaceHeading()).not.toBeNull();
+    expect(await screen.findByRole("button", { name: /NORTE-1 · ausente/ })).toBeTruthy();
+  });
+
+  it("keeps the workspace visible while a denied read rechecks access", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    const pending = deferred<typeof academicTechnical[]>();
+    contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+    overrides.set("get_position_detail", denied);
+    acceptLeave();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /NORTE-1 · ausente/ })));
+    expect(workspaceHeading()).not.toBeNull();
+    expect(screen.queryByText(/Verificando o acesso/)).toBeNull();
+    await act(async () => pending.resolve([academicTechnical]));
+    expect(workspaceHeading()).not.toBeNull();
+  });
+
+  it("hides the workspace when a denied read cannot be rechecked", async () => {
+    const { overrides } = academicBoundary();
+    await openDraftAndEdit();
+    contextMocks.loadAuthorizedContexts.mockRejectedValueOnce(new Error("offline"));
+    overrides.set("get_position_detail", denied);
+    acceptLeave();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /NORTE-1 · ausente/ })));
+    expect(await screen.findByRole("button", { name: "Verificar acesso novamente" })).toBeTruthy();
+    expect(workspaceHeading()).toBeNull();
+  });
+
+  describe("with several indicators in one group", () => {
+    const secondIndicator = { ...academicTechnical, key: "academic-technical-2", vinculoId: "academic-technical-2", indicadorId: "indicator-2" };
+    it("restores the same unsaved edit after a renewal when the whole group is still listed", async () => {
+      const { authListener } = academicBoundary();
+      contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+      await openDraftAndEdit();
+      const pending = deferred<typeof academicTechnical[]>();
+      contextMocks.loadAuthorizedContexts.mockReturnValueOnce(pending.promise);
+      await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+      expect(workspaceHeading()).toBeNull();
+      await act(async () => pending.resolve([academicTechnical, secondIndicator]));
+      expect(workspaceHeading()).not.toBeNull();
+      expect((screen.getByRole("textbox", { name: "Fonte" }) as HTMLInputElement).value).toBe(editedSource);
+    });
+
+    it("drops the whole group, edit included, when a denied read finds one of its contexts revoked", async () => {
+      const { overrides } = academicBoundary();
+      contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+      await openDraftAndEdit();
+      acceptLeave();
+      contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+      overrides.set("get_operational_positions", denied);
+      await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(workspaceHeading()).toBeNull();
+      expect(screen.queryByDisplayValue(editedSource)).toBeNull();
+      expect(screen.queryByText("NORTE-1")).toBeNull();
+    });
+  });
+
+  it("keeps a revoked group closed across a later renewal even when its reduced form is still listed", async () => {
+    const { authListener, overrides } = academicBoundary();
+    const secondIndicator = { ...academicTechnical, key: "academic-technical-2", vinculoId: "academic-technical-2", indicadorId: "indicator-2" };
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+    await openDraftAndEdit();
+    acceptLeave();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    for (const event of ["TOKEN_REFRESHED", "USER_UPDATED"]) {
+      await act(async () => authListener(event, { user: { id: technicalContext.actorId } }));
+      expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+      expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+      expect(workspaceHeading()).toBeNull();
+    }
+    fireEvent.change(screen.getByLabelText("Contexto autorizado"), { target: { value: groupKeyOf("area_tecnica") } });
+    expect(await screen.findByRole("heading", { name: "Contexto acadêmico autorizado" })).toBeTruthy();
+  });
+
+  it("keeps a revoked group closed when the sign-out that follows fails", async () => {
+    const { overrides } = academicBoundary();
+    const secondIndicator = { ...academicTechnical, key: "academic-technical-2", vinculoId: "academic-technical-2", indicadorId: "indicator-2" };
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical, secondIndicator]);
+    await openDraftAndEdit();
+    acceptLeave();
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([academicTechnical]);
+    overrides.set("get_operational_positions", denied);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar consulta" })));
+    expect(await screen.findByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    authMocks.signOut.mockRejectedValueOnce(new Error("offline"));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Sair" })));
+    expect(await screen.findByText("Não foi possível encerrar a sessão agora. Você pode tentar novamente.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Selecione seu contexto" })).toBeTruthy();
+    expect((screen.getByLabelText("Contexto autorizado") as HTMLSelectElement).value).toBe("");
+    expect(workspaceHeading()).toBeNull();
+  });
+
+  it("asks before a header month change discards an unsaved edit", async () => {
+    const boundary = createAuthBoundary();
+    const month = (id: string, estado: "aberta" | "fechada") => ({
+      ...academicTechnical, key: `m3-${id}`, vinculoId: `m3-${id}`, modelo: 3 as const, competenciaId: id,
+      competenciaCodigo: `ACADEMIC-V3-2026-${id}`, competenciaEstado: estado, escopoId: "scope", escopoCodigo: "ACADEMIC-NORTE-1",
+    });
+    const batch = { unitId: "scope", unitCode: "ACADEMIC-NORTE-1", mode: "zero", items: [{ positionId: "pos", indicatorCode: "DEMO-V1-01",
+      name: "Registros conferidos", meta: "95", direction: "maior_melhor", weight: "30", decimals: 2, max: "100", unit: "%", status: "ausente",
+      version: 1, estadoDado: null, valor: null, fonte: null, motivo: null, periodoFonte: null, returnReason: null, revisionNumber: null }] };
+    vi.mocked(boundary.client.rpc).mockImplementation(((name: string) => Promise.resolve({
+      data: name === "get_unit_batch" ? batch : { items: [position], total: 1, page: 1, pageSize: 100 }, error: null,
+    })) as never);
+    authMocks.getAuthClient.mockReturnValue(boundary.client);
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([month("10", "aberta"), month("09", "fechada")]);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText("Fonte do dado"), { target: { value: editedSource } });
+    fireEvent.change(screen.getByLabelText("Competência"), { target: { value: "area_tecnica:09" } });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText("Competência") as HTMLSelectElement).value).toBe("area_tecnica:10");
+    expect((screen.getByLabelText("Fonte do dado") as HTMLInputElement).value).toBe(editedSource);
+    expect(contextMocks.loadAuthorizedContexts).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a delayed read restore content after the context is revoked", async () => {
+    const { authListener, overrides } = academicBoundary();
+    render(<App />);
+    const late = deferred<RpcResult>();
+    overrides.set("get_position_detail", () => late.promise);
+    fireEvent.click(await screen.findByRole("button", { name: /NORTE-1 · ausente/ }));
+    contextMocks.loadAuthorizedContexts.mockResolvedValue([]);
+    await act(async () => authListener("TOKEN_REFRESHED", { user: { id: technicalContext.actorId } }));
+    await screen.findByRole("alert");
+    await act(async () => late.resolve({ data: { position, revisions: [], decisions: [], memories: [] }, error: null }));
+    expect(screen.queryByText("NORTE-1")).toBeNull();
+    expect(screen.queryByLabelText("Fonte")).toBeNull();
   });
 });
 

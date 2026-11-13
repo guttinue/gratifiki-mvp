@@ -9,13 +9,15 @@ import { submitPosition } from './submitApi';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 export interface DraftFormProps {
  client:SupabaseClient;context:CommandContext;detail:PositionDetail;actorId?:string;
+ // Model-3 groups only: offers the "Não se aplica" state.
+ allowNotApplicable?:boolean;
  onSaved:(receipt:CommandReceipt)=>void|Promise<void>;
  onSubmitted?:(receipt:CommandReceipt)=>void|Promise<void>;
 }
 function validPeriod(period:string):boolean {
  return /^\d{4}-\d{2}-\d{2}$/.test(period)&&Number.isFinite(Date.parse(`${period}T00:00:00Z`))&&new Date(`${period}T00:00:00Z`).toISOString().slice(0,10)===period;
 }
-export function DraftForm({client,context,detail,actorId,onSaved,onSubmitted}:DraftFormProps) {
+export function DraftForm({client,context,detail,actorId,allowNotApplicable=false,onSaved,onSubmitted}:DraftFormProps) {
  const revision=detail.revisions.find(r=>r.id===detail.position.revisionId);
  const initial:DraftInput={estadoDado:revision?.estadoDado??'valor',valor:revision?.value??null,fonte:revision?.source??'',periodoFonte:revision?.sourcePeriod??'',motivo:revision?.reason??''};
  const [state,setState]=useState(initial.estadoDado);
@@ -44,7 +46,7 @@ export function DraftForm({client,context,detail,actorId,onSaved,onSubmitted}:Dr
  const sent=detail.position.status==='enviada'||submitted;
  const locked=!!busy||!!pendingSubmit||sent||storageFailed;
  function input():DraftInput {
-  const normalized={estadoDado:state,valor:state==='indisponivel'||!value.trim()?null:parseInputDecimal(value),fonte:source.trim(),periodoFonte:period.trim(),motivo:reason.trim()};
+  const normalized={estadoDado:state,valor:state!=='valor'||!value.trim()?null:parseInputDecimal(value),fonte:source.trim(),periodoFonte:period.trim(),motivo:reason.trim()};
   if(normalized.fonte.length>500||normalized.motivo.length>1000||(normalized.periodoFonte&&!validPeriod(normalized.periodoFonte)))throw new Error('invalid_input');
   return normalized;
  }
@@ -80,7 +82,7 @@ export function DraftForm({client,context,detail,actorId,onSaved,onSubmitted}:Dr
    if(!operation){
     const normalized=input();
     if(sent||!savedInput||JSON.stringify(normalized)!==JSON.stringify(savedInput))throw new DomainCommandError('invalid_state');
-    if(!normalized.fonte||!validPeriod(normalized.periodoFonte)||(normalized.estadoDado==='valor'&&normalized.valor===null)||(normalized.estadoDado==='indisponivel'&&!normalized.motivo))throw new DomainCommandError('invalid_input');
+    if(!normalized.fonte||!validPeriod(normalized.periodoFonte)||(normalized.estadoDado==='valor'&&normalized.valor===null)||(normalized.estadoDado!=='valor'&&!normalized.motivo))throw new DomainCommandError('invalid_input');
     operation={operationId:crypto.randomUUID(),expectedVersion:version};
     saveAcademicPending(scope,operation);
    }
@@ -110,15 +112,15 @@ export function DraftForm({client,context,detail,actorId,onSaved,onSubmitted}:Dr
  return <form onSubmit={handleSave} aria-label="Rascunho do indicador">
   <p>Salvar preserva o rascunho. Enviar fixa os dados e aplica somente a regra sintética de demonstração.</p>
   {inheritedDraft&&!saved&&<p>Rascunho de outro informante: salve uma revisão própria antes de enviar. A autoria e o conteúdo anteriores serão preservados.</p>}
-  <label>Estado do dado<select value={state} disabled={locked} onChange={e=>setState(e.target.value as DraftInput['estadoDado'])}><option value="valor">Valor</option><option value="indisponivel">Indisponível</option></select></label>
-  <label>Valor<input inputMode="decimal" value={value} disabled={locked||state==='indisponivel'} onChange={e=>setValue(e.target.value)} /></label>
+  <label>Estado do dado<select value={state} disabled={locked} onChange={e=>setState(e.target.value as DraftInput['estadoDado'])}><option value="valor">Valor</option><option value="indisponivel">Indisponível</option>{allowNotApplicable&&<option value="nao_aplicavel">Não se aplica</option>}</select></label>
+  <label>Valor<input inputMode="decimal" value={value} disabled={locked||state!=='valor'} onChange={e=>setValue(e.target.value)} /></label>
   <label>Fonte<input value={source} maxLength={500} disabled={locked} onChange={e=>setSource(e.target.value)} /></label>
   <label>Período da fonte<input type="date" value={period} disabled={locked} onChange={e=>setPeriod(e.target.value)} /></label>
   <label>Motivo<textarea value={reason} maxLength={1000} disabled={locked} onChange={e=>setReason(e.target.value)} /></label>
   {storageFailed&&!error&&<p role="alert">O armazenamento da operação está indisponível. O envio foi bloqueado.</p>}
   {error&&<p role="alert">{error}</p>}{saved&&<p role="status">Rascunho salvo. Ainda não enviado.</p>}
   {submitted&&<p role="status">Envio confirmado. Dados fixados para revisão.</p>}
-  {sent&&<p>{resultValue===null?'Sem resultado numérico: dado indisponível.':`Resultado sintético: ${resultValue}`}</p>}
+  {sent&&<p>{resultValue===null?(state==='nao_aplicavel'?'Sem resultado numérico: não se aplica.':'Sem resultado numérico: dado indisponível.'):`Resultado sintético: ${resultValue}`}</p>}
   {pendingSubmit&&<p>Há um envio pendente de confirmação. Repetir usa a mesma operação, sem novo cálculo.</p>}
   <button type="submit" disabled={locked}>{busy==='save'?'Salvando…':'Salvar rascunho'}</button>
   <button type="button" onClick={()=>void handleSubmit()} disabled={!!busy||storageFailed||submitted||(!pendingSubmit&&(sent||dirty))}>{busy==='submit'?'Enviando…':pendingSubmit?'Repetir envio pendente':'Enviar'}</button>

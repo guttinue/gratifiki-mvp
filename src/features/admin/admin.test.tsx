@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadAdminCatalog, saveDemoScope, setDemoBusinessLink } from './adminApi';
@@ -97,6 +97,19 @@ describe('administrative metadata boundary',()=>{
   render(<AccessAdminPage client={client(vi.fn().mockResolvedValue({data:catalog,error:null}))} context={context} actorId="self"/>);
   await screen.findByRole('button',{name:'Editar vínculo Conta sintética · area_tecnica · DEMO-U'});
   expect(screen.queryByRole('option',{name:'Admin sintético'})).toBeNull();expect(screen.queryByRole('option',{name:'administrador'})).toBeNull();
+ });
+ it('lists the business links in a table with role, scope and situation names, keeping the edit button name',async()=>{
+  const academic:AdminCatalog={...catalog,scopes:[{id:'alfa',codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:'d',ativo:true,version:1}],accounts:[{actorId:'tech',label:'Conta acadêmica area_tecnica',ativo:true}],
+   links:[{...catalog.links[0],actorId:'tech',escopoId:'alfa'},{...catalog.links[0],id:'off',actorId:'tech',escopoId:'alfa',role:'revisor_tecnico',ativo:false,version:4}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]};
+  render(<AccessAdminPage client={client(vi.fn().mockResolvedValue({data:academic,error:null}))} context={context} actorId="self"/>);
+  const edit=await screen.findByRole('button',{name:'Editar vínculo Conta acadêmica area_tecnica · area_tecnica · ACADEMIC-NORTE-1'});
+  const table=screen.getByRole('table');
+  expect(within(table).getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Pessoa','Papel','Escopo','Indicador','Situação','Versão','Ação']);
+  const row=edit.closest('tr') as HTMLElement;
+  expect(within(row).getAllByRole('cell').slice(0,6).map(c=>c.textContent)).toEqual(['Conta acadêmica area_tecnica','Área técnica','Unidade Alfa','DEMO-V1-01','Ativo','2']);
+  expect(within(table).getByText('Inativo')).toBeTruthy();
+  expect(within(table).getByText('Revisor técnico')).toBeTruthy();
+  expect(screen.getByRole('button',{name:'Salvar vínculo'}).className).toContain('primary');
  });
  it('preserves a revoked ambiguous link attempt, payload and version on retry',async()=>{
   const payloads:unknown[]=[];let calls=0;

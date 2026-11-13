@@ -1,52 +1,110 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AuthorizedContext } from "../pilot/types";
+import type { AuthorizedContext, ContextGroup } from "../pilot/types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loadAuthorizedContexts } from "./contextApi";
+import { groupContexts, pickDefaultGroup } from "./contextGroups";
 
+// revalidating/unverified keep the selected context so its subtree can stay
+// mounted but hidden; the App must never display it in those states.
+type Status = "idle" | "loading" | "ready" | "error" | "revalidating" | "unverified";
+
+// The month's state is not part of the authorization: the CAM moving it (e.g.
+// to consolidation) must not close the view and lose unsaved edits (I3).
+function sameContext(a: AuthorizedContext, b: AuthorizedContext): boolean {
+  return (Object.keys({ ...a, ...b }) as (keyof AuthorizedContext)[])
+    .every((field) => field === "competenciaEstado" || a[field] === b[field]);
+}
+
+// The selection is a group (model 3: role + competence; models 1/2: role +
+// competence + scope). Without a key, refresh opens pickDefaultGroup; with one
+// (even "") only that key. `context` is the group's first context, for the
+// screens that still work on a single one.
 export function useAuthorizedContext(client: SupabaseClient): {
-  contexts: AuthorizedContext[]; context: AuthorizedContext | null;
-  status: "idle" | "loading" | "ready" | "error"; error: string | null;
+  contexts: AuthorizedContext[]; groups: ContextGroup[]; group: ContextGroup | null;
+  context: AuthorizedContext | null; status: Status; error: string | null;
   refresh: (preferredKey?: string) => Promise<boolean>;
+  revalidate: (options?: { visible?: boolean }) => Promise<boolean>;
   selectContext: (key: string) => Promise<boolean>; clear: () => void;
 } {
   const [state, setState] = useState<{
-    contexts: AuthorizedContext[]; context: AuthorizedContext | null;
-    status: "idle" | "loading" | "ready" | "error"; error: string | null;
-  }>({ contexts: [], context: null, status: "idle", error: null });
+    contexts: AuthorizedContext[]; groups: ContextGroup[]; group: ContextGroup | null;
+    status: Status; error: string | null;
+  }>({ contexts: [], groups: [], group: null, status: "idle", error: null });
   const generation = useRef(0);
-  const choices = useRef<AuthorizedContext[]>([]);
+  const choices = useRef<ContextGroup[]>([]);
+  const selected = useRef<ContextGroup | null>(null);
+  selected.current = state.group;
 
   const clear = useCallback(() => {
     generation.current += 1;
     choices.current = [];
-    setState({ contexts: [], context: null, status: "idle", error: null });
+    setState({ contexts: [], groups: [], group: null, status: "idle", error: null });
   }, []);
   useEffect(() => () => { generation.current += 1; choices.current = []; }, [client]);
 
   const refresh = useCallback(async (preferredKey?: string) => {
     const request = ++generation.current;
     choices.current = [];
-    setState({ contexts: [], context: null, status: "loading", error: null });
+    setState({ contexts: [], groups: [], group: null, status: "loading", error: null });
     try {
       const contexts = await loadAuthorizedContexts(client);
       if (generation.current !== request) return false;
-      choices.current = contexts;
-      const context = preferredKey !== undefined
-        ? contexts.find(({ key }) => key === preferredKey) ?? null
-        : contexts.length === 1 ? contexts[0] : null;
-      setState({ contexts, context, status: "ready", error: null });
+      const groups = groupContexts(contexts);
+      choices.current = groups;
+      const group = preferredKey !== undefined
+        ? groups.find(({ key }) => key === preferredKey) ?? null
+        : pickDefaultGroup(groups);
+      setState({ contexts, groups, group, status: "ready", error: null });
       return contexts.length > 0;
     } catch {
       if (generation.current !== request) return false;
-      setState({ contexts: [], context: null, status: "error", error: "Não foi possível verificar os contextos autorizados." });
+      setState({ contexts: [], groups: [], group: null, status: "error", error: "Não foi possível verificar os contextos autorizados." });
+      return false;
+    }
+  }, [client]);
+
+  // Rechecks the selected group without unmounting it. Only a discovery that
+  // still lists every context of the group, unchanged but for the month's state
+  // (which is refreshed), reveals it again. If any one of them is gone or
+  // changed the whole group is dropped, so nothing from a
+  // revoked context stays on screen (the narrowed group is offered again by the
+  // picker). An unknown answer keeps it hidden until a later positive recheck.
+  // `visible` skips the hiding while asking (a denied read may be no revocation).
+  const revalidate = useCallback(async ({ visible = false }: { visible?: boolean } = {}) => {
+    const current = selected.current;
+    if (!current) return false;
+    const request = ++generation.current;
+    if (!visible) setState((previous) => ({ ...previous, status: "revalidating", error: null }));
+    // Hidden synchronously; discovery starts after the caller's turn, so it is
+    // never awaited inside a Supabase auth callback and a same-turn logout wins.
+    await Promise.resolve();
+    if (generation.current !== request) return false;
+    try {
+      const contexts = await loadAuthorizedContexts(client);
+      if (generation.current !== request) return false;
+      const groups = groupContexts(contexts);
+      choices.current = groups;
+      const fresh = current.contexts.map((context) => contexts.find((listed) => sameContext(listed, context)));
+      if (fresh.every((context): context is AuthorizedContext => context !== undefined)) {
+        // Same group object unless the month's state changed, so the screens only reload then.
+        const group = fresh.some((context, index) => context.competenciaEstado !== current.contexts[index].competenciaEstado)
+          ? { ...current, contexts: fresh } : current;
+        setState({ contexts, groups, group, status: "ready", error: null });
+        return true;
+      }
+      setState({ contexts, groups, group: null, status: "ready", error: "O acesso a este contexto não está mais autorizado. O conteúdo carregado foi descartado." });
+      return false;
+    } catch {
+      if (generation.current !== request) return false;
+      setState((previous) => ({ ...previous, status: "unverified", error: "Não foi possível confirmar o acesso a este contexto." }));
       return false;
     }
   }, [client]);
 
   const selectContext = useCallback(async (key: string) => {
-    if (!choices.current.some((context) => context.key === key)) return false;
+    if (!choices.current.some((group) => group.key === key)) return false;
     return refresh(key);
   }, [refresh]);
 
-  return { ...state, refresh, selectContext, clear };
+  return { ...state, context: state.group?.contexts[0] ?? null, refresh, revalidate, selectContext, clear };
 }

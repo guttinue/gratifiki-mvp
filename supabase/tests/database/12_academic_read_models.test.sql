@@ -28,6 +28,8 @@ select is(public.get_my_evaluations(pg_temp.read_ctx('manager'),'own','{}')->>'t
 select throws_ok($$select public.get_my_evaluations(pg_temp.read_ctx('manager'),'territory','{}')$$,'42501','access_denied','unit manager cannot enlarge view');
 select throws_ok($$select public.get_my_evaluations(pg_temp.read_ctx('manager'),'own','{"page":0}')$$,'22023','invalid_input','page zero rejected');
 select throws_ok($$select public.get_my_evaluations(pg_temp.read_ctx('manager'),'own','{"pageSize":101}')$$,'22023','invalid_input','page size 101 rejected');
+select lives_ok(format($$select public.get_my_evaluations(pg_temp.read_ctx('manager'),'own',%L)$$,jsonb_build_object('search',repeat('a',100))::text),'read-model search of 100 characters accepted');
+select throws_ok(format($$select public.get_my_evaluations(pg_temp.read_ctx('manager'),'own',%L)$$,jsonb_build_object('search',repeat('a',101))::text),'22023','invalid_input','read-model search over 100 characters rejected');
 select lives_ok('select pg_temp.prepare_read_cycle()','prepare only via actual submission and independent acceptance');
 select pg_temp.login_as('manager');
 select is(public.get_my_evaluations(pg_temp.read_ctx('manager'),'own','{}')->'items'->0->>'resultValue','8','ALFA own result only');

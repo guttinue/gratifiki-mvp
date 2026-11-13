@@ -6,7 +6,7 @@ import type { AuthorizedContext } from "../pilot/types";
 export const contextFixture: AuthorizedContext = {
   key: "link:month:indicator", actorId: "actor", role: "area_tecnica", vinculoId: "link",
   competenciaId: "month", competenciaCodigo: "SYNTHETIC-MONTH", indicadorId: "indicator",
-  escopoId: "unit", escopoCodigo: "SYNTHETIC-UNIT", mode: "academic",
+  escopoId: "unit", escopoCodigo: "SYNTHETIC-UNIT", mode: "academic", modelo: 2,
 };
 
 describe("authorized contexts boundary", () => {
@@ -25,7 +25,32 @@ describe("authorized contexts boundary", () => {
     expect(rpc).toHaveBeenCalledWith("get_authorized_contexts");
   });
 
+  it("accepts a context without modelo, assuming 2 for academic and 1 for legacy", async () => {
+    const withoutModelo: Record<string, unknown> = { ...contextFixture };
+    delete withoutModelo.modelo;
+    const legacy = { ...withoutModelo, key: "legacy", mode: "legacy", role: "cam" };
+    const client = { rpc: async () => ({ data: { contexts: [withoutModelo, legacy] }, error: null }) } as unknown as SupabaseClient;
+    const loaded = await loadAuthorizedContexts(client);
+    expect(loaded.map(({ modelo }) => modelo)).toEqual([2, 1]);
+  });
+
+  it("keeps the modelo the server emits", async () => {
+    const client = { rpc: async () => ({ data: { contexts: [{ ...contextFixture, modelo: 3 }] }, error: null }) } as unknown as SupabaseClient;
+    expect((await loadAuthorizedContexts(client))[0].modelo).toBe(3);
+  });
+
+  it("keeps the competence state the server emits and leaves it absent for older rows", async () => {
+    const client = { rpc: async () => ({ data: { contexts: [{ ...contextFixture, modelo: 3, competenciaEstado: "em_consolidacao" }, { ...contextFixture, key: "older" }] }, error: null }) } as unknown as SupabaseClient;
+    const loaded = await loadAuthorizedContexts(client);
+    expect(loaded[0].competenciaEstado).toBe("em_consolidacao");
+    expect("competenciaEstado" in loaded[1]).toBe(false);
+  });
+
   it.each([
+    { contexts: [{ ...contextFixture, competenciaEstado: "publicada" }] },
+    { contexts: [{ ...contextFixture, competenciaEstado: null }] },
+    { contexts: [{ ...contextFixture, modelo: 4 }] },
+    { contexts: [{ ...contextFixture, modelo: "2" }] },
     { contexts: [{ ...contextFixture, role: "superuser" }] },
     { contexts: [{ ...contextFixture, mode: "prototype" }] },
     { contexts: [{ ...contextFixture, actorId: null }] },

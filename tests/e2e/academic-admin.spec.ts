@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
+import { openContextPicker } from './academicFlowSupport';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { loadAdminCatalog, saveDemoScope, setDemoBusinessLink } from '../../src/features/admin/adminApi';
 import { listPositions, saveDraft } from '../../src/features/submission/positionApi';
@@ -27,7 +28,7 @@ test('administrator maintains only demo metadata; authenticated revoked technica
  const draft={estadoDado:'valor' as const,valor:'10',fonte:'T12 synthetic source',periodoFonte:'2026-10-01',motivo:''};
  await saveDraft(technical,command,pos.id,pos.version,draft,operationId);
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential('administrador').email);await page.getByLabel('Senha').fill(academicCredential('administrador').password);await page.getByRole('button',{name:'Entrar',exact:true}).click();
- const choose=async()=>{const picker=page.getByLabel('Contexto autorizado');await picker.selectOption((await picker.locator('option').filter({hasText:'administrador · ACADEMIC-NORTE · ACADEMIC-2026-10'}).getAttribute('value'))!);};
+ const choose=async()=>{const picker=await openContextPicker(page);await picker.selectOption((await picker.locator('option').filter({hasText:'administrador · ACADEMIC-NORTE · ACADEMIC-2026-10'}).getAttribute('value'))!);};
  await choose();await expect(page.getByRole('heading',{name:'Unidades e distritos de demonstração'})).toBeVisible();
  await page.getByLabel('Código do escopo').fill('DEMO-T12-DISTRICT');
  const payloads:unknown[]=[];let lost=true;
@@ -46,6 +47,6 @@ test('administrator maintains only demo metadata; authenticated revoked technica
  const after=await loadAdminCatalog(admin,cc);const district=after.scopes.find(s=>s.codigo==='DEMO-T12-DISTRICT')!;
  await saveDemoScope(admin,cc,tc.escopoId,1,{codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:district.id,ativo:false},crypto.randomUUID());
  const audit=await loadAudit(admin,cc,{page:1,pageSize:100});expect(audit.items.some(a=>a.action==='vinculo_demo_alterado'&&a.version===2)).toBe(true);expect(audit.items.every(a=>a.reason===null)).toBe(true);
- await page.getByRole('button',{name:'Histórico',exact:true}).click();await expect(page.getByText(/vinculo_demo_alterado/)).toBeVisible();
+ await page.getByRole('button',{name:'Auditoria',exact:true}).click();await expect(page.getByText(/vinculo_demo_alterado/)).toBeVisible();
  for(const client of [admin,technical,cam,manager])await client.auth.signOut();
 });

@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { chooseAcademicContext, loginAcademic, logoutAcademic } from './academicFlowSupport';
+import { chooseAcademicContext, loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
 
 test('cancelled page/context/logout navigation preserves edits, while Back/Forward and forged hashes remain scoped', async ({ page }) => {
   await loginAcademic(page, 'area_tecnica', 'area_tecnica');
+  await openAcademicPage(page, 'Preenchimento');
   await page.getByRole('button', { name: 'ACADEMIC-NORTE · ausente', exact: true }).click();
   await page.getByLabel('Valor', { exact: true }).fill('12');
   for (const action of ['page', 'context', 'logout'] as const) {
@@ -32,7 +33,7 @@ test('cancelled page/context/logout navigation preserves edits, while Back/Forwa
   const forbidden: string[] = [];
   page.on('request', request => { if (request.url().endsWith('/rpc/get_admin_catalog')) forbidden.push(request.url()); });
   await page.evaluate(() => { location.hash = '#academico/cadastros'; });
-  await expect(page).toHaveURL(/#academico\/avaliacoes$/);
+  await expect(page).toHaveURL(/#academico\/painel$/);
   await expect(page.getByRole('button', { name: 'Salvar escopo', exact: true })).toHaveCount(0);
   expect(forbidden).toEqual([]);
   await logoutAcademic(page);
@@ -40,6 +41,7 @@ test('cancelled page/context/logout navigation preserves edits, while Back/Forwa
 
 test('logout discards an actual delayed detail response, including after a different authenticated actor signs in', async ({ page }) => {
   await loginAcademic(page, 'area_tecnica', 'area_tecnica', 'ACADEMIC-NORTE-2');
+  await openAcademicPage(page, 'Preenchimento');
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let fetched!: () => void;
@@ -81,6 +83,7 @@ test('expired persisted session with an invalid refresh token returns to login i
 
 test('blocked operation storage prevents a new submission; committed response-loss retries preserve the exact operation', async ({ page }) => {
   await loginAcademic(page, 'area_tecnica', 'area_tecnica', 'ACADEMIC-NORTE-1');
+  await openAcademicPage(page, 'Preenchimento');
   await page.getByRole('button', { name: 'ACADEMIC-NORTE-1 · ausente', exact: true }).click();
   await page.getByLabel('Valor', { exact: true }).fill('10');
   await page.getByLabel('Fonte', { exact: true }).fill('T14 synthetic storage test');
@@ -126,10 +129,8 @@ test('academic module loading failure shows a recoverable error without silently
   let intercepted = 0;
   await page.route(modulePattern, route => { intercepted += 1; return route.abort('failed'); });
   await page.reload();
-  // The selected key is not persisted. Re-discovery still requires choosing
-  // one of this authenticated actor's real contexts before loading its module.
-  const picker = page.getByLabel('Contexto autorizado');
-  await picker.selectOption({ label: 'gestor_unidade · ACADEMIC-NORTE-1 · ACADEMIC-2026-10 · acadêmico' });
+  // The selected key is not persisted: re-discovery lands on this actor's own
+  // latest open model-3 month, so its module is requested right after the reload.
   await expect(page.getByRole('alert')).toContainText('Não foi possível carregar o espaço acadêmico');
   await expect(page.getByRole('button', { name: 'Recarregar espaço', exact: true })).toBeVisible();
   expect(intercepted).toBeGreaterThan(0);

@@ -1,11 +1,15 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { groupContexts } from '../context/contextGroups';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, expect, it } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import type { AuthorizedContext } from '../pilot/types';
 import { authorizeCorrection, correctPosition, decideUnavailability } from './correctionApi';
+import { CorrectionForm } from './CorrectionForm';
+import type { PositionDetail } from '../submission/positionApi';
+const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(cleanup);
-const context:AuthorizedContext={key:'technical',actorId:'actor',role:'area_tecnica',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'SUL',competenciaCodigo:'2026-10',mode:'academic'};
+const context:AuthorizedContext={key:'technical',actorId:'actor',role:'area_tecnica',vinculoId:'link',competenciaId:'month',indicadorId:'indicator',escopoId:'scope',escopoCodigo:'SUL',competenciaCodigo:'2026-10',mode:'academic',modelo:2};
 const position={id:'pos',escopoId:'scope',escopoCodigo:'SUL',escopoTipo:'distrito',aplicavel:true,status:'devolvida',estadoDado:'valor',version:5,revisionId:'old',inputValue:'10',resultValue:'8'};
 const detail={position,revisions:[{id:'old',number:1,authorId:'previous-author',estadoDado:'valor',value:'10',source:'Old source',sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z'}],decisions:[{id:'return',revisionId:'old',actorId:'reviewer',type:'devolver',reason:'Correct source',reference:null,occurredAt:'2026-10-20T12:10:00Z'}],memories:[{revisionId:'old',ruleVersion:1,factor:'0.8',inputValue:'10',resultValue:'8'}]};
 function response(data:unknown){return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});}
@@ -17,7 +21,8 @@ it('returned evidence creates a new sent revision using the receipt without repl
   if(String(url).includes('get_position_detail'))return response(detail);
   bodies.push(JSON.parse(String(options?.body)));return response({resourceId:'pos',version:6,revisionId:'new',status:'enviada',resultValue:'9.6'});
  });
- render(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ render(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));
  fireEvent.change(await screen.findByLabelText('Valor corrigido'),{target:{value:'12'}});
  fireEvent.click(screen.getByRole('button',{name:'Enviar nova revisão'}));
@@ -28,7 +33,8 @@ it('returned evidence creates a new sent revision using the receipt without repl
 });
 it('CAM reading another target cannot authorize mutations until matching context is selected',async()=>{
  const client=api(async url=>String(url).includes('get_operational_positions')?response({items:[{...position,status:'validada'}],total:1,page:1,pageSize:25}):response({...detail,position:{...position,status:'validada'}}));
- render(<AcademicWorkspace client={client} context={{...context,key:'cam',role:'cam',escopoId:'different'}} onSignOut={()=>{}} />);
+ openAcademicPage('ciclo');
+ render(<AcademicWorkspace client={client} group={groupContexts([{...context,key:'cam',role:'cam',escopoId:'different'}])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · validada'}));
  expect(await screen.findByText(/Selecione o contexto CAM correspondente/)).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Autorizar retificação'})).toBeNull();
@@ -50,17 +56,20 @@ it('shows the current CAM rectification reason to the technical author before ed
   };
   return response({resourceId:'pos',version:6,revisionId:'old',status:'devolvida',resultValue:'8'});
  });
- const view=render(<AcademicWorkspace client={client} context={{...context,key:'cam',role:'cam'}} onSignOut={()=>{}} />);
+ openAcademicPage('ciclo');
+ const view=render(<AcademicWorkspace client={client} group={groupContexts([{...context,key:'cam',role:'cam'}])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · validada'}));
  fireEvent.change(await screen.findByLabelText('Motivo CAM'),{target:{value:'CAM requests corrected synthetic reference'}});
  fireEvent.click(screen.getByRole('button',{name:'Autorizar retificação'}));
  await screen.findByText('Decisão CAM confirmada: devolvida.');
- view.rerender(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ view.rerender(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));
  expect(await screen.findByText('Motivo da retificação CAM: CAM requests corrected synthetic reference')).toBeTruthy();
  expect((screen.getByLabelText('Justificativa da correção') as HTMLTextAreaElement).value).toBe('Author justification is not the CAM reason');
  view.unmount();
- render(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ render(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));
  expect(await screen.findByText('Motivo da retificação CAM: CAM requests corrected synthetic reference')).toBeTruthy();
  expect((screen.getByLabelText('Valor corrigido') as HTMLInputElement).value).toBe('10');
@@ -76,7 +85,8 @@ it('distinguishes current technical return from CAM rectification of a prior rev
   ],
  };
  const client=api(async url=>String(url).includes('get_operational_positions')?response({items:[currentDetail.position],total:1,page:1,pageSize:25}):response(currentDetail));
- render(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ render(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));
  expect(await screen.findByText('Motivo da devolução técnica: Current technical return')).toBeTruthy();
  expect(screen.queryByText(/Motivo da retificação CAM:/)).toBeNull();
@@ -90,7 +100,8 @@ it('CAM requires reason/reference and retries ambiguous decisions with the exact
   if(String(url).includes('get_position_detail'))return response(unavailable);
   bodies.push(JSON.parse(String(options?.body)));return response(bodies.length===1?null:{resourceId:'pos',version:6,revisionId:'old',status:'validada',resultValue:null});
  });
- render(<AcademicWorkspace client={client} context={{...context,key:'cam',role:'cam'}} onSignOut={()=>{}} />);
+ openAcademicPage('ciclo');
+ render(<AcademicWorkspace client={client} group={groupContexts([{...context,key:'cam',role:'cam'}])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · validada'}));
  fireEvent.click(await screen.findByRole('button',{name:'Decidir indisponibilidade'}));
  expect(await screen.findByRole('alert')).toBeTruthy();expect(bodies).toHaveLength(0);
@@ -104,9 +115,10 @@ it('CAM requires reason/reference and retries ambiguous decisions with the exact
 it('does not apply a late correction receipt to a new context',async()=>{
  let finish!:(r:Response)=>void;const pending=new Promise<Response>(resolve=>{finish=resolve;});
  const client=api(async url=>String(url).includes('get_operational_positions')?response({items:[position],total:1,page:1,pageSize:25}):String(url).includes('get_position_detail')?response(detail):pending);
- const view=render(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ const view=render(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));fireEvent.click(await screen.findByRole('button',{name:'Enviar nova revisão'}));
- view.rerender(<AcademicWorkspace client={client} context={{...context,key:'other',role:'gestor_unidade'}} onSignOut={()=>{}} />);
+ view.rerender(<AcademicWorkspace client={client} group={groupContexts([{...context,key:'other',role:'gestor_unidade'}])[0]} onSignOut={()=>{}} />);
  await act(async()=>{finish(response({resourceId:'pos',version:6,revisionId:'new',status:'enviada',resultValue:'9.6'}));});
  expect(screen.queryByText(/Nova revisão enviada/)).toBeNull();
 });
@@ -117,7 +129,8 @@ it('keeps the exact local correction input/version/key after an ambiguous respon
   if(String(url).includes('get_position_detail'))return response(detail);
   bodies.push(JSON.parse(String(options?.body)));return response(bodies.length===1?null:{resourceId:'pos',version:6,revisionId:'new',status:'enviada',resultValue:'9.6'});
  });
- render(<AcademicWorkspace client={client} context={context} onSignOut={()=>{}} />);
+ openAcademicPage('preenchimento');
+ render(<AcademicWorkspace client={client} group={groupContexts([context])[0]} onSignOut={()=>{}} />);
  fireEvent.click(await screen.findByRole('button',{name:'SUL · devolvida'}));
  fireEvent.change(await screen.findByLabelText('Valor corrigido'),{target:{value:'12'}});fireEvent.click(screen.getByRole('button',{name:'Enviar nova revisão'}));
  const retry=await screen.findByRole('button',{name:'Repetir operação pendente'});
@@ -134,4 +147,15 @@ it.each([
 it('requires command-specific CAM status and null unavailable result',async()=>{
  await expect(authorizeCorrection(api(async()=>response({resourceId:'pos',version:6,revisionId:'old',status:'validada',resultValue:'8'})),context,'pos',5,'reason','op')).rejects.toMatchObject({confirmedRejected:false});
  await expect(decideUnavailability(api(async()=>response({resourceId:'pos',version:6,revisionId:'old',status:'validada',resultValue:'0'})),context,'pos',5,'DEMO','reason','op')).rejects.toMatchObject({confirmedRejected:false});
+});
+it('offers "Não se aplica" in the correction only when the group allows it',()=>{
+ const client=api(async()=>{throw new Error('must not call');});
+ const states=()=>within(screen.getByLabelText('Estado do dado corrigido')).getAllByRole('option').map(o=>o.textContent);
+ const view=render(<CorrectionForm client={client} context={context} detail={detail as PositionDetail} onSubmitted={()=>{}}/>);
+ expect(states()).toEqual(['Valor','Indisponível']);
+ view.unmount();
+ render(<CorrectionForm allowNotApplicable client={client} context={context} detail={detail as PositionDetail} onSubmitted={()=>{}}/>);
+ expect(states()).toEqual(['Valor','Indisponível','Não se aplica']);
+ fireEvent.change(screen.getByLabelText('Estado do dado corrigido'),{target:{value:'nao_aplicavel'}});
+ expect(screen.queryByLabelText('Valor corrigido')).toBeNull();
 });

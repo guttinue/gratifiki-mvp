@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { loginAcademic, logoutAcademic } from './academicFlowSupport';
+import { loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
@@ -52,24 +52,24 @@ test('admin protects post-save edits, local record replacement and assignment-on
   await confirmAction(page, () => page.getByRole('button', { name: 'Competências e atribuições', exact: true }).click(), true);
   await expect(page.getByRole('combobox', { name: 'Informante de ACADEMIC-NORTE', exact: true })).not.toHaveValue('');
   // Loaded suggestions are not an edit: this transition needs no dialog.
-  await page.getByRole('button', { name: 'Histórico', exact: true }).click();
+  await page.getByRole('button', { name: 'Auditoria', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Auditoria administrativa', exact: true })).toBeVisible();
   for (const field of ['checkbox', 'informant'] as const) {
-    await page.getByRole('button', { name: 'Contexto administrativo', exact: true }).click();
+    await page.getByRole('button', { name: 'Painel', exact: true }).click();
     await page.getByRole('button', { name: 'Competências e atribuições', exact: true }).click();
     const applicable = page.getByLabel('Aplicável: ACADEMIC-NORTE', { exact: true });
     const informant = page.getByRole('combobox', { name: 'Informante de ACADEMIC-NORTE', exact: true });
     if (field === 'checkbox') await applicable.uncheck();
     else await informant.selectOption('');
     await expect(page.getByLabel('Mês da nova competência')).toHaveValue('');
-    await confirmAction(page, () => page.getByRole('button', { name: 'Histórico', exact: true }).click(), false);
+    await confirmAction(page, () => page.getByRole('button', { name: 'Auditoria', exact: true }).click(), false);
     if (field === 'checkbox') await expect(applicable).not.toBeChecked();
     else await expect(informant).toHaveValue('');
-    await confirmAction(page, () => page.getByRole('button', { name: 'Histórico', exact: true }).click(), true);
+    await confirmAction(page, () => page.getByRole('button', { name: 'Auditoria', exact: true }).click(), true);
     await expect(page.getByRole('heading', { name: 'Auditoria administrativa', exact: true })).toBeVisible();
   }
   // A different successful command must not acknowledge this unsent opening.
-  await page.getByRole('button', { name: 'Contexto administrativo', exact: true }).click();
+  await page.getByRole('button', { name: 'Painel', exact: true }).click();
   await page.getByRole('button', { name: 'Competências e atribuições', exact: true }).click();
   const applicable = page.getByLabel('Aplicável: ACADEMIC-NORTE', { exact: true });
   const informant = page.getByRole('combobox', { name: 'Informante de ACADEMIC-NORTE', exact: true });
@@ -86,17 +86,18 @@ test('admin protects post-save edits, local record replacement and assignment-on
   await expect(page.getByText('Somente a reatribuição foi confirmada. As escolhas de abertura não foram enviadas por esta operação.', { exact: true })).toBeVisible();
   await expect(applicable).not.toBeChecked();
   await expect(informant).toHaveValue('');
-  await confirmAction(page, () => page.getByRole('button', { name: 'Histórico', exact: true }).click(), false);
+  await confirmAction(page, () => page.getByRole('button', { name: 'Auditoria', exact: true }).click(), false);
   await expect(applicable).not.toBeChecked();
   await expect(informant).toHaveValue('');
   await expect(page.getByLabel('Mês da nova competência')).toHaveValue('');
-  await confirmAction(page, () => page.getByRole('button', { name: 'Histórico', exact: true }).click(), true);
+  await confirmAction(page, () => page.getByRole('button', { name: 'Auditoria', exact: true }).click(), true);
   await expect(page.getByRole('heading', { name: 'Auditoria administrativa', exact: true })).toBeVisible();
   await logoutAcademic(page);
 });
 
 test('CAM can retry the same blocker after cancel and return A to B to A with real scoped detail reads', async ({ page }) => {
   await loginAcademic(page, 'cam', 'cam');
+  await openAcademicPage(page, 'Ciclo e fechamento');
   const reads: unknown[] = [];
   page.on('request', request => {
     if (request.url().endsWith('/rpc/get_position_detail')) reads.push(request.postDataJSON());

@@ -3,11 +3,16 @@ import { formatAuditAction, formatTimestamp, PAGE_LABELS, STATUS_LABELS } from "
 import { getWorkspaceMetrics } from "./workspaceModel";
 import type { WorkspacePage } from "./workspaceModel";
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AuthorizedContext,DashboardData,Page,PositionFilter,PositionSummary } from '../pilot/types';
+import type { AuthorizedContext,ContextGroup,CycleChecklist,DashboardData,Page,PositionFilter,PositionSummary } from '../pilot/types';
 import { useEffect,useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
 import { loadDashboard } from './academicDashboardApi';
 import { listPositions } from '../submission/positionApi';
+import { loadCycleChecklist } from '../cycle/cycleApi';
+import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
+import { loadUnitBatch } from '../batch/batchApi';
+import { competenceStateLabels, monthName, publicationLabels, scopeName } from './displayNames';
+import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
 type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
 export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
 function ContextDashboard({client,context}:AcademicDashboardProps){
@@ -18,6 +23,79 @@ function ContextDashboard({client,context}:AcademicDashboardProps){
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>:<><p>Universo: {data.expected} · Recebidas: {data.received} · Conferidas: {data.reviewed} · Indisponíveis: {data.unavailable}</p><p>Indisponíveis são subconjunto de recebidas, não valores zero. Denominador: {data.expected} posições autorizadas.</p><div>{data.cards.map(card=>card.filter?<button key={card.id} type="button" onClick={()=>setFilter(card.filter)}>{card.label}: {card.count} de {data.expected}</button>:<p key={card.id}>{card.label}: {card.count} de {data.expected}</p>)}</div></>}
  {filter&&<section aria-label="Posições do cartão">{listError?<p role="alert">Não foi possível confirmar o filtro do cartão.</p>:!rows?<p role="status">Carregando posições do cartão…</p>:<><p>Posições no filtro: {rows.total}</p><ul>{rows.items.map(row=><li key={row.id}>{row.escopoCodigo} · {row.status}</li>)}</ul><button type="button" disabled={filter.page===1} onClick={()=>setFilter({...filter,page:filter.page-1})}>Página anterior do cartão</button><span> Página {filter.page} </span><button type="button" disabled={filter.page*filter.pageSize>=rows.total} onClick={()=>setFilter({...filter,page:filter.page+1})}>Próxima página do cartão</button></>}</section>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
+}
+
+// ---- Model 3 (V3): one dashboard per role over the whole group of indicators ----
+type V3Data={kind:'positions';rows:GroupPosition[];returnReason:string|null}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
+const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
+const byUnitAndIndicator=(a:GroupPosition,b:GroupPosition)=>compare(a.position.escopoCodigo,b.position.escopoCodigo)||compare(a.position.indicatorCode??'',b.position.indicatorCode??'');
+// Each position keeps the context that listed it. For the technical area, the reason of the
+// first returned one comes from its unit's batch, read with that unit's contexts only.
+async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Promise<V3Data>{
+ const rows=(await loadGroupPositions(client,group)).sort(byUnitAndIndicator);
+ const returned=rows.find(row=>row.position.status==='devolvida');
+ if(!returned||group.role!=='area_tecnica')return{kind:'positions',rows,returnReason:null};
+ const unitId=returned.position.escopoId;
+ // The reason is a hint here; without it the step still points at the correction.
+ const returnReason=await loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
+ return{kind:'positions',rows,returnReason};
+}
+function NextStep({kicker,title,text,action,alert}:{kicker:string;title:string;text:string;action?:{label:string;go:()=>void};alert?:boolean}){
+ return <section className={alert?'v3-next v3-next-alert':'v3-next'}><div><span className="v3-kicker">{kicker}</span><h3>{title}</h3><p>{text}</p></div>{action&&<button type="button" className="primary" onClick={action.go}>{action.label}</button>}</section>;
+}
+// Rows: the group's positions in unit-code then indicator-code order; one line per unit.
+export function UnitStatusTable({rows,onOpenUnit}:{rows:GroupPosition[];onOpenUnit?:(unitId:string)=>void}){
+ const sorted=[...rows].sort(byUnitAndIndicator);
+ const indicators=[...new Map(sorted.map(({position})=>[position.indicatorCode??'',position.indicatorName])).entries()].sort(([a],[b])=>compare(a,b));
+ const units=[...new Map(sorted.map(({position})=>[position.escopoId,position.escopoCodigo])).entries()];
+ return <section aria-label="Situação por unidade" className="v3-panel"><h3>Situação por unidade</h3><div className="table-scroll"><table className="v3-table">
+  <thead><tr><th scope="col">Unidade</th>{indicators.map(([code,name])=><th key={code} scope="col">{code}{name&&<span className="v3-cell-sub">{name}</span>}</th>)}<th scope="col" className="r">Aceitos</th>{onOpenUnit&&<th scope="col" className="r"><span className="sr-only">Ação</span></th>}</tr></thead>
+  <tbody>{units.map(([id,code])=>{const unit=sorted.filter(({position})=>position.escopoId===id);
+   return <tr key={id}><td><strong>{scopeName(code)}</strong></td>{indicators.map(([indicator])=>{const position=unit.find(row=>(row.position.indicatorCode??'')===indicator)?.position;
+    return <td key={indicator}>{position?<span className={`v3-badge v3-st-${position.status}`}>{statusLabels[position.status]}</span>:'–'}</td>;})}
+    <td className="r">{`${unit.filter(({position})=>position.status==='validada').length} de ${unit.length}`}</td>
+    {onOpenUnit&&<td className="r"><button type="button" aria-label={`Abrir ${scopeName(code)}`} onClick={()=>onOpenUnit(id)}>Abrir</button></td>}</tr>;})}</tbody>
+ </table></div></section>;
+}
+type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string)=>void;onOpenPosition?:(id:string)=>void};
+export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDashboard key={props.group.key} {...props}/>;}
+function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition}:GroupDashboardProps){
+ const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
+ useEffect(()=>{let current=true;setData(null);setError(false);
+  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group)]).then(([checklist,rows]):V3Data=>({kind:'cycle',checklist,rows})):loadPanelPositions(client,group);
+  void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
+ const openUnit=(unitId:string)=>onOpenUnit?onOpenUnit(unitId):onNavigate('preenchimento');
+ const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
+ return <section aria-label="Painel autorizado" className="v3-page">
+ {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
+  :data.kind==='cycle'?<CamPanel checklist={data.checklist} rows={data.rows} onNavigate={onNavigate} onOpenPosition={openPosition}/>
+  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
+ <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
+}
+function TechnicalPanel({data,competence,onOpenUnit}:{data:Extract<V3Data,{kind:'positions'}>;competence:string;onOpenUnit:(unitId:string)=>void}){
+ const returned=data.rows.find(({position})=>position.status==='devolvida')?.position;
+ const todo=data.rows.filter(({position})=>position.status==='ausente'||position.status==='rascunho');
+ const next=todo[0]?.position;
+ return <>{returned?<NextStep alert kicker="Devolvida pelo revisor" title={`Corrigir ${scopeName(returned.escopoCodigo)} · ${returned.indicatorName??returned.indicatorCode??''}`} text={data.returnReason??'Abra o preenchimento para ver o motivo.'} action={{label:'Abrir correção',go:()=>onOpenUnit(returned.escopoId)}}/>
+  :next?<NextStep kicker="Próximo passo" title={`Preencher ${scopeName(next.escopoCodigo)}`} text={`${todo.length} de ${data.rows.length} indicadores ainda não foram enviados.`} action={{label:'Abrir preenchimento',go:()=>onOpenUnit(next.escopoId)}}/>
+  :<NextStep kicker="Tudo enviado" title={`Seus indicadores de ${monthName(competence)} estão com o revisor`} text="Se algum for devolvido, ele volta para o preenchimento com o motivo."/>}
+  <UnitStatusTable rows={data.rows} onOpenUnit={onOpenUnit}/></>;
+}
+// "First in the queue", not "oldest": PositionSummary carries no submission date.
+function ReviewerPanel({rows,onOpenPosition}:{rows:GroupPosition[];onOpenPosition:(id:string)=>void}){
+ const waiting=rows.filter(({position})=>position.status==='enviada'||position.status==='em_revisao');const first=waiting[0]?.position;
+ return <>{first?<NextStep kicker="Próximo passo" title={`${waiting.length} ${waiting.length>1?'entradas aguardam':'entrada aguarda'} sua conferência`} text={`A primeira da fila é ${scopeName(first.escopoCodigo)} · ${first.indicatorName??first.indicatorCode??''}.`} action={{label:'Conferir agora',go:()=>onOpenPosition(first.id)}}/>
+  :<NextStep kicker="Fila vazia" title="Nada aguardando você" text="Quando a área técnica enviar, a entrada aparece aqui."/>}
+  <UnitStatusTable rows={rows}/></>;
+}
+// Read-only: the closing and publishing commands stay on the cycle screen.
+function CamPanel({checklist,rows,onNavigate,onOpenPosition}:{checklist:CycleChecklist;rows:GroupPosition[];onNavigate:(destination:string)=>void;onOpenPosition:(id:string)=>void}){
+ return <><CycleStepper checklist={checklist}/><CycleMetrics checklist={checklist}/>
+  <div className="v3-split"><section aria-labelledby="cam-blockers" className="v3-panel"><h3 id="cam-blockers">O que impede o fechamento</h3>
+   {checklist.blockers.length?<CycleBlockers blockers={checklist.blockers} positions={rows.map(row=>row.position)} label="O que impede o fechamento" onOpenPosition={onOpenPosition}/>:<p>Nenhuma pendência impede o fechamento.</p>}</section>
+  <section aria-labelledby="cam-closing" className="v3-panel"><h3 id="cam-closing">Fechamento e publicação</h3>
+   <p>Situação do ciclo: {competenceStateLabels[checklist.state]}</p><p>Publicação: {publicationLabels[checklist.publication]}</p>
+   <button type="button" className="primary" onClick={()=>onNavigate('ciclo')}>Abrir ciclo e fechamento</button></section></div></>;
 }
 
 interface DashboardPageProps {

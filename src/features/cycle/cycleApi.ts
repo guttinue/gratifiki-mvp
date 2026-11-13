@@ -7,6 +7,7 @@ export async function loadCycleChecklist(client:SupabaseClient,context:CommandCo
  if(!data||typeof data!=='object'||Array.isArray(data))throw new DomainCommandError('invalid_input');
  const row=data as Record<string,unknown>;
  for(const key of ['version','expected','received','reviewed','unavailable','decidedUnavailable','notApplicable'])if(!Number.isSafeInteger(row[key])||(row[key] as number)<(key==='version'?1:0))throw new DomainCommandError('invalid_input');
+ if('ready' in row&&(!Number.isSafeInteger(row.ready)||(row.ready as number)<0||(row.ready as number)>(row.expected as number)))throw new DomainCommandError('invalid_input');
  const textOrNull=(value:unknown)=>value===null||(typeof value==='string'&&!!value.trim());
  if(!['aberta','em_consolidacao','fechada'].includes(String(row.state))||!['nao_publicada','publicada_demo'].includes(String(row.publication))||
   !textOrNull(row.snapshotId)||!textOrNull(row.publicationId)||['canConsolidate','canClose','fullCoverage'].some(k=>typeof row[k]!=='boolean')||

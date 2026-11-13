@@ -26,15 +26,21 @@ export type RecoveryProof = { credentials: AcademicCredentials; context: Context
 const proofs = new Map<string, RecoveryProof>();
 export function getRecoveryProof(marker: string) { const proof = proofs.get(marker); if (!proof) throw Error('Owned recovery fixture missing'); return proof; }
 export function forgetRecoveryProof(marker: string) { proofs.delete(marker); }
-export async function createAcademicIdentities(session: OwnedSession): Promise<AcademicCredentials> {
+async function bootstrapEnvironment(session: OwnedSession, credentials: AcademicCredentials): Promise<NodeJS.ProcessEnv> {
   const status = await session.status();
-  const credentials = Object.fromEntries(academicRoles.map(role => [role, { email: `${role}@recovery.invalid`, password: randomUUID() }])) as AcademicCredentials;
   const env: NodeJS.ProcessEnv = { SUPABASE_URL: session.target.url, SUPABASE_SERVICE_ROLE_KEY: status.SERVICE_ROLE_KEY };
   for (const [role, credential] of Object.entries(credentials)) {
     env[`ACADEMIC_${role.toUpperCase()}_EMAIL`] = credential.email;
     env[`ACADEMIC_${role.toUpperCase()}_PASSWORD`] = credential.password;
   }
-  const first = await runAcademicBootstrap(env), second = await runAcademicBootstrap(env);
+  return env;
+}
+// legacyOnly: the session is still on a schema before the V3 migrations.
+export async function createAcademicIdentities(session: OwnedSession, options: { legacyOnly?: boolean } = {}): Promise<AcademicCredentials> {
+  const status = await session.status();
+  const credentials = Object.fromEntries(academicRoles.map(role => [role, { email: `${role}@recovery.invalid`, password: randomUUID() }])) as AcademicCredentials;
+  const env = await bootstrapEnvironment(session, credentials);
+  const first = await runAcademicBootstrap(env, options), second = await runAcademicBootstrap(env, options);
   if (JSON.stringify(first) !== JSON.stringify(second)) throw Error('Owned academic CLI bootstrap identity mismatch');
   process.stdout.write('Academic local CLI entrypoint: seven principals + three derived fixtures provisioned twice, IDs preserved; no reset/credential rotation.\n');
   const anon = createClient(session.target.url, status.ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -42,6 +48,17 @@ export async function createAcademicIdentities(session: OwnedSession): Promise<A
   if (attempt.data.user || !attempt.error || attempt.error.code !== 'signup_disabled') throw Error('Owned public signup was not rejected');
   process.stdout.write('Auth public signup: signup_disabled; no user created.\n');
   return credentials;
+}
+// After the last migration: the full bootstrap adds the V3 (DEMO-v1) months,
+// links and states, including a closed and published V3 month, so the restore
+// manifest and ACL comparison cover the V3 tables with rows.
+export async function seedCurrentSchema(session: OwnedSession, credentials: AcademicCredentials) {
+  const env = await bootstrapEnvironment(session, credentials);
+  const first = await runAcademicBootstrap(env), second = await runAcademicBootstrap(env);
+  if (JSON.stringify(first) !== JSON.stringify(second)) throw Error('Owned academic V3 bootstrap identity mismatch');
+  const scored = (await session.sql('select count(*) from public.pontuacoes_fechamento;')).trim();
+  if (!/^[1-9][0-9]*$/.test(scored)) throw Error('Owned V3 bootstrap closed no model-3 competence');
+  process.stdout.write(`Current schema V3 bootstrap: DEMO-v1 months/links/states seeded after the last migration (${scored} frozen unit scores); repeat run kept identities.\n`);
 }
 export async function completeMonth(session: OwnedSession, credentials: AcademicCredentials, month: string) {
   const { ANON_KEY } = await session.status();

@@ -35,6 +35,7 @@ export function ExportPanel({client,context,checklist}:{client:SupabaseClient;co
  }
  return <section aria-label="Exportação CAM"><h3>Exportação de demonstração</h3>
   <p>Dados sintéticos; somas são controles numéricos, não gratificação. Baixar não envia para SEI ou folha.</p>
+  {context.modelo===3&&<p>Regra fictícia DEMO-v1: o arquivo traz valor, meta, peso, peso efetivo e pontos congelados no fechamento.</p>}
   {!available&&<p>Requer snapshot fechado com cobertura CAM integral. Atualize o ciclo para conferir o estado persistido.</p>}
   <button type="button" disabled={!available||busy||!!pending} onClick={()=>void download('csv')}>Baixar CSV</button>
   <button type="button" disabled={!available||busy||!!pending} onClick={()=>void download('json')}>Baixar manifesto JSON</button>

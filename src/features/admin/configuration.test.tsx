@@ -1,3 +1,4 @@
+import { groupContexts } from '../context/contextGroups';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -9,6 +10,7 @@ import type { AuthorizedContext } from '../pilot/types';
 import { useState } from 'react';
 import { NavigationSafety } from '../workspace/NavigationSafety';
 import { requestAcademicLeave } from '../workspace/academicNavigation';
+const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 const context={vinculoId:'admin-link',competenciaId:'october',indicadorId:'demo'};
 const assignment={escopoId:'unit',informanteId:'technical',revisorId:'reviewer',aplicavel:true};
 function client(rpc:ReturnType<typeof vi.fn>){return{rpc} as unknown as SupabaseClient;}
@@ -154,11 +156,12 @@ describe('future configuration command boundary',()=>{
  it('discards an old configuration command completion after changing the authenticated host context',async()=>{
   let finish!:(value:unknown)=>void;
   const rpc=vi.fn(async(name:string)=>{if(name==='get_admin_catalog')return{data:catalog,error:null};if(name==='get_demo_configuration')return{data:configuration,error:null};return new Promise(resolve=>{finish=resolve;});});
-  const oldContext:AuthorizedContext={...context,key:'old-admin-context',actorId:'self',role:'administrador',escopoId:'unit',escopoCodigo:'DEMO-U',competenciaCodigo:'ACADEMIC-2026-10',mode:'academic'};
-  const view=render(<AcademicWorkspace client={client(rpc)} context={oldContext} onSignOut={()=>{}}/>);
+  const oldContext:AuthorizedContext={...context,key:'old-admin-context',actorId:'self',role:'administrador',escopoId:'unit',escopoCodigo:'DEMO-U',competenciaCodigo:'ACADEMIC-2026-10',mode:'academic',modelo:2};
+  openAcademicPage('regras');
+  const view=render(<AcademicWorkspace client={client(rpc)} group={groupContexts([oldContext])[0]} onSignOut={()=>{}}/>);
   fireEvent.click(screen.getByRole('button',{name:'Competências e atribuições'}));await screen.findByLabelText('Informante de DEMO-U');
   fireEvent.change(screen.getByLabelText('Mês da nova competência'),{target:{value:'2026-11-01'}});fireEvent.click(screen.getByRole('button',{name:'Abrir competência de demonstração'}));await waitFor(()=>expect(typeof finish).toBe('function'));
-  view.rerender(<AcademicWorkspace client={client(rpc)} context={{...oldContext,key:'new-admin-context',competenciaId:'november',competenciaCodigo:'ACADEMIC-2026-11'}} onSignOut={()=>{}}/>);
+  view.rerender(<AcademicWorkspace client={client(rpc)} group={groupContexts([{...oldContext,key:'new-admin-context',competenciaId:'november',competenciaCodigo:'ACADEMIC-2026-11'}])[0]} onSignOut={()=>{}}/>);
   await act(async()=>{finish({data:{resourceId:'november',version:1,revisionId:null,status:'aberta',resultValue:null},error:null});});
   expect(screen.getByText('Perfil administrador · DEMO-U · ACADEMIC-2026-11')).toBeTruthy();
   expect(screen.queryByText('Configuração confirmada.')).toBeNull();expect(screen.queryByRole('button',{name:'Repetir configuração pendente'})).toBeNull();

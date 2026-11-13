@@ -15,3 +15,16 @@ describe('export untrusted command boundary',()=>{
   await expect(requestSnapshotExport(client(data),context,'snapshot','operation')).rejects.toMatchObject({code:'invalid_input',confirmedRejected:false});
  });
 });
+const m3Row={snapshotId:'snapshot',competencia:'ACADEMIC-V3-2026-09',indicador:'DEMO-V1-01',alvoTipo:'unidade',alvoCodigo:'ACADEMIC-NORTE-1',regraVersao:1,revisao:1,situacaoDado:'valor',valor:'88',meta:'95',peso:'30',pesoEfetivo:'30',pontos:'27.79',conjunto:'DEMO',conjuntoVersao:1,sintetico:true,publicacao:'publicada_demo'};
+const m3Unavailable={...m3Row,indicador:'DEMO-V1-03',situacaoDado:'indisponivel',valor:null,meta:'48',peso:'25',pesoEfetivo:'25',pontos:'0'};
+const model3={contractVersion:2,snapshotId:'snapshot',rows:[m3Row,m3Unavailable],manifest:{competencia:'ACADEMIC-V3-2026-09',ruleVersions:[1],publicationVersion:1,positionCount:2,calculableCount:1,unavailableCount:1,notApplicableCount:0,totals:[{tipo:'unidade',unidadeMedida:'pontos sintéticos',sum:'27.79'}]}};
+describe('model-3 export boundary',()=>{
+ it('decodes the meta/weight bundle with points, weights and the synthetic set',async()=>{
+  expect(await requestSnapshotExport(client(model3),context,'snapshot','operation')).toEqual(model3);
+ });
+ it.each([{...model3,rows:[{...m3Row,pontos:27.79},m3Unavailable]},{...model3,rows:[{...m3Row,sintetico:'true'},m3Unavailable]},{...model3,rows:[{...m3Row,pontos:null},m3Unavailable]},
+  {...model3,rows:[m3Row,{...m3Unavailable,valor:'1'}]},{...model3,rows:[m3Row,{...m3Unavailable,conjuntoVersao:2}]},{...model3,rows:[{...m3Row,fator:'0.8'},m3Unavailable]},
+  {...model3,contractVersion:1},{...model3,manifest:{...model3.manifest,calculableCount:2}}])('keeps malformed model-3 bundle ambiguous: %j',async data=>{
+  await expect(requestSnapshotExport(client(data),context,'snapshot','operation')).rejects.toMatchObject({code:'invalid_input',confirmedRejected:false});
+ });
+});

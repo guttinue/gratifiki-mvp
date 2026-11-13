@@ -48,7 +48,7 @@ export async function blockedBy(owner:Connection,waiterPid:string,predecessorPid
  process.stdout.write(`Owned concurrency barrier diagnostic (process IDs only): ${await owner.query(`select jsonb_build_object('owner',pg_backend_pid(),'waiter',${Number(waiterPid)},'blockers',pg_blocking_pids(${Number(waiterPid)}));`)}\n`);
  throw Error('Owned concurrency barrier did not observe a real lock wait');
 }
-export async function runClosureConcurrency(target:OwnedTarget,key:string,credentials:AcademicCredentials){
+export async function runClosureConcurrency(target:OwnedTarget,key:string,credentials:AcademicCredentials,afterClosed?:()=>Promise<void>){
  validateOwnedTarget(target);
  const identities={technical:credentials.area_tecnica,reviewer:credentials.revisor_tecnico,cam:credentials.cam,...secondaryCredentials(credentials)};
  const clients:Record<string,SupabaseClient>={};
@@ -111,6 +111,13 @@ export async function runClosureConcurrency(target:OwnedTarget,key:string,creden
   await command(clients.cam,'transition_cycle',second.cc,{p_expected_version:checklist.version,p_action:'close',p_reason:'Race completed',p_reference:'DEMO-DECISAO-RACE-2'});
   if(await a.query(`select trim_scale(valor_resultado)::text from public.itens_fechamento where posicao_id=${literal(second.position)}::uuid;`)!=='9.6')throw Error('Owned concurrency correction lost');
   process.stdout.write('Concurrency correction-first: CAM reopen/authorization + real correction under lock; stale close rejected; newly reviewed 9.6 frozen.\n');
+  if(afterClosed){
+   // Both months are closed and coverage is still complete: publish the first
+   // through the real command, then let the caller repeat the bootstrap (I4).
+   const firstClosed=await rpc(clients.cam,'get_cycle_checklist',{p_contexto:commandContext(first.cc)});
+   await command(clients.cam,'publish_cycle_demo',first.cc,{p_snapshot_id:firstClosed.snapshotId,p_reference:'DEMO-PUBLICACAO-BOOTSTRAP'});
+   await afterClosed();
+  }
   const cached=JSON.parse(await a.query(`select jsonb_build_object('id',operation_id,'payload',payload) from public.operacoes_dominio where ator_id=${literal(second.cc.actorId)}::uuid and comando='transition_cycle' and payload->>'action'='close' and payload->'context'->>'competenciaId'=${literal(second.cc.competenciaId)};`)) as {id:string;payload:{context:unknown;expectedVersion:number;action:string;reason:string;reference:string}};
   // T11: a completed audited read is not a permission cache. A third real
   // connection waits alongside the original T09 close replay, under the same
@@ -129,9 +136,10 @@ export async function runClosureConcurrency(target:OwnedTarget,key:string,creden
   const revokedExport=exportConnection.query(`select pg_temp.capture(${literal(exportReplay)});`);
   await blockedBy(a,pid);
   await blockedBy(a,exportPid,pid);
-  // Revoke a different explicit link while selected context remains present.
+  // Revoke a different explicit link of the same (model-2) indicator while the
+  // selected context remains present; DEMO-v1 links do not cover this cycle.
   // No permission restoration/reset follows; this owned project is now disposed.
-  await a.query(`update public.vinculos set ativo=false where id=(select id from public.vinculos where actor_id=${literal(second.cc.actorId)}::uuid and papel='cam' and id<>${literal(second.cc.vinculoId)}::uuid order by id limit 1);commit;`);
+  await a.query(`update public.vinculos set ativo=false where id=(select id from public.vinculos where actor_id=${literal(second.cc.actorId)}::uuid and papel='cam' and indicador_id=${literal(second.cc.indicadorId)}::uuid and id<>${literal(second.cc.vinculoId)}::uuid order by id limit 1);commit;`);
   if(await revokedReplay!=='42501')throw Error('Owned concurrency replay ignored post-lock access revocation');
   if(await revokedExport!=='42501')throw Error('Owned concurrency export replay ignored post-lock access revocation');
   process.stdout.write('Concurrency revocation-before-replay: observed lock wait; lost explicit coverage rejected cached close without disclosing receipt.\n');

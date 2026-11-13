@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { getAuthClient, getPilotContext, signOut } from "../features/auth/auth";
@@ -12,6 +12,7 @@ import { pageFromHash, pageHash, type WorkspacePage } from "../features/workspac
 import type { PilotContext, PilotEntry } from "../lib/types";
 import { useAuthorizedContext } from "../features/context/useAuthorizedContext";
 import { ContextPicker } from "../features/context/ContextPicker";
+import { withAccessDeniedSignal } from "../features/context/accessSignal";
 import { AcademicLoadBoundary } from '../features/workspace/AcademicLoadBoundary';
 import { requestAcademicLeave } from '../features/workspace/academicNavigation';
 
@@ -38,7 +39,17 @@ function getContextKey(context: PilotContext | null): string | null {
 export function App() {
   const [client] = useState<SupabaseClient>(() => getAuthClient());
   const authorized = useAuthorizedContext(client);
-  const { refresh: refreshContexts, clear: clearContexts } = authorized;
+  const { refresh: refreshContexts, clear: clearContexts, revalidate: revalidateContext } = authorized;
+  // Live academic selection (unlike the intent ref below, cleared with it).
+  const academicKeyRef = useRef<string | null>(null);
+  academicKeyRef.current = authorized.context?.mode === "academic" ? authorized.group?.key ?? null : null;
+  // An explicit denial from any context-bound read or command rechecks the
+  // selection; only discovery decides whether it was revoked. A denial may be
+  // an out-of-scope read, so the workspace stays visible while asking.
+  const handleAccessDenied = useCallback(() => {
+    if (academicKeyRef.current) void revalidateContext({ visible: true });
+  }, [revalidateContext]);
+  const academicClient = useMemo(() => withAccessDeniedSignal(client, handleAccessDenied), [client, handleAccessDenied]);
   const [context, setContext] = useState<PilotContext | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -54,12 +65,19 @@ export function App() {
   const contextKey = getContextKey(context);
   const contextRef = useRef<PilotContext | null>(context);
   const contextKeyRef = useRef(contextKey);
-  const authorizedContextRef = useRef(authorized.context);
+  const authorizedContextRef = useRef(authorized.group);
+  // Set when a revalidation dropped the selected group because a context of it
+  // was revoked. While set, a renewal must not reopen it, neither by its key
+  // (a reduced group keeps the key) nor by auto-selecting the only group left.
+  const selectionClosedRef = useRef(false);
   contextRef.current = context;
   contextKeyRef.current = contextKey;
   // Selection intent survives revalidation's temporary null state. This ref
   // only supplies a preferred key, never authorization or data visibility.
-  if (authorized.context) authorizedContextRef.current = authorized.context;
+  if (authorized.group) {
+    authorizedContextRef.current = authorized.group;
+    selectionClosedRef.current = false;
+  } else if (authorized.status === "ready" && authorized.error) selectionClosedRef.current = true;
   const sessionGeneration = authGeneration.current;
 
   useEffect(() => {
@@ -99,8 +117,9 @@ export function App() {
       }
 
       const nextActorId = session.user.id;
-      const selectedKey = authorizedContextRef.current?.actorId === nextActorId
-        ? authorizedContextRef.current.key : undefined;
+      const selectedKey = selectionClosedRef.current ? ""
+        : authorizedContextRef.current?.contexts[0].actorId === nextActorId
+          ? authorizedContextRef.current.key : undefined;
       const previousActorId = authActorId.current;
       const activeActorId = contextRef.current?.actorId;
       if (
@@ -123,6 +142,12 @@ export function App() {
         authGeneration.current += 1;
         const refreshGeneration = authGeneration.current;
         setIsSigningOut(false);
+        if (academicKeyRef.current) {
+          // Same actor: keep the academic subtree (and its unsaved edits)
+          // mounted but hidden until discovery confirms the same context.
+          void revalidateContext();
+          return;
+        }
         readGeneration.current += 1;
         clearContexts();
         setContext(null);
@@ -167,7 +192,7 @@ export function App() {
       isMounted = false;
       authListener.subscription.unsubscribe();
     };
-  }, [client, clearContexts, refreshContexts]);
+  }, [client, clearContexts, refreshContexts, revalidateContext]);
 
   // The old workspace can consume only legacy contexts. Selection changes
   // synchronously hide it; the generation guard also rejects late adapters.
@@ -253,7 +278,8 @@ export function App() {
     const isCurrent = () => authGeneration.current === requestGeneration
       && signOutGeneration.current === requestSignOutGeneration && authActorId.current === actorId;
     readGeneration.current += 1;
-    const selectedKey = authorizedContextRef.current?.key;
+    // A group closed by a revocation stays closed if the sign-out fails (its reduced form keeps the key).
+    const selectedKey = selectionClosedRef.current ? "" : authorizedContextRef.current?.key;
     clearContexts();
     setContext(null);
     setReadState({ contextKey: null, status: "idle", entries: [] });
@@ -354,28 +380,43 @@ export function App() {
     );
   }
 
-  const choices = <ContextPicker contexts={authorized.contexts} selectedKey={authorized.context?.key ?? null}
-    onSelect={(key) => {
-      if(key===authorized.context?.key||!requestAcademicLeave())return;
-      const candidate = authorized.contexts.find((choice) => choice.key === key);
-      if (candidate) authorizedContextRef.current = candidate;
-      void authorized.selectContext(key);
-    }} />;
+  // The picker and the model-3 header switch groups only after the unsaved-edit guard agrees.
+  function selectGroup(key: string) {
+    if (key === authorized.group?.key || !requestAcademicLeave()) return;
+    const candidate = authorized.groups.find((choice) => choice.key === key);
+    if (candidate) authorizedContextRef.current = candidate;
+    void authorized.selectContext(key);
+  }
+  const choices = <ContextPicker groups={authorized.groups} selectedKey={authorized.group?.key ?? null} onSelect={selectGroup} />;
 
   if (authorized.status === "loading" || (authorized.context?.mode === "legacy" && !context && !sessionError)) {
     return <main className="auth-screen"><section className="auth-card" role="status">Verificando contexto autorizado…</section></main>;
   }
 
-  if (authorized.context?.mode === 'academic') {
-    return <AcademicLoadBoundary key={authorized.context.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
-      <AcademicWorkspace client={client} context={authorized.context} contextPicker={choices}
-        onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
-    </Suspense></AcademicLoadBoundary>;
+  if (authorized.group && authorized.context?.mode === 'academic') {
+    // The wrapper keeps one tree position, so hiding never remounts the
+    // workspace; `hidden` removes it from display and the accessibility tree.
+    const verifying = authorized.status === "revalidating" || authorized.status === "unverified";
+    return <>
+      {verifying && <main className="auth-screen"><section className="auth-card">
+        {authorized.status === "revalidating"
+          ? <p role="status">Verificando o acesso a este contexto…</p>
+          : <><p role="alert">{authorized.error}</p>
+            <button type="button" onClick={() => void revalidateContext()}>Verificar acesso novamente</button></>}
+        <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
+      </section></main>}
+      <div hidden={verifying}><AcademicLoadBoundary key={authorized.group.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
+        <AcademicWorkspace client={academicClient} group={authorized.group} contexts={authorized.contexts} contextPicker={choices}
+          groups={authorized.groups} onSelectGroup={selectGroup}
+          onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
+      </Suspense></AcademicLoadBoundary></div>
+    </>;
   }
 
-  if (!authorized.context && authorized.contexts.length > 0) {
-    return <main className="auth-screen"><section className="auth-card">
+  if (!authorized.group && authorized.groups.length > 0) {
+    return <main className="auth-screen"><section className="auth-card v3-picker">
       <h1>Selecione seu contexto</h1>
+      {authorized.error && <p role="alert">{authorized.error}</p>}
       {choices}
       {signOutError && <p role="alert">{signOutError}</p>}
       <button type="button" disabled={isSigningOut} onClick={handleSignOut}>Sair</button>
@@ -414,7 +455,7 @@ export function App() {
       signOutError={signOutError}
     >
       <aside aria-label="Leitura histórica legada"><strong>Baseline legada</strong><p>Registros históricos: pendente não significa aprovação. Este espaço não executa o ciclo acadêmico atual.</p></aside>
-      {authorized.contexts.length > 1 && choices}
+      {authorized.groups.length > 1 && choices}
       {page === "overview" && (
         <DashboardPage
           context={context}

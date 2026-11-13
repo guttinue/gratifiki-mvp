@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { expect, test } from '@playwright/test';
 import { academicCredential } from './e2eSupport';
+import { openContextPicker } from './academicFlowSupport';
+import { roleLabels } from '../../src/features/workspace/displayNames';
 import { loadAuthorizedContexts, toCommandContext } from '../../src/features/context/contextApi';
 import { listPositions, loadPositionDetail } from '../../src/features/submission/positionApi';
 import { academicId } from '../../scripts/bootstrap/academicFixtures';
@@ -15,11 +17,17 @@ for (const role of roles)
         await page.getByLabel('E-mail').fill(credentials.email);
         await page.getByLabel('Senha').fill(credentials.password);
         await page.getByRole('button', { name: 'Entrar', exact: true }).click();
-        const picker = page.getByLabel('Contexto autorizado');
+        const picker = await openContextPicker(page);
         await expect(picker).toBeVisible();
-        const options = await picker.locator('option').evaluateAll(options => options.map(o => ({ text: o.textContent ?? '', value: o.getAttribute('value') ?? '' })).filter(o => o.value));
-        expect(options.every(o => o.text.startsWith(`${role} ·`))).toBeTruthy();
-        const selected = options.find(o => o.text.includes('ACADEMIC-2026-10'));
+        const options = await picker.locator('option').evaluateAll(options => options.map(o => ({ text: o.textContent ?? '', value: o.getAttribute('value') ?? '', group: o.parentElement instanceof HTMLOptGroupElement ? o.parentElement.label : '' })).filter(o => o.value));
+        // Model-2 options keep the role code; model-3 options use the role's display name.
+        const legacy = options.filter(o => o.group === 'Baseline legada');
+        expect(legacy.length).toBeGreaterThan(0);
+        expect(legacy.every(o => o.text.startsWith(`${role} ·`))).toBeTruthy();
+        const modelThree = options.filter(o => o.group !== 'Baseline legada');
+        expect(modelThree.length).toBeGreaterThan(0);
+        expect(modelThree.every(o => o.text.startsWith(`${roleLabels[role]} ·`))).toBeTruthy();
+        const selected = legacy.find(o => o.text.includes('ACADEMIC-2026-10'));
         expect(selected).toBeDefined();
         await picker.selectOption(selected!.value);
         await expect(page.getByRole('heading', { name: 'Contexto acadêmico autorizado' })).toBeVisible();
@@ -28,8 +36,10 @@ for (const role of roles)
         expect((await client.auth.signInWithPassword(credentials)).error).toBeNull();
         const contexts = await loadAuthorizedContexts(client);
         if (role === 'administrador')
-            expect(new Set(contexts.map(c => c.competenciaCodigo))).toEqual(new Set(['ACADEMIC-2026-09', 'ACADEMIC-2026-10']));
-        const context = contexts.find(c => c.key === selected!.value)!;
+            // T7: the administrator's DEMO-v1 links also reach the two V3 (model 3) months.
+            expect(new Set(contexts.map(c => c.competenciaCodigo))).toEqual(new Set(['ACADEMIC-2026-09', 'ACADEMIC-2026-10', 'ACADEMIC-V3-2026-09', 'ACADEMIC-V3-2026-10']));
+        // The picker value is the group key (role:competenciaId:escopoId).
+        const context = contexts.find(c => `${c.role}:${c.competenciaId}:${c.escopoId}` === selected!.value)!;
         expect(context.actorId).toBe((await client.auth.getUser()).data.user?.id);
         if (['area_tecnica', 'revisor_tecnico', 'cam'].includes(role)) {
             const result = await listPositions(client, toCommandContext(context), { page: 1, pageSize: 25 });

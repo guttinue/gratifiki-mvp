@@ -2,10 +2,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CommandContext, CommandReceipt, DraftInput, Page, PositionFilter, PositionSummary } from "../pilot/types";
 import { parseInputDecimal } from '../pilot/decimal';
 import { DomainCommandError, runCommand } from '../pilot/commandApi';
-export type PositionRevision = { id: string; number: number; authorId: string; estadoDado: 'valor' | 'indisponivel'; value: string | null; source: string; sourcePeriod: string; reason: string; submittedAt: string | null };
+export type PositionRevision = { id: string; number: number; authorId: string; estadoDado: DraftInput['estadoDado']; value: string | null; source: string; sourcePeriod: string; reason: string; submittedAt: string | null;
+  // What a model-3 correction changed (R-25); null on any other revision.
+  correctionExplanation: string | null };
 export type PositionDecision = { id: string; revisionId: string; actorId: string; type: 'iniciar_revisao' | 'validar' | 'devolver' | 'autorizar_retificacao' | 'decidir_indisponibilidade'; reason: string; reference: string | null; occurredAt: string };
-export type PositionMemory = { revisionId: string; ruleVersion: number; factor: string; inputValue: string; resultValue: string };
-export type PositionDetail = { position: PositionSummary; revisions: PositionRevision[]; decisions: PositionDecision[]; memories: PositionMemory[] };
+type FactorMemory = { revisionId: string; ruleVersion: number; factor: string; inputValue: string; resultValue: string };
+// A meta/weight result has no factor; its points and expression are read elsewhere.
+export type PositionMemory = FactorMemory | (Omit<FactorMemory, 'factor'> & { method: 'meta_peso'; factor: null });
+// Model 3 only (R-28): the indicator's target and the same unit's accepted value last month (null when none).
+export type PositionIndicator = { code: string; name: string; meta: string; direction: 'maior_melhor' | 'menor_melhor'; weight: string; unit: string | null };
+export type PreviousMonth = { competencia: string; valor: string | null; estadoDado: DraftInput['estadoDado'] };
+export type PositionDetail = { position: PositionSummary; revisions: PositionRevision[]; decisions: PositionDecision[]; memories: PositionMemory[];
+  indicator?: PositionIndicator; previous?: PreviousMonth | null };
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid position response');
   return value as Record<string, unknown>;
@@ -23,7 +31,27 @@ function position(value: unknown): PositionSummary {
   return { id: text(row.id), escopoId: text(row.escopoId), escopoCodigo: text(row.escopoCodigo), escopoTipo: choice(row.escopoTipo, ['unidade','distrito']), aplicavel: row.aplicavel,
     status: choice(row.status, ['ausente','rascunho','enviada','em_revisao','devolvida','validada','invalidada']),
     estadoDado: row.estadoDado === null ? null : choice(row.estadoDado, ['valor','indisponivel','nao_aplicavel'] as const), version: integer(row.version),
-    revisionId: nullableText(row.revisionId), inputValue: nullableDecimal(row.inputValue), resultValue: nullableDecimal(row.resultValue) };
+    revisionId: nullableText(row.revisionId), inputValue: nullableDecimal(row.inputValue), resultValue: nullableDecimal(row.resultValue),
+    // Both or neither: only a model-3 server sends them.
+    ...(row.indicatorCode === undefined && row.indicatorName === undefined ? {} : { indicatorCode: text(row.indicatorCode), indicatorName: text(row.indicatorName) }) };
+}
+function exact(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  const row = object(value);
+  if (Object.keys(row).length !== keys.length || keys.some(key => !(key in row))) throw new Error('Invalid position block');
+  return row;
+}
+function indicator(value: unknown): PositionIndicator {
+  const r = exact(value, ['code', 'name', 'meta', 'direction', 'weight', 'unit']);
+  return { code: text(r.code), name: text(r.name), meta: decimal(r.meta), direction: choice(r.direction, ['maior_melhor', 'menor_melhor'] as const), weight: decimal(r.weight), unit: nullableText(r.unit) };
+}
+function previousMonth(value: unknown): PreviousMonth | null {
+  if (value === null) return null;
+  const r = exact(value, ['competencia', 'valor', 'estadoDado']);
+  const estadoDado = choice(r.estadoDado, ['valor', 'indisponivel', 'nao_aplicavel'] as const);
+  const valor = nullableDecimal(r.valor);
+  // Only a value state has a number.
+  if ((estadoDado === 'valor') !== (valor !== null)) throw new Error('Invalid previous month');
+  return { competencia: text(r.competencia), valor, estadoDado };
 }
 function commandContext(context: CommandContext): CommandContext { return { vinculoId: context.vinculoId, competenciaId: context.competenciaId, indicadorId: context.indicadorId }; }
 export function normalizeDraftInput(input:DraftInput):DraftInput {
@@ -46,11 +74,22 @@ export async function loadPositionDetail(client: SupabaseClient, context: Comman
   const { data, error } = await client.rpc('get_position_detail', { p_contexto: commandContext(context), p_position_id: id });
   if (error) throw error;
   const row = object(data);
-  return { position: position(row.position), revisions: array(row.revisions, item => {
-    const r = object(item); return { id: text(r.id), number: integer(r.number), authorId: text(r.authorId), estadoDado: choice(r.estadoDado, ['valor','indisponivel']), value: nullableDecimal(r.value), source: text(r.source,true), sourcePeriod: text(r.sourcePeriod,true), reason: text(r.reason,true), submittedAt: nullableText(r.submittedAt) };
+  return { ...(row.indicator === undefined ? {} : { indicator: indicator(row.indicator) }), ...(row.previous === undefined ? {} : { previous: previousMonth(row.previous) }),
+    position: position(row.position), revisions: array(row.revisions, item => {
+    const r = object(item); return { id: text(r.id), number: integer(r.number), authorId: text(r.authorId), estadoDado: choice(r.estadoDado, ['valor','indisponivel','nao_aplicavel'] as const), value: nullableDecimal(r.value), source: text(r.source,true), sourcePeriod: text(r.sourcePeriod,true), reason: text(r.reason,true), submittedAt: nullableText(r.submittedAt),
+      // Absent only from servers before T10, which never stored one.
+      correctionExplanation: r.correctionExplanation === undefined ? null : nullableText(r.correctionExplanation) };
   }), decisions: array(row.decisions, item => {
     const r = object(item); return { id: text(r.id), revisionId: text(r.revisionId), actorId: text(r.actorId), type: choice(r.type, ['iniciar_revisao','validar','devolver','autorizar_retificacao','decidir_indisponibilidade']), reason: text(r.reason,true), reference: nullableText(r.reference), occurredAt: text(r.occurredAt) };
   }), memories: array(row.memories, item => {
-    const r = object(item); return { revisionId: text(r.revisionId), ruleVersion: integer(r.ruleVersion), factor: decimal(r.factor), inputValue: decimal(r.inputValue), resultValue: decimal(r.resultValue) };
+    const r = object(item);
+    const common = { revisionId: text(r.revisionId), ruleVersion: integer(r.ruleVersion), inputValue: decimal(r.inputValue), resultValue: decimal(r.resultValue) };
+    if (r.method === 'meta_peso') {
+      if (r.factor !== null) throw new Error('Invalid meta/weight memory');
+      return { ...common, method: 'meta_peso', factor: null };
+    }
+    // Factor memories (method 'fator', or absent from older servers) stay strict.
+    if (r.method !== undefined && r.method !== 'fator') throw new Error('Invalid memory method');
+    return { ...common, factor: decimal(r.factor) };
   }) };
 }

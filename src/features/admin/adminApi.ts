@@ -2,7 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CommandContext, CommandReceipt, Role } from '../pilot/types';
 import { DomainCommandError, runCommand } from '../pilot/commandApi';
 import { readArray, readInteger, readNullableText, readObject, readRpc, readText } from '../workspace/academicDashboardApi';
-import type { AdminCatalog, BusinessLinkInput, ScopeInput } from './adminTypes';
+import type { AdminCatalog, AdminLink, BusinessLinkInput, ScopeInput } from './adminTypes';
+import { decodeRuleCatalog, type RuleCatalog } from '../results/resultsApi';
+// The links an administrator manages: other accounts' business links, never an administrator link.
+export const businessLinks=(catalog:AdminCatalog,actorId:string):AdminLink[]=>catalog.links.filter(l=>l.actorId!==actorId&&l.role!=='administrador');
 export const businessRoles:Exclude<Role,'administrador'>[]=['area_tecnica','revisor_tecnico','cam','gestor_unidade','gestor_distrital','lideranca'];
 function invalid():never{throw new DomainCommandError('invalid_input');}
 function boolean(value:unknown):boolean{return typeof value==='boolean'?value:invalid();}
@@ -13,6 +16,10 @@ export async function loadAdminCatalog(client:SupabaseClient,context:CommandCont
   accounts:readArray(c.accounts,value=>{const a=readObject(value);return{actorId:readText(a.actorId),label:readText(a.label),ativo:boolean(a.ativo)};}),
   links:readArray(c.links,value=>{const l=readObject(value);if(l.role!=='administrador'&&!businessRoles.includes(l.role as never))return invalid();return{id:readText(l.id),actorId:readText(l.actorId),role:l.role as Role,escopoId:readText(l.escopoId),indicadorId:readText(l.indicadorId),ativo:boolean(l.ativo),vigenciaInicio:date(l.vigenciaInicio),vigenciaFim:l.vigenciaFim===null?null:date(l.vigenciaFim),version:readInteger(l.version,1)};}),
   indicators:readArray(c.indicators,value=>{const i=readObject(value);return{id:readText(i.id),codigo:readText(i.codigo)};})};
+}
+// Read-only DEMO rule catalogue (administrator and CAM); there is no rule command.
+export async function loadRuleCatalog(client:SupabaseClient,context:CommandContext):Promise<RuleCatalog>{
+ return decodeRuleCatalog(await readRpc(client,'get_rule_catalog',context));
 }
 function metadataReceipt(receipt:CommandReceipt,active:boolean,resourceId?:string|null){if(receipt.status!==(active?'ativo':'inativo')||receipt.revisionId!==null||receipt.resultValue!==null||(resourceId&&receipt.resourceId!==resourceId))return invalid();return receipt;}
 export async function saveDemoScope(client:SupabaseClient,context:CommandContext,scopeId:string|null,expectedVersion:number,input:ScopeInput,operationId:string):Promise<CommandReceipt>{

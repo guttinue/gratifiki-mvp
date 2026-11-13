@@ -15,9 +15,9 @@ export function readAcademicBootstrapEnvironment(env: NodeJS.ProcessEnv): { url:
   if (!key?.trim()) throw Error('Academic CLI requires protected administrative provisioning credential');
   return { url: url.origin, key, credentials };
 }
-export async function runAcademicBootstrap(env: NodeJS.ProcessEnv) {
+export async function runAcademicBootstrap(env: NodeJS.ProcessEnv, options: { legacyOnly?: boolean } = {}) {
   const { url, key, credentials } = readAcademicBootstrapEnvironment(env);
-  return bootstrapAcademicDemo(createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }), credentials);
+  return bootstrapAcademicDemo(createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }), credentials, options);
 }
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   if (process.argv.length !== 2) { process.stderr.write('Academic CLI accepts protected environment only; no credentials in arguments.\n'); process.exitCode = 1; }

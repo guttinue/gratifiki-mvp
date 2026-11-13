@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { technicalContext } from "./workspaceTestFixtures";
-import { WorkspaceShell } from "./WorkspaceShell";
+import { AcademicNavigation, WorkspaceShell } from "./WorkspaceShell";
 
 afterEach(cleanup);
 
@@ -78,5 +78,18 @@ describe("WorkspaceShell", () => {
       </WorkspaceShell>,
     );
     expect((screen.getByRole("button", { name: /saindo/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("AcademicNavigation", () => {
+  it("lists the destinations of the role, marks the current one and navigates by id", () => {
+    const onNavigate = vi.fn();
+    render(<AcademicNavigation role="gestor_distrital" page="resultados" onNavigate={onNavigate} />);
+    const navigation = screen.getByRole("navigation", { name: "Navegação acadêmica" });
+    expect(Array.from(navigation.querySelectorAll("button")).map((button) => button.textContent)).toEqual(["Painel", "Resultados", "Histórico"]);
+    expect(screen.getByRole("button", { name: "Resultados" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "Painel" }).getAttribute("aria-current")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Histórico" }));
+    expect(onNavigate).toHaveBeenCalledWith("historico");
   });
 });

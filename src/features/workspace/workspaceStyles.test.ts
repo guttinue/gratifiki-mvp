@@ -16,4 +16,40 @@ describe("workspace responsive stylesheet", () => {
   it("styles the existing entry submit button as a primary action", () => {
     expect(/\.input-row\s+button\s*\{[^}]*background:\s*var\(--blue\);/s.test(stylesheet)).toBe(true);
   });
+
+  it("hides the closed side menu below 768px and shows it when open", () => {
+    const narrow = /@media \(max-width: 767px\)\s*\{(.*?)\n\}/s.exec(stylesheet)?.[1] ?? "";
+    expect(/\.academic-side\s*\{[^}]*visibility:\s*hidden/s.test(narrow)).toBe(true);
+    expect(/\.academic-side\[data-open="true"\]\s*\{[^}]*visibility:\s*visible/s.test(narrow)).toBe(true);
+  });
+
+  it("pads scrolling under the sticky header", () => {
+    expect(stylesheet).toContain("scroll-padding-top");
+  });
+
+  const academic = /\n\.academic-app\s*\{([^}]*)\}/.exec(stylesheet)?.[1] ?? "";
+
+  it("declares the V3 tokens inside .academic-app, not on :root", () => {
+    for (const token of ["--page:", "--ink:", "--line:", "--blue-soft:", "--success-soft:", "--danger:", "--mono:"]) expect(academic).toContain(token);
+    expect(/^:root\s*\{[^}]*--(surface-muted|line-strong|success-soft)/m.test(stylesheet)).toBe(false);
+  });
+
+  it("uses only the system font stack", () => {
+    expect(stylesheet).not.toMatch(/@import|fonts\.googleapis|@font-face/);
+    expect(readFileSync(resolve(process.cwd(), "index.html"), "utf8")).not.toMatch(/fonts\.googleapis/);
+  });
+
+  it("colors each situation badge from the tokens", () => {
+    expect(/\.v3-st-devolvida\s*\{[^}]*var\(--danger/s.test(stylesheet)).toBe(true);
+    expect(/\.v3-st-validada\s*\{[^}]*var\(--success/s.test(stylesheet)).toBe(true);
+    expect(/\.academic-app button\.primary\s*\{[^}]*background:\s*var\(--blue\)/s.test(stylesheet)).toBe(true);
+  });
+
+  it("scrolls the tab bar instead of shrinking tabs over each other", () => {
+    expect(/\.v3-tabs button\s*\{[^}]*flex:\s*none/s.test(stylesheet)).toBe(true);
+  });
+
+  it("keeps whole words in V3 table cells, which scroll inside their container", () => {
+    expect(/\.v3-table\s*\{[^}]*overflow-wrap:\s*normal/s.test(stylesheet)).toBe(true);
+  });
 });

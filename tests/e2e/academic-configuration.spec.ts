@@ -10,6 +10,7 @@ import { reviewPosition, startReview } from '../../src/features/review/reviewApi
 import { loadCycleChecklist, transitionCycle } from '../../src/features/cycle/cycleApi';
 import { requestSnapshotExport } from '../../src/features/export/exportApi';
 import { loadAudit } from '../../src/features/audit/auditApi';
+import { openAcademicPage, openContextPicker } from './academicFlowSupport';
 
 test.use({trace:'off'});
 test.skip(!process.env.ACADEMIC_ADMINISTRADOR_EMAIL,'Requires protected isolated academic fixture');
@@ -21,7 +22,7 @@ async function selected(client:SupabaseClient,scope:string,month='2026-10'){
  const context=(await loadAuthorizedContexts(client)).find(c=>c.competenciaCodigo===`ACADEMIC-${month}`&&c.escopoCodigo===scope&&c.role!=='cam');
  expect(context).toBeTruthy();return context!;
 }
-async function choose(page:Page,label:string){const picker=page.getByLabel('Contexto autorizado');await picker.selectOption((await picker.locator('option').filter({hasText:label}).getAttribute('value'))!);}
+async function choose(page:Page,label:string){const picker=await openContextPicker(page);await picker.selectOption((await picker.locator('option').filter({hasText:label}).getAttribute('value'))!);}
 async function browserLogin(page:Page,role:Parameters<typeof academicCredential>[0],label:string){
  await page.goto('/');await page.getByLabel('E-mail').fill(academicCredential(role).email);await page.getByLabel('Senha').fill(academicCredential(role).password);await page.getByRole('button',{name:'Entrar',exact:true}).click();await choose(page,label);
 }
@@ -64,7 +65,7 @@ test('future rule and complete universe preserve snapshot; reassigned draft and 
  await page.getByLabel('Posição para reatribuição').selectOption(position.id);await page.getByLabel('Novo informante').selectOption(targetTechnical);await page.getByLabel('Motivo da reatribuição').fill('Continuidade sintética do rascunho');await page.getByRole('button',{name:'Salvar reatribuição'}).click();await expect(page.getByText('Configuração confirmada.',{exact:true})).toBeVisible();
  await expect(saveDraft(north,originalCommand,position.id,position.version,originalInput,saveId)).rejects.toMatchObject({code:'access_denied'});
  const techBrowser=await browser.newContext(),techPage=await techBrowser.newPage();
- await browserLogin(techPage,'southTechnical','area_tecnica · ACADEMIC-NORTE-1 · ACADEMIC-2026-11');await techPage.getByRole('button',{name:'ACADEMIC-NORTE-1 · rascunho',exact:true}).click();
+ await browserLogin(techPage,'southTechnical','area_tecnica · ACADEMIC-NORTE-1 · ACADEMIC-2026-11');await openAcademicPage(techPage,'Preenchimento');await techPage.getByRole('button',{name:'ACADEMIC-NORTE-1 · rascunho',exact:true}).click();
  await expect(techPage.getByRole('button',{name:'Enviar',exact:true})).toBeDisabled();await expect(techPage.getByLabel('Fonte',{exact:true})).toHaveValue('Rascunho original T13');
  await techPage.getByRole('button',{name:'Salvar rascunho'}).click();await expect(techPage.getByText('Rascunho salvo. Ainda não enviado.')).toBeVisible();await techPage.getByRole('button',{name:'Enviar',exact:true}).click();await expect(techPage.getByText('Resultado sintético: 7.5',{exact:true})).toBeVisible();
  const newContext=await selected(south,'ACADEMIC-NORTE-1','2026-11'),detail=await loadPositionDetail(south,toCommandContext(newContext),position.id);
@@ -75,7 +76,7 @@ test('future rule and complete universe preserve snapshot; reassigned draft and 
  await expect(startReview(northReviewer,oldReviewContext,position.id,detail.position.version,claimId)).rejects.toMatchObject({code:'access_denied'});
  const newReviewContext=toCommandContext(await selected(southReviewer,'ACADEMIC-NORTE-1','2026-11'));
  await expect(reviewPosition(southReviewer,newReviewContext,position.id,oldClaim.version+1,'accept','',crypto.randomUUID())).rejects.toMatchObject({code:'invalid_state'});
- const reviewBrowser=await browser.newContext(),reviewPage=await reviewBrowser.newPage();await browserLogin(reviewPage,'southReviewer','revisor_tecnico · ACADEMIC-NORTE-1 · ACADEMIC-2026-11');await reviewPage.getByRole('button',{name:'ACADEMIC-NORTE-1 · enviada',exact:true}).click();await reviewPage.getByRole('button',{name:'Iniciar revisão',exact:true}).click();await expect(reviewPage.getByText('Conferência confirmada: em_revisao.',{exact:true})).toBeVisible();await reviewPage.getByRole('button',{name:'Aceitar evidência',exact:true}).click();await expect(reviewPage.getByText('Conferência confirmada: validada.',{exact:true})).toBeVisible();
+ const reviewBrowser=await browser.newContext(),reviewPage=await reviewBrowser.newPage();await browserLogin(reviewPage,'southReviewer','revisor_tecnico · ACADEMIC-NORTE-1 · ACADEMIC-2026-11');await openAcademicPage(reviewPage,'Conferência');await reviewPage.getByRole('button',{name:'ACADEMIC-NORTE-1 · enviada',exact:true}).click();await reviewPage.getByRole('button',{name:'Iniciar revisão',exact:true}).click();await expect(reviewPage.getByText('Conferência confirmada: em_revisao.',{exact:true})).toBeVisible();await reviewPage.getByRole('button',{name:'Aceitar evidência',exact:true}).click();await expect(reviewPage.getByText('Conferência confirmada: validada.',{exact:true})).toBeVisible();
  const currentDetail=await loadPositionDetail(south,toCommandContext(newContext),position.id);expect(currentDetail.decisions.filter(d=>d.type==='iniciar_revisao')).toHaveLength(2);
  const frozen=await requestSnapshotExport(cam,camContext,closure.resourceId,crypto.randomUUID());expect(frozen.rows).toHaveLength(6);expect(frozen.rows.every(r=>r.resultado==='8'&&r.fator==='0.8')).toBe(true);
  const novemberAdmin=toCommandContext(await selected(admin,'ACADEMIC-NORTE','2026-11'));

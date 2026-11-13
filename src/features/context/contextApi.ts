@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AuthorizedContext, CommandContext, Role } from "../pilot/types";
+import type { AuthorizedContext, CommandContext, CompetenceState, Role } from "../pilot/types";
 
 const roles = new Set<Role>(["area_tecnica", "revisor_tecnico", "cam", "gestor_unidade", "gestor_distrital", "administrador", "lideranca"]);
+const competenceStates = new Set<CompetenceState>(["aberta", "em_revisao", "em_consolidacao", "fechada", "invalidada"]);
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid authorized contexts");
@@ -11,6 +12,18 @@ function object(value: unknown): Record<string, unknown> {
 function text(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) throw new Error("Invalid authorized context field");
   return value;
+}
+
+// Older rows may lack `modelo`: academic contexts are then model 2, legacy ones model 1.
+function modelo(value: Record<string, unknown>): AuthorizedContext["modelo"] {
+  if (value.modelo === undefined) return value.mode === "legacy" ? 1 : 2;
+  if (value.modelo !== 1 && value.modelo !== 2 && value.modelo !== 3) throw new Error("Invalid authorized context modelo");
+  return value.modelo;
+}
+
+function competenceState(value: unknown): CompetenceState {
+  if (!competenceStates.has(value as CompetenceState)) throw new Error("Invalid authorized context competence state");
+  return value as CompetenceState;
 }
 
 export async function loadAuthorizedContexts(client: SupabaseClient): Promise<AuthorizedContext[]> {
@@ -29,6 +42,9 @@ export async function loadAuthorizedContexts(client: SupabaseClient): Promise<Au
       vinculoId: text(value.vinculoId), competenciaId: text(value.competenciaId), indicadorId: text(value.indicadorId),
       escopoId: text(value.escopoId), escopoCodigo: text(value.escopoCodigo),
       competenciaCodigo: text(value.competenciaCodigo), mode: value.mode as AuthorizedContext["mode"],
+      modelo: modelo(value),
+      // Optional for older rows; when present it must be a known state.
+      ...(value.competenciaEstado === undefined ? {} : { competenciaEstado: competenceState(value.competenciaEstado) }),
     };
   });
   if (new Set(contexts.map(({ key }) => key)).size !== contexts.length

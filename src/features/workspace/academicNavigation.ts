@@ -1,30 +1,63 @@
 import type { Role } from '../pilot/types';
+import { competenceLabel, scopeSummary } from './displayNames';
 
 export type AcademicDestination = { id: string; label: string };
-const primary: Record<Role, AcademicDestination> = {
-  area_tecnica: { id: 'preenchimento', label: 'Preenchimento' },
-  revisor_tecnico: { id: 'conferencia', label: 'Conferência' },
-  cam: { id: 'ciclo', label: 'Ciclo e evidências' },
-  gestor_unidade: { id: 'avaliacoes', label: 'Avaliações' },
-  gestor_distrital: { id: 'avaliacoes', label: 'Avaliações' },
-  administrador: { id: 'cadastros', label: 'Contexto administrativo' },
-  lideranca: { id: 'agregados', label: 'Agregados' },
+const painel = { id: 'painel', label: 'Painel' };
+const managerDestinations = [painel, { id: 'resultados', label: 'Resultados' }, { id: 'historico', label: 'Histórico' }];
+const destinations: Record<Role, AcademicDestination[]> = {
+  area_tecnica: [painel, { id: 'preenchimento', label: 'Preenchimento' }, { id: 'historico', label: 'Histórico' }],
+  revisor_tecnico: [painel, { id: 'conferencia', label: 'Conferência' }, { id: 'historico', label: 'Histórico' }],
+  cam: [painel, { id: 'ciclo', label: 'Ciclo e fechamento' }, { id: 'resultados', label: 'Resultados' },
+    { id: 'entradas', label: 'Todas as entradas' }, { id: 'historico', label: 'Auditoria' }],
+  gestor_unidade: managerDestinations,
+  gestor_distrital: managerDestinations,
+  lideranca: [painel],
+  administrador: [painel, { id: 'regras', label: 'Indicadores e regras' },
+    { id: 'vinculos', label: 'Usuários e vínculos' }, { id: 'historico', label: 'Auditoria' }],
 };
 
 // Navigation is presentation, never authorization. Every mounted page still
 // calls its own server-authorized boundary with the selected context.
 export function getAcademicDestinations(role: Role): readonly AcademicDestination[] {
-  return [primary[role],
-    ...(['area_tecnica', 'revisor_tecnico', 'cam', 'lideranca'].includes(role)
-      ? [{ id: 'painel', label: 'Painel' }] : []),
-    ...(role !== 'lideranca' ? [{ id: 'historico', label: 'Histórico' }] : []),
-  ];
+  return destinations[role];
 }
 
 export function academicPageFromHash(role: Role, hash: string): string {
   const destinations = getAcademicDestinations(role);
   const id = hash.replace(/^#academico\//, '');
   return destinations.find(destination => destination.id === id)?.id ?? destinations[0].id;
+}
+
+// Model-3 page title and subtitle, worded like the V3 prototype's head(...) calls.
+export function academicPageHeading(role: Role, page: string, view: { competence: string; scopes: readonly string[] }): { title: string; subtitle: string } {
+  const M = competenceLabel(view.competence);
+  const S = scopeSummary(view.scopes);
+  const results = { title: 'Resultados', subtitle: `${M} · só entradas aceitas geram pontos. Pendências não viram zero.` };
+  const cycle = 'Acompanhe o que falta, consolide e feche. Fechar congela os resultados; publicar é outro passo.';
+  const audit = { title: 'Auditoria', subtitle: 'Todos os eventos registrados, do mais recente ao mais antigo.' };
+  const headings: Record<string, { title: string; subtitle: string }> = {
+    'area_tecnica:painel': { title: 'Painel', subtitle: `${M} · você informa os indicadores de ${S}.` },
+    'area_tecnica:preenchimento': { title: 'Preenchimento', subtitle: `${M} · informe os indicadores da unidade e envie para conferência. Zero é um valor; "não enviado", "não se aplica" e "indisponível" são situações diferentes.` },
+    'revisor_tecnico:painel': { title: 'Painel', subtitle: `${M} · você confere o que a área técnica de ${S} enviou. Você não confere o que você mesmo enviou.` },
+    'revisor_tecnico:conferencia': { title: 'Conferência', subtitle: `${M} · confira valor, fonte e cálculo; aceite ou devolva com motivo.` },
+    'cam:painel': { title: `Ciclo de ${M}`, subtitle: cycle },
+    'cam:ciclo': { title: 'Ciclo e fechamento', subtitle: cycle },
+    'cam:resultados': results,
+    'cam:entradas': { title: 'Todas as entradas', subtitle: `${M} · leitura de todas as entradas. A conferência é do revisor técnico de cada distrito.` },
+    'cam:historico': audit,
+    'gestor_distrital:painel': results,
+    'gestor_distrital:resultados': results,
+    'gestor_unidade:painel': { ...results, title: `Resultado da ${S}` },
+    'gestor_unidade:resultados': results,
+    'lideranca:painel': { title: 'Visão agregada', subtitle: `${M} · situação do ciclo e médias por distrito. Sem detalhes por pessoa.` },
+    'administrador:painel': { title: 'Painel de cadastros', subtitle: 'Você mantém vínculos e escopos; indicadores e regras entram por migração. Administradores não veem valores nem pontuações.' },
+    'administrador:regras': { title: 'Indicadores e regras', subtitle: 'Catálogo da regra fictícia DEMO-v1. Uma regra em uso não muda; mudanças valem só para competências futuras.' },
+    'administrador:vinculos': { title: 'Usuários e vínculos', subtitle: 'Cada vínculo junta pessoa, papel e escopo. Ninguém concede acesso a si mesmo.' },
+    'administrador:historico': audit,
+  };
+  if (page === 'historico' && !headings[`${role}:historico`]) return { title: 'Histórico', subtitle: 'Eventos do seu escopo, do mais recente ao mais antigo.' };
+  // Pages come from academicPageFromHash, so every pair is listed; the label is a safe fallback.
+  return headings[`${role}:${page}`] ?? { title: getAcademicDestinations(role).find(d => d.id === page)?.label ?? page, subtitle: '' };
 }
 
 export function requestAcademicLeave(): boolean {

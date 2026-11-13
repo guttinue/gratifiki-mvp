@@ -42,6 +42,8 @@ select is((public.get_operational_positions(pg_temp.ctx('cam'),'{"page":2,"pageS
 select is(jsonb_array_length(public.get_operational_positions(pg_temp.ctx('cam'),'{"page":2,"pageSize":1}')->'items'),0,'page beyond end has no phantom rows');
 select is((public.get_operational_positions(pg_temp.ctx('cam'),'{"search":"no-such-scope"}')->>'total')::integer,0,'search filters authorized scope codes');
 select throws_ok($$select public.get_operational_positions(pg_temp.ctx('cam'),'{"page":0,"pageSize":25}')$$,'22023',null,'invalid pagination rejected');
+select lives_ok(format($$select public.get_operational_positions(pg_temp.ctx('cam'),%L)$$,jsonb_build_object('search',repeat('a',100))::text),'search of 100 characters accepted');
+select throws_ok(format($$select public.get_operational_positions(pg_temp.ctx('cam'),%L)$$,jsonb_build_object('search',repeat('a',101))::text),'22023',null,'search over 100 characters rejected');
 select throws_ok($$select public.get_operational_positions(pg_temp.ctx('cam'),'{"status":"unknown"}')$$,'22023',null,'unknown workflow status rejected');
 reset role;
 update public.escopos set ativo=false where id=pg_temp.fixture('target-1');
