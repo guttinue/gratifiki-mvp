@@ -81,6 +81,8 @@ export function ActivityFeed({ client, group, onOpenHistory }: { client: Supabas
   const [error, setError] = useState(false);
   useEffect(() => {
     let current = true;
+    setData(null);
+    setError(false);
     void loadGroupAudit(client, group).then(value => { if (current) setData(value); }).catch(() => { if (current) setError(true); });
     return () => { current = false; };
   }, [client, group]);

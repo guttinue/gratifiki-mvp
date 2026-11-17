@@ -57,3 +57,21 @@ it('ActivityFeed shows five events and opens the history', async () => {
   fireEvent.click(within(feed).getByRole('button', { name: 'Ver histórico completo' }));
   expect(open).toHaveBeenCalledOnce();
 });
+
+it('ActivityFeed names the audit link for cam and administrator and clears an error on a new group', async () => {
+  let fail = true;
+  const client = createClient('http://localhost:54321', 'key', { auth: { persistSession: false, storageKey: crypto.randomUUID() }, global: { fetch: async () => {
+    if (fail) return new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify({ items: [], total: 0, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } });
+  } } });
+  const ctx = (role: AuthorizedContext['role'], key: string): AuthorizedContext => ({ key, actorId: 'a', role, vinculoId: 'v', competenciaId: 'c', indicadorId: 'i', escopoId: 's', escopoCodigo: 'ACADEMIC-NORTE-1', competenciaCodigo: 'ACADEMIC-V3-2026-10', mode: 'academic', modelo: 3 });
+  const { rerender } = render(<ActivityFeed client={client} group={groupContexts([ctx('cam', 'k1')])[0]} onOpenHistory={() => undefined} />);
+  expect(await screen.findByText('Não foi possível carregar a atividade.')).toBeTruthy();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Ver auditoria completa' })).toBeTruthy();
+  fail = false;
+  rerender(<ActivityFeed client={client} group={groupContexts([ctx('administrador', 'k2')])[0]} onOpenHistory={() => undefined} />);
+  expect(await screen.findByText('Sem eventos.')).toBeTruthy();
+  expect(screen.queryByText('Não foi possível carregar a atividade.')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Ver auditoria completa' })).toBeTruthy();
+});

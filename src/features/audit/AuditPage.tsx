@@ -65,7 +65,7 @@ function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextG
             </select></label>
             {data && <span aria-live="polite">{Math.min(shown, events.length)} de {plural(events.length, 'evento', 'eventos')}</span>}
         </div>
-        {error ? <p role="alert">Não foi possível confirmar o histórico autorizado. Verifique os filtros e o acesso.</p>
+        {error ? <p role="alert">Não foi possível confirmar o histórico autorizado. Tente atualizar.</p>
             : !data ? <p role="status">Carregando histórico…</p> : <>
                 {data.truncated && <p className="v3-note">Há eventos mais antigos que não foram carregados.</p>}
                 {!events.length ? <p>Nenhum evento autorizado neste filtro.</p> : <section className="box log" aria-label="Eventos" ref={list}>
