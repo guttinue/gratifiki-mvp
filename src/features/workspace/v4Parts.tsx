@@ -1,4 +1,8 @@
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AuditItem, ContextGroup } from '../pilot/types';
+import { auditHour, loadGroupAudit } from '../audit/auditApi';
+import { auditLine } from '../audit/AuditPage';
 import { countByStatus, statusTones, type Tone } from './displayNames';
 
 // V4 parts shared by several screens (index.html lines 623-666).
@@ -67,5 +71,33 @@ export function UnitCard({ title, sub, badge, big, bar, foot, action }: {
       {foot && <span className="sub">{foot}</span>}
       <button type="button" aria-label={action.ariaLabel} onClick={action.onClick}>{action.label}</button>
     </article>
+  );
+}
+
+// Atividade recente (V4 line 661): the 5 newest events of the history. A failure stays local to the panel.
+export function ActivityFeed({ client, group, onOpenHistory }: { client: SupabaseClient; group: ContextGroup; onOpenHistory?: () => void }) {
+  const id = useId();
+  const [data, setData] = useState<{ items: AuditItem[]; targets: Map<string, string> } | null>(null);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    let current = true;
+    void loadGroupAudit(client, group).then(value => { if (current) setData(value); }).catch(() => { if (current) setError(true); });
+    return () => { current = false; };
+  }, [client, group]);
+  const broad = group.role === 'cam' || group.role === 'administrador';
+  return (
+    <aside className="block" aria-labelledby={id}>
+      <div className="block-head"><h3 id={id}>Atividade recente</h3></div>
+      <div className="box">
+        {error ? <div className="empty">Não foi possível carregar a atividade.</div>
+          : !data ? <div className="empty">Carregando atividade…</div>
+          : !data.items.length ? <div className="empty">Sem eventos.</div>
+          : <ul className="feed">{data.items.slice(0, 5).map(row => {
+            const { verb, target, reason } = auditLine(row, data.targets);
+            return <li key={row.id}><time dateTime={row.occurredAt}>{auditHour(row.occurredAt)}</time><p>{verb}{target && <> <strong className="target">{target}</strong></>}{reason && `: ${reason}`}</p></li>;
+          })}</ul>}
+        {onOpenHistory && <div className="feed-foot"><button type="button" className="link" onClick={onOpenHistory}>{broad ? 'Ver auditoria completa' : 'Ver histórico completo'}</button></div>}
+      </div>
+    </aside>
   );
 }

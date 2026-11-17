@@ -2183,3 +2183,24 @@ td code,
   .academic-app .v4-tbl td:first-child::before { content: none; }
   .academic-app .v4-tbl .tbl-foot { padding: 0 var(--s1); border: 0; }
 }
+/* Histórico (V4 lines 264, 356-362, 438) and Atividade recente (V4 lines 135, 168-173). */
+.academic-app .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; justify-content: space-between; }
+.academic-app .toolbar label { display: flex; align-items: center; gap: var(--s2); color: var(--muted); font: 500 12px var(--ui); }
+.academic-app .toolbar select { min-height: 32px; border: 1px solid var(--field); border-radius: var(--r-chip); background: var(--surface); padding: 0 var(--s2); color: var(--ink); font: 500 13px var(--ui); }
+.academic-app .toolbar [aria-live] { color: var(--muted); font-size: 12px; }
+.academic-app .log ul, .academic-app .feed { margin: 0; padding: 0; list-style: none; }
+.academic-app .log-day { margin: 0; padding: 10px var(--s3); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-2); font: 550 13px var(--ui); }
+.academic-app .log .log-day:first-child { border-top: 0; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.academic-app .log li { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--s3); padding: 10px var(--s3); border-top: 1px solid var(--line); }
+.academic-app .log li:first-child { border-top: 0; }
+.academic-app .log li p, .academic-app .feed li p { margin: 0; }
+.academic-app .log time { color: var(--muted); font: 400 12px/1.7 var(--mono); }
+.academic-app .log .role { color: var(--muted); }
+.academic-app .log-more { display: flex; justify-content: center; padding: var(--s3); border-top: 1px solid var(--line); }
+.academic-app .feed { padding: 0 var(--s3); }
+.academic-app .feed li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: var(--s2); padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.academic-app .feed li:first-child { border-top: 0; }
+.academic-app .feed time { color: var(--muted); font: 400 11px/1.6 var(--mono); }
+.academic-app .feed-foot { padding: var(--s2) var(--s3); border-top: 1px solid var(--line); }
+.academic-app button.link { min-height: 0; padding: var(--s1); border: 0; background: none; color: var(--info); font: 500 13px var(--ui); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+@media (max-width: 760px) { .academic-app .log li { grid-template-columns: 44px minmax(0, 1fr); gap: var(--s2); } }
