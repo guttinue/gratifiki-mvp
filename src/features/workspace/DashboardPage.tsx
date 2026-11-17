@@ -129,7 +129,8 @@ function CamPanel({data,client,group,onNavigate,onOpenUnit,onOpenHistory}:{data:
  const todos:Parameters<typeof TodoList>[0]['items']=[];
  if(checklist.state==='aberta')todos.push(checklist.canConsolidate
   ?{tone:'ok',title:`Todas as ${checklist.expected} entradas estão prontas`,sub:'Você já pode iniciar a consolidação.',action:toCycle('Abrir ciclo e fechamento')}
-  :{tone:'warn',title:`${plural(Math.max(checklist.expected-ready,0),'entrada impede','entradas impedem')} a consolidação`,sub:'Cada item leva à entrada. A conferência é do revisor de cada distrito.',action:toCycle('Ver o que falta')});
+  // Every entry ready but another server blocker: no count to give.
+  :{tone:'warn',title:ready<checklist.expected?`${plural(checklist.expected-ready,'entrada impede','entradas impedem')} a consolidação`:'Ver o que bloqueia a consolidação',sub:'Cada item leva à entrada. A conferência é do revisor de cada distrito.',action:toCycle('Ver o que falta')});
  if(checklist.state==='em_consolidacao')todos.push({tone:'warn',title:`Revisar e fechar ${month}`,sub:'Fechar congela os resultados e pede a referência da decisão. Fechar não publica.',action:toCycle('Abrir ciclo e fechamento')});
  if(checklist.state==='fechada'&&checklist.publication==='nao_publicada')todos.push({tone:'vio',title:`Publicar ${month}`,sub:'Os gestores passam a ver o resultado como publicado.',action:toCycle('Abrir ciclo e fechamento')});
  if(checklist.state==='fechada')todos.push({tone:'neutral',title:'Exportar a competência em CSV',sub:'Gerado a partir dos valores congelados.',action:toCycle('Abrir ciclo e fechamento')});

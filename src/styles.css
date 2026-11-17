@@ -2020,9 +2020,6 @@ td code,
 .v3-table button { margin: 0; }
 .v3-table tr.selected td { background: var(--blue-soft); }
 /* Queue table and the open entry: side by side from 1180 px, stacked below. */
-.v3-split { display: grid; gap: 16px; align-items: start; }
-.v3-split > * { min-width: 0; }
-@media (min-width: 1180px) { .v3-split { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); } }
 .academic-app .v3-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 0 6px; border-radius: var(--r); background: var(--neutral-bg); color: var(--neutral); font: 500 12px/20px var(--ui); white-space: nowrap; }
 .academic-app .t-neutral { background: var(--neutral-bg); color: var(--neutral); }
 .academic-app .t-info { background: var(--info-bg); color: var(--info); }

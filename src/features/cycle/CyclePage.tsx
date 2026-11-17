@@ -151,7 +151,8 @@ export function CyclePage({client,context,group,contexts,renderExport,authorized
  },[client,context,reload]);
  useEffect(()=>{
   if(!group||group.modelo!==3)return;
-  let current=true;
+  // A stale list never feeds checklist items 1-3 while the cycle is read again.
+  let current=true;setGroupRows(null);
   void loadGroupPositions(client,group).then(rows=>{if(current)setGroupRows(rows);}).catch(()=>{if(current)setError('Não foi possível carregar as posições autorizadas.');});
   return()=>{current=false;};
  },[client,group,reload]);

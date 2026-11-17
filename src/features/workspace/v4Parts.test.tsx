@@ -30,8 +30,8 @@ it('TodoList marks only the first action primary and counts items', () => {
 
 it('StackBar reads its counts', () => {
   const row = (status: PositionSummary['status']) => ({ position: { status } as PositionSummary });
-  render(<StackBar counts={countByStatus([row('validada'), row('devolvida')])} />);
-  expect(screen.getByRole('img').getAttribute('aria-label')).toBe('1 aceita, 1 devolvida');
+  render(<StackBar counts={countByStatus([row('validada'), row('validada'), row('devolvida'), row('ausente'), row('ausente')])} />);
+  expect(screen.getByRole('img').getAttribute('aria-label')).toBe('2 aceitas, 1 devolvida, 2 não enviados');
 });
 
 it('UnitCard exposes its action by name', () => {

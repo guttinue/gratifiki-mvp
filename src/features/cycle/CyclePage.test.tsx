@@ -426,6 +426,11 @@ it('says nothing blocks when the cycle has no blocker',async()=>{
  expect(screen.queryByText(/Para consolidar/)).toBeNull();
  expect(screen.getByRole('button',{name:'Iniciar consolidação'}).getAttribute('aria-describedby')).toBeNull();
 });
+it('says "Falta 1." when one entry is missing',async()=>{
+ const {api}=v3Cycle([],undefined,{ready:15});
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ expect(await screen.findByText('Para consolidar, as 16 entradas precisam estar prontas. Falta 1.')).toBeTruthy();
+});
 it('explains why consolidation is blocked',async()=>{
  const {api}=v3Cycle([],undefined,{ready:11});
  render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);

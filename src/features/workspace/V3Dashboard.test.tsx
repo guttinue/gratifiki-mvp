@@ -217,7 +217,7 @@ describe('AcademicV3Dashboard', () => {
     expect(gama.querySelector('.big')!.textContent).toBe('');
     expect(within(alfa).getByText('2 pendentes')).toBeTruthy();
     expect(alfa.textContent).toContain('2 de 4 aceitas');
-    expect(within(alfa).getByRole('img').getAttribute('aria-label')).toContain('1 devolvida, 1 não enviado');
+    expect(within(alfa).getByRole('img').getAttribute('aria-label')).toBe('2 aceitas, 1 devolvida, 1 não enviado');
     fireEvent.click(within(alfa).getByRole('button', { name: 'Ver resultado Unidade Alfa' }));
     expect(onOpenUnit).toHaveBeenCalledWith('alfa');
     expect(screen.getByRole('complementary', { name: 'Atividade recente' })).toBeTruthy();
@@ -250,6 +250,15 @@ describe('AcademicV3Dashboard', () => {
     fireEvent.click(within(todo).getAllByRole('button', { name: button })[0]);
     expect(onNavigate).toHaveBeenCalledWith('ciclo');
     for (const name of ['transition_cycle', 'publish_cycle_demo']) expect(calls.map(call => call.name)).not.toContain(name);
+  });
+
+  it('CAM painel names no count when every entry is ready but consolidation stays blocked', async () => {
+    const { onNavigate } = cam({ ...checklist, ready: 16, canConsolidate: false }, {});
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getByText('Ver o que bloqueia a consolidação')).toBeTruthy();
+    expect(within(todo).queryByText(/0 entradas/)).toBeNull();
+    fireEvent.click(within(todo).getByRole('button', { name: 'Ver o que falta' }));
+    expect(onNavigate).toHaveBeenCalledWith('ciclo');
   });
 
   it('CAM painel offers the export once the cycle was published', async () => {
