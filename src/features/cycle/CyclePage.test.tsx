@@ -154,17 +154,17 @@ const v3Group=()=>groupContexts([1,2].map(camV3))[0];
 // Positions of the CAM group's own unit: a decision needs the CAM context of the position's unit and indicator.
 const unit=(id:string,code:string,state:'indisponivel'|'nao_aplicavel'|'valor',extra:object={})=>({id,escopoId:'scope',escopoCodigo:code,escopoTipo:'unidade',aplicavel:true,status:'validada',estadoDado:state,version:7,revisionId:`rev-${id}`,inputValue:null,resultValue:null,...extra});
 const first={indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'};const second={indicatorCode:'DEMO-V1-02',indicatorName:'Rotinas concluídas'};
-const v3Rows:Record<string,ReturnType<typeof unit>[]>={'indicator-1':[unit('na','ACADEMIC-NORTE-3','nao_aplicavel',first),unit('late','ACADEMIC-NORTE-1','valor',{...first,status:'ausente',estadoDado:null})],'indicator-2':[unit('un','ACADEMIC-NORTE-2','indisponivel',second)]};
+const v3Rows:Record<string,ReturnType<typeof unit>[]>={'indicator-1':[unit('na','ACADEMIC-NORTE-3','nao_aplicavel',first),unit('late','ACADEMIC-NORTE-1','valor',{...first,status:'ausente',estadoDado:null})],'indicator-2':[unit('un','ACADEMIC-NORTE-2','indisponivel',second),unit('sent','ACADEMIC-NORTE-1','valor',{...second,status:'enviada',estadoDado:null})]};
 const v3Checklist=(blockers:object[],extra:object={})=>({...checklist,state:'aberta',expected:16,received:12,reviewed:9,unavailable:1,decidedUnavailable:0,notApplicable:0,canClose:false,canConsolidate:false,ready:9,blockers,...extra});
 const pendingBlocker=(id:string)=>({positionId:id,code:'unavailability_pending',message:'Indisponibilidade sem decisão CAM ou com número indevido.'});
 type CycleBody={p_contexto:{vinculoId:string;indicadorId:string};p_position_id:string};
-function v3Cycle(blockers:object[],onCommand?:(body:Record<string,unknown>)=>Response|undefined){
+function v3Cycle(blockers:object[],onCommand?:(body:Record<string,unknown>)=>Response|undefined,extra:object={}){
  const calls:{name:string;body:CycleBody}[]=[];const decidedIds=new Set<string>();
  const api=client(async(url,options)=>{
   const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
   // A re-read is not instantaneous in a browser; the delay lets the loading state render in the test too.
   if(name==='get_cycle_checklist'&&calls.filter(c=>c.name==='get_cycle_checklist').length>1)await new Promise(resolve=>setTimeout(resolve,40));
-  if(name==='get_cycle_checklist')return response(v3Checklist(blockers.filter(b=>!decidedIds.has((b as {positionId:string}).positionId))));
+  if(name==='get_cycle_checklist')return response(v3Checklist(blockers.filter(b=>!decidedIds.has((b as {positionId:string}).positionId)),extra));
   if(name==='get_operational_positions')return response({items:v3Rows[body.p_contexto.indicadorId],total:v3Rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
   if(name==='decide_unavailability'){const custom=onCommand?.(body);if(custom)return custom;decidedIds.add(body.p_position_id);return response({resourceId:body.p_position_id,version:8,revisionId:`rev-${body.p_position_id}`,status:'validada',resultValue:null});}
   return response(null);
@@ -187,7 +187,7 @@ it('V3 cycle: lists unavailable and not-applicable decisions apart from the othe
  const decisions=await screen.findByRole('list',{name:'Decisões pendentes da CAM'});
  expect(within(decisions).getAllByRole('listitem')).toHaveLength(2);
  expect(within(decisions).getByText('Unidade Beta · DEMO-V1-02 · Indisponível')).toBeTruthy();
- const blockers=screen.getByRole('list',{name:'Bloqueios'});
+ const blockers=screen.getByRole('list',{name:'Requer ação'});
  expect(within(blockers).getAllByRole('listitem')).toHaveLength(2);
  expect(within(blockers).queryByText(/Indisponibilidade sem decisão/)).toBeNull();
  fireEvent.click(within(decisions).getByRole('button',{name:'Ver entrada de ACADEMIC-NORTE-3 · DEMO-V1-01'}));
@@ -299,23 +299,25 @@ it('labels the V3 cycle and its blockers by name',async()=>{
  const opened:string[]=[];
  const {api}=v3Cycle([{positionId:'late',code:'missing_submission',message:'Envio ausente.'}]);
  render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onOpenPosition={id=>opened.push(id)} />);
- expect(await screen.findByText('Situação do ciclo: Aberta')).toBeTruthy();
- expect(screen.getByText('Publicação: Não publicada')).toBeTruthy();
+ expect(await screen.findByText(fact('Situação do ciclo: Aberta'))).toBeTruthy();
+ expect(screen.getByText(fact('Publicação: Não publicada'))).toBeTruthy();
  expect(screen.queryByText(/Estado do ciclo:/)).toBeNull();expect(screen.queryByText(/nao_publicada/)).toBeNull();
  expect(screen.queryByRole('heading',{level:2})).toBeNull();
  expect(within(screen.getByRole('list',{name:'Etapas da competência'})).getAllByRole('listitem')).toHaveLength(4);
  expect(screen.getByText('9 de 16 prontas')).toBeTruthy();
- const blockers=screen.getByRole('list',{name:'Bloqueios'});
- expect(within(blockers).getByText('Unidade Alfa · DEMO-V1-01 Registros conferidos: Não enviado')).toBeTruthy();
+ const blockers=screen.getByRole('list',{name:'Requer ação'});
+ expect(await within(blockers).findByText('Unidade Alfa · DEMO-V1-01 Registros conferidos')).toBeTruthy();
+ expect(within(blockers).getByText('Não enviado pela área técnica')).toBeTruthy();
  fireEvent.click(within(blockers).getByRole('button',{name:'Ver entrada Unidade Alfa · DEMO-V1-01'}));
  expect(opened).toEqual(['late']);
 });
 it('V3 cycle: a rule blocker on an accepted entry keeps the server reason',async()=>{
  const {api}=v3Cycle([{positionId:'un',code:'rule_inconsistent',message:'Regra ou alvo inconsistente.'}]);
  render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onOpenPosition={()=>{}} />);
- const blockers=await screen.findByRole('list',{name:'Bloqueios'});
- expect(await within(blockers).findByText('Unidade Beta · DEMO-V1-02 Rotinas concluídas: Regra ou alvo inconsistente.')).toBeTruthy();
- expect(within(blockers).queryByText(/Aceita/)).toBeNull();
+ const blockers=await screen.findByRole('list',{name:'Requer ação'});
+ const row=await within(blockers).findByRole('button',{name:'Ver entrada Unidade Beta · DEMO-V1-02'});
+ // The reason is the server's; the badge still says the entry's own situation.
+ expect(row.querySelector('.todo-txt span')!.textContent).toBe('Regra ou alvo inconsistente.');
 });
 it('keeps the cycle fields inside Fechamento e publicação',async()=>{
  const {api}=v3Cycle([]);
@@ -338,7 +340,7 @@ it('V3 cycle: closing returns focus to Fechamento e publicação',async()=>{
  fireEvent.change(await screen.findByLabelText('Referência do ciclo'),{target:{value:'DEMO-DECISAO-A'}});
  fireEvent.click(screen.getByRole('button',{name:'Fechar ciclo'}));
  fireEvent.click(screen.getByRole('button',{name:'Confirmar fechamento'}));
- expect(await screen.findByText('Situação do ciclo: Fechada')).toBeTruthy();
+ expect(await screen.findByText(fact('Situação do ciclo: Fechada'))).toBeTruthy();
  expect(document.activeElement).toBe(screen.getByRole('heading',{name:'Fechamento e publicação'}));
 });
 it('V3 cycle: a cancelled leave prompt keeps the cycle page and opens no entry later',async()=>{
@@ -356,7 +358,83 @@ it('V3 cycle: a cancelled leave prompt keeps the cycle page and opens no entry l
  fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Todas as entradas'}));
  await waitFor(()=>expect(window.location.hash).toBe('#academico/entradas'));
  // The queue rendered its rows (all reads settled) and still opened no entry.
- expect(await screen.findByText('Unidade Alfa')).toBeTruthy();
+ expect((await screen.findAllByText('Unidade Alfa')).length).toBeGreaterThan(0);
  expect(calls.some(c=>c.name==='get_position_detail')).toBe(false);
  confirm.mockRestore();
+});
+
+// ---- Telas V4, task 8: numbered steps, N/7 checklist and "Requer ação" (CAM-02 to CAM-06) ----
+// The facts are a dl; each row reads "Label: value" as one text (the E2E gates).
+function fact(text:string){return (_:string,element:Element|null)=>element?.tagName==='DIV'&&element.textContent===text;}
+it('numbers the cycle steps and marks the current one',async()=>{
+ const {api}=v3Cycle([],undefined,{state:'em_consolidacao'});
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ const steps=within(await screen.findByRole('list',{name:'Etapas da competência'})).getAllByRole('listitem');
+ expect(steps[1].getAttribute('aria-current')).toBe('step');
+ expect(steps[1].querySelector('b')!.textContent).toBe('Em consolidação');
+ expect(steps[1].querySelector('.ix')!.textContent).toBe('2');
+ expect(steps[0].querySelector('.ix')!.textContent).toBe('✓');
+ expect(steps[0].querySelector('.ix')!.getAttribute('aria-hidden')).toBe('true');
+ expect(steps.map(step=>step.querySelector('b')!.textContent)).toEqual(['Aberta','Em consolidação','Fechada','Publicada']);
+ expect(screen.queryByText('Esperadas')).toBeNull();
+});
+// F11: 2 ausente, 1 devolvida, 1 enviada, 1 em_revisao and 11 validada, ready 11 of 16.
+const f11=['ausente','ausente','devolvida','enviada','em_revisao',...Array<string>(11).fill('validada')];
+function checklistCycle(statuses:string[],extra:object){
+ const rows=statuses.map((status,n)=>unit(`p${n}`,`ACADEMIC-NORTE-${n%2+1}`,'valor',{...first,status,estadoDado:null}));
+ return client(async(url,options)=>{
+  const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));
+  if(name==='get_cycle_checklist')return response(v3Checklist([],extra));
+  const items=body.p_contexto.indicadorId==='indicator-1'?rows:[];
+  return response({items,total:items.length,page:1,pageSize:100});
+ });
+}
+it('checklist counts seven items from the checklist and the positions',async()=>{
+ render(<CyclePage client={checklistCycle(f11,{state:'aberta',ready:11,expected:16})} context={camV3(1)} group={v3Group()} />);
+ expect(await screen.findByText('0/7 concluídos')).toBeTruthy();
+ const bar=screen.getByRole('progressbar',{name:'Checklist do fechamento'});
+ expect([bar.getAttribute('aria-valuenow'),bar.getAttribute('aria-valuemax')]).toEqual(['0','7']);
+ const checks=within(screen.getByRole('region',{name:'Checklist do fechamento'})).getAllByRole('listitem');
+ expect(checks).toHaveLength(7);
+ expect(checks[3].querySelector('strong')!.textContent).toBe('11 de 16 prontas');
+ expect(checks[0].querySelector('.sr-only')!.textContent).toBe(' (pendente)');
+ cleanup();
+ render(<CyclePage client={checklistCycle(Array<string>(16).fill('validada'),{state:'fechada',ready:16,expected:16,snapshotId:'snap',publication:'nao_publicada'})} context={camV3(1)} group={v3Group()} />);
+ expect(await screen.findByText('6/7 concluídos')).toBeTruthy();
+ const done=within(screen.getByRole('region',{name:'Checklist do fechamento'})).getAllByRole('listitem');
+ expect(done.map(item=>item.querySelector('.sr-only')!.textContent)).toEqual([...Array<string>(6).fill(' (concluído)'),' (pendente)']);
+});
+it('requires action with the V4 reasons and keeps the open-entry name',async()=>{
+ const opened:string[]=[];
+ const {api,calls}=v3Cycle([{positionId:'sent',code:'review_pending',message:'Conferência pendente.'}]);
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onOpenPosition={id=>opened.push(id)} />);
+ const row=await screen.findByRole('button',{name:'Ver entrada Unidade Alfa · DEMO-V1-02'});
+ expect(row.className).toBe('req-item');
+ expect(within(row).getByText('Unidade Alfa · DEMO-V1-02 Rotinas concluídas')).toBeTruthy();
+ expect(within(row).getByText('Aguardando o revisor técnico')).toBeTruthy();
+ expect(within(row).getByText('Aguardando conferência').className).toContain('v3-badge');
+ expect(screen.getByRole('region',{name:'Requer ação'})).toBeTruthy();
+ fireEvent.click(row);
+ expect(opened).toEqual(['sent']);
+ for(const name of ['transition_cycle','publish_cycle_demo','decide_unavailability'])expect(calls.map(c=>c.name)).not.toContain(name);
+});
+it('says nothing blocks when the cycle has no blocker',async()=>{
+ const {api}=v3Cycle([],undefined,{ready:16,canConsolidate:true});
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ expect(await screen.findByRole('heading',{name:'Nada bloqueia'})).toBeTruthy();
+ expect(screen.getByText('Todas as entradas estão prontas.')).toBeTruthy();
+ expect(screen.queryByText(/Para consolidar/)).toBeNull();
+ expect(screen.getByRole('button',{name:'Iniciar consolidação'}).getAttribute('aria-describedby')).toBeNull();
+});
+it('explains why consolidation is blocked',async()=>{
+ const {api}=v3Cycle([],undefined,{ready:11});
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} />);
+ const why=await screen.findByText('Para consolidar, as 16 entradas precisam estar prontas. Faltam 5.');
+ const start=screen.getByRole('button',{name:'Iniciar consolidação'}) as HTMLButtonElement;
+ expect(start.disabled).toBe(true);
+ expect(start.getAttribute('aria-describedby')).toBe(why.id);
+ expect(why.id).toBe('cycle-why');
+ const closing=screen.getByRole('region',{name:'Fechamento e publicação'});
+ expect(within(closing).getByText(fact('Snapshot: Ainda não fechado'))).toBeTruthy();
+ expect(within(closing).getByText('Publicação de demonstração acadêmica. Não é decisão institucional nem pagamento.')).toBeTruthy();
 });

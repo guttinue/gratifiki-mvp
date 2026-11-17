@@ -11,10 +11,10 @@ import { listPositions } from '../submission/positionApi';
 import { loadCycleChecklist } from '../cycle/cycleApi';
 import { byUnitAndIndicator, loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
 import { loadUnitBatch, type UnitBatch } from '../batch/batchApi';
-import { competenceStateLabels, countByStatus, plural, publicationLabels, scopeName, statusTones } from './displayNames';
+import { countByStatus, monthName, plural, scopeName, statusTones } from './displayNames';
 import { formatDecimal } from '../pilot/decimal';
 import { ActivityFeed, StackBar, StageTiles, TodoList, UnitCard } from './v4Parts';
-import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
+import { loadUnitResults, type UnitResults } from '../results/resultsApi';
 type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
 export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
 function ContextDashboard({client,context}:AcademicDashboardProps){
@@ -28,7 +28,7 @@ function ContextDashboard({client,context}:AcademicDashboardProps){
 }
 
 // ---- Model 3 (V3): one dashboard per role over the whole group of indicators ----
-type V3Data={kind:'positions';rows:GroupPosition[];batches:Map<string,UnitBatch>}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
+type V3Data={kind:'positions';rows:GroupPosition[];batches:Map<string,UnitBatch>}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[];results:UnitResults|null};
 const pending=(status:string)=>status==='devolvida'||status==='rascunho'||status==='ausente';
 // Each position keeps the context that listed it. For the technical area, every unit with a to-do
 // has its batch read (reason, goal, saved value) with that unit's contexts only, in parallel.
@@ -48,13 +48,15 @@ export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDash
 function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition,onOpenHistory}:GroupDashboardProps){
  const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
  useEffect(()=>{let current=true;setData(null);setError(false);
-  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group)]).then(([checklist,rows]):V3Data=>({kind:'cycle',checklist,rows})):loadPanelPositions(client,group);
+  // CAM: the scores are detail of the unit cards, so a failed results read keeps the painel.
+  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group),loadUnitResults(client,toCommandContext(group.contexts[0])).catch(()=>null)])
+   .then(([checklist,rows,results]):V3Data=>({kind:'cycle',checklist,rows:rows.sort(byUnitAndIndicator),results})):loadPanelPositions(client,group);
   void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
  const openUnit=onOpenUnit??(()=>onNavigate('preenchimento'));
  const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
  return <section aria-label="Painel autorizado" className="v3-page">
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
-  :data.kind==='cycle'?<CamPanel checklist={data.checklist} rows={data.rows} onNavigate={onNavigate} onOpenPosition={openPosition}/>
+  :data.kind==='cycle'?<CamPanel data={data} client={client} group={group} onNavigate={onNavigate} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>
   :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} client={client} group={group} onOpenPosition={openPosition} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>:<TechnicalPanel data={data} client={client} group={group} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
 }
@@ -119,14 +121,35 @@ function ReviewerPanel({rows,client,group,onOpenPosition,onOpenUnit,onOpenHistor
    </div></section></div>
   <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
-// Read-only: the closing and publishing commands stay on the cycle screen.
-function CamPanel({checklist,rows,onNavigate,onOpenPosition}:{checklist:CycleChecklist;rows:GroupPosition[];onNavigate:(destination:string)=>void;onOpenPosition:(id:string)=>void}){
- return <><CycleStepper checklist={checklist}/><CycleMetrics checklist={checklist}/>
-  <div className="v3-split"><section aria-labelledby="cam-blockers" className="v3-panel"><h3 id="cam-blockers">O que impede o fechamento</h3>
-   {checklist.blockers.length?<CycleBlockers blockers={checklist.blockers} positions={rows.map(row=>row.position)} label="O que impede o fechamento" onOpenPosition={onOpenPosition}/>:<p>Nenhuma pendência impede o fechamento.</p>}</section>
-  <section aria-labelledby="cam-closing" className="v3-panel"><h3 id="cam-closing">Fechamento e publicação</h3>
-   <p>Situação do ciclo: {competenceStateLabels[checklist.state]}</p><p>Publicação: {publicationLabels[checklist.publication]}</p>
-   <button type="button" className="primary" onClick={()=>onNavigate('ciclo')}>Abrir ciclo e fechamento</button></section></div></>;
+// CAM-01. Read-only: every to-do only navigates to the cycle screen, where the commands stay.
+function CamPanel({data,client,group,onNavigate,onOpenUnit,onOpenHistory}:{data:Extract<V3Data,{kind:'cycle'}>;client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit:(unitId:string)=>void;onOpenHistory?:()=>void}){
+ const {checklist,rows,results}=data;const c=countByStatus(rows);const unitsTitle=useId();
+ const month=monthName(group.contexts[0].competenciaCodigo);const ready=checklist.ready??checklist.reviewed;
+ const toCycle=(label:string)=>({label,onClick:()=>onNavigate('ciclo')});
+ const todos:Parameters<typeof TodoList>[0]['items']=[];
+ if(checklist.state==='aberta')todos.push(checklist.canConsolidate
+  ?{tone:'ok',title:`Todas as ${checklist.expected} entradas estão prontas`,sub:'Você já pode iniciar a consolidação.',action:toCycle('Abrir ciclo e fechamento')}
+  :{tone:'warn',title:`${plural(Math.max(checklist.expected-ready,0),'entrada impede','entradas impedem')} a consolidação`,sub:'Cada item leva à entrada. A conferência é do revisor de cada distrito.',action:toCycle('Ver o que falta')});
+ if(checklist.state==='em_consolidacao')todos.push({tone:'warn',title:`Revisar e fechar ${month}`,sub:'Fechar congela os resultados e pede a referência da decisão. Fechar não publica.',action:toCycle('Abrir ciclo e fechamento')});
+ if(checklist.state==='fechada'&&checklist.publication==='nao_publicada')todos.push({tone:'vio',title:`Publicar ${month}`,sub:'Os gestores passam a ver o resultado como publicado.',action:toCycle('Abrir ciclo e fechamento')});
+ if(checklist.state==='fechada')todos.push({tone:'neutral',title:'Exportar a competência em CSV',sub:'Gerado a partir dos valores congelados.',action:toCycle('Abrir ciclo e fechamento')});
+ return <><StageTiles label="Etapas do fluxo" tiles={[
+   {label:'Não enviados',value:c.ausente+c.rascunho,sub:'com a área técnica',tone:'neutral'},
+   {label:'Para conferir',value:c.enviada,sub:'aguardando o revisor',tone:'warn'},
+   {label:'Em conferência',value:c.em_revisao,sub:'abertas pelo revisor',tone:'vio'},
+   {label:'Devolvidas',value:c.devolvida,sub:'aguardando correção',tone:'bad'},
+   {label:'Aceitas',value:c.validada,sub:`de ${c.total} entradas`,tone:'ok'}]}/>
+  <div className="dash"><div className="stack">
+   <TodoList title="Para fazer" items={todos} empty={<strong>Ciclo concluído.</strong>}/>
+   <section className="block" aria-labelledby={unitsTitle}><div className="block-head"><h3 id={unitsTitle}>Unidades</h3></div><div className="cards">
+    {unitsOf(rows).map(([id,code])=>{const u=countByStatus(rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);const pendingCount=u.total-u.validada;
+     // Without a read result (or a base) the card keeps no score.
+     const result=results?.units.find(unit=>unit.unitId===id);
+     return <UnitCard key={id} title={name} badge={pendingCount?<span className="v3-badge v3-st-enviada">{plural(pendingCount,'pendente','pendentes')}</span>:<span className="v3-badge v3-st-validada">Completa</span>}
+      big={result?.points!=null&&<>{formatDecimal(result.points,2)} <small>/ 100{result.partial?' parcial':''}</small></>} bar={<StackBar counts={u}/>}
+      foot={`${u.validada} de ${u.total} aceitas`} action={{label:'Ver resultado',ariaLabel:`Ver resultado ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+   </div></section></div>
+  <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
 
 interface DashboardPageProps {

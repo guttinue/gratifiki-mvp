@@ -213,9 +213,9 @@ it('mounts the unit results on resultados for the CAM of a model-3 group, and th
  openAcademicPage('painel');
  const second=rpc(name=>name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:0,reviewed:0,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:5,blockers:[]}:name==='get_operational_positions'?{items:[],total:0,page:1,pageSize:100}:{});
  render(<AcademicWorkspace client={second.client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
- expect(await screen.findByText('5 de 16 prontas')).toBeTruthy();
- // The CAM painel names its blockers from the group positions.
- expect([...new Set(second.calls)].sort()).toEqual(['get_cycle_checklist','get_operational_positions']);
+ expect(await screen.findByText('11 entradas impedem a consolidação')).toBeTruthy();
+ // CAM-01: the painel reads the checklist, the group positions, the unit scores and the activity; never a command.
+ expect([...new Set(second.calls)].sort()).toEqual(['get_cycle_checklist','get_operational_positions','get_scoped_audit','get_unit_results']);
 });
 it('mounts the V3 dashboard for the technical area and navigates to the fill screen from it',async()=>{
  openAcademicPage('painel');

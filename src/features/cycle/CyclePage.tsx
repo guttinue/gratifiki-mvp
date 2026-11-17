@@ -8,7 +8,7 @@ import { DomainCommandError } from '../pilot/commandApi';
 import { loadCycleChecklist, publishCycleDemo, transitionCycle } from './cycleApi';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { requestAcademicLeave } from '../workspace/academicNavigation';
-import { competenceStateLabels, publicationLabels, scopeName } from '../workspace/displayNames';
+import { blockerReasons, competenceStateLabels, countByStatus, plural, publicationLabels, scopeName, statusTones } from '../workspace/displayNames';
 type Action='consolidate'|'reopen'|'close'|'publish';
 type Pending={id:string;version:number;action:Action;reason:string;reference:string;snapshotId:string|null};
 function CycleConfirmation({action,onConfirm,onDismiss,trigger,fallback}:{action:Action;onConfirm:()=>void;onDismiss:()=>void;trigger:HTMLButtonElement|null;fallback:HTMLHeadingElement|null}) {
@@ -39,31 +39,40 @@ function CycleConfirmation({action,onConfirm,onDismiss,trigger,fallback}:{action
   <button autoFocus type="button" onClick={onConfirm}>{action==='close'?'Confirmar fechamento':'Confirmar publicação'}</button><button type="button" onClick={onDismiss}>Cancelar</button>
  </dialog>;
 }
-const cycleSteps=[['aberta','Aberta','Recebendo e conferindo'],['em_consolidacao','Consolidação','Revisão final da CAM'],['fechada','Fechada','Resultados congelados'],['publicada','Publicada','Visível aos gestores']] as const;
-// Model 3: shared by the CAM painel and the cycle screen.
+const cycleSteps=['Aberta','Em consolidação','Fechada','Publicada'];
+// Model 3 (CAM-02): numbered steps with the V4 descriptions; a frozen cycle names its snapshot.
 export function CycleStepper({checklist}:{checklist:CycleChecklist}){
- const current=checklist.publication==='publicada_demo'?3:checklist.state==='fechada'?2:checklist.state==='em_consolidacao'?1:0;
- return <ol aria-label="Etapas da competência" className="v3-stepper">{cycleSteps.map(([id,label,hint],index)=><li key={id} className={index<current?'done':index===current?'current':''} aria-current={index===current?'step':undefined}><b>{label}</b>{hint}</li>)}</ol>;
+ const published=checklist.publication==='publicada_demo';
+ const current=published?3:checklist.state==='fechada'?2:checklist.state==='em_consolidacao'?1:0;
+ const hints=['Recebendo e conferindo','Revisão final da CAM',checklist.snapshotId?`Congelado · ${checklist.snapshotId}`:'Resultados congelados','Visível aos gestores'];
+ return <ol aria-label="Etapas da competência" className="stepper">{cycleSteps.map((label,index)=>{const done=index<current||published;
+  return <li key={label} className={done?'done':index===current?'current':undefined} aria-current={index===current?'step':undefined}><span className="ix" aria-hidden="true">{done?'✓':index+1}</span><b>{label}</b><span className="d">{hints[index]}</span></li>;})}</ol>;
 }
-export function CycleMetrics({checklist}:{checklist:CycleChecklist}){
- const ready=checklist.ready??checklist.reviewed;
- return <section className="v3-panel"><div className="v3-metrics">
-  <div className="v3-metric"><span className="v3-label">Esperadas</span><strong className="v3-value">{checklist.expected}</strong></div>
-  <div className="v3-metric"><span className="v3-label">Recebidas</span><strong className="v3-value">{checklist.received}</strong></div>
-  <div className="v3-metric v3-metric-lead"><span className="v3-label" id="v3-ready">Prontas</span><strong className="v3-value">{`${ready} de ${checklist.expected} prontas`}</strong>
-   <progress aria-labelledby="v3-ready" value={ready} max={Math.max(checklist.expected,1)}/></div>
-  <div className="v3-metric"><span className="v3-label">Indisponíveis</span><strong className="v3-value">{checklist.unavailable}</strong></div>
- </div></section>;
+// CAM-05: items 1-3 come from the positions, 4-7 from the checklist (spec §5.1).
+export function closingChecklist(checklist:CycleChecklist,counts:ReturnType<typeof countByStatus>):{done:boolean;title:string;sub:string}[]{
+ const ready=checklist.ready??checklist.reviewed;const withTechnical=counts.ausente+counts.rascunho;const inReview=counts.enviada+counts.em_revisao;
+ return [
+  {done:withTechnical===0,title:'Todas as entradas enviadas',sub:withTechnical?`${withTechnical} ainda com a área técnica`:'Nenhuma com a área técnica'},
+  {done:counts.devolvida===0,title:'Nenhuma devolução pendente',sub:counts.devolvida?`${plural(counts.devolvida,'devolvida aguarda','devolvidas aguardam')} correção`:'Sem devoluções abertas'},
+  {done:inReview===0,title:'Fila do revisor vazia',sub:inReview?`${inReview} aguardando conferência`:'Tudo conferido'},
+  {done:ready===checklist.expected,title:`${ready} de ${checklist.expected} prontas`,sub:'Condição para consolidar'},
+  {done:checklist.state!=='aberta',title:'Consolidação iniciada',sub:'Preenchimento fica só para consulta'},
+  {done:checklist.snapshotId!==null,title:'Competência fechada',sub:checklist.snapshotId?'Congelado · snapshot registrado':'Pede a referência da decisão'},
+  {done:checklist.publication==='publicada_demo',title:'Demonstração publicada',sub:checklist.publication==='publicada_demo'?'Visível aos gestores':'Pede a referência da publicação'},
+ ];
 }
 const positionLabel=(position:PositionSummary)=>[scopeName(position.escopoCodigo),position.indicatorCode].filter(Boolean).join(' · ');
-// A blocker names its position from the loaded list; one outside it keeps the server message.
-export function CycleBlockers({blockers,positions,label,onOpenPosition}:{blockers:CycleChecklist['blockers'];positions:PositionSummary[];label:string;onOpenPosition?:(id:string)=>void}){
- return <ul aria-label={label}>{blockers.map((b,i)=>{
-  const positionId=b.positionId;const target=positions.find(position=>position.id===positionId);
+// CAM-04: a blocker names its position from the loaded list; one outside it keeps the server message.
+export function CycleBlockers({blockers,positions,onOpenPosition}:{blockers:CycleChecklist['blockers'];positions:PositionSummary[];onOpenPosition?:(id:string)=>void}){
+ return <ul aria-label="Requer ação" className="req-list">{blockers.map((b,i)=>{
+  const positionId=b.positionId;const target=positions.find(position=>position.id===positionId);const key=`${positionId}-${b.code}-${i}`;
+  if(!target)return <li key={key} className="req-note"><span>{b.message}</span>{positionId&&onOpenPosition&&<button type="button" onClick={()=>onOpenPosition(positionId)}>{`Ver pendência: ${b.message}`}</button>}</li>;
   // Only status blockers read from the entry status; an accepted "indisponível" waits for the CAM, and rule/territory blockers keep the server reason.
-  const reason=target&&(b.code==='missing_submission'||b.code==='review_pending'?statusLabels[target.status]:b.code==='unavailability_pending'?'Aguarda decisão da CAM':b.message);
-  return <li key={`${positionId}-${b.code}-${i}`}><span>{target?`${positionLabel(target)}${target.indicatorName?` ${target.indicatorName}`:''}: ${reason}`:b.message}</span>
-   {positionId&&onOpenPosition&&<button type="button" aria-label={target?`Ver entrada ${positionLabel(target)}`:undefined} onClick={()=>onOpenPosition(positionId)}>{target?'Ver entrada':`Ver pendência: ${b.message}`}</button>}</li>;
+  const status=target.status;
+  const reason=(b.code==='missing_submission'||b.code==='review_pending')&&status in blockerReasons?blockerReasons[status as keyof typeof blockerReasons]:b.code==='unavailability_pending'?'Aguarda decisão da CAM':b.message;
+  const row=<><i className={`dot t-${statusTones[status]}`} aria-hidden="true"/><span className="todo-txt"><strong>{`${positionLabel(target)}${target.indicatorName?` ${target.indicatorName}`:''}`}</strong><span>{reason}</span></span>
+   <span className={`v3-badge v3-st-${status}`}>{statusLabels[status]}</span><span className="chev" aria-hidden="true">›</span></>;
+  return <li key={key}>{onOpenPosition?<button type="button" className="req-item" aria-label={`Ver entrada ${positionLabel(target)}`} onClick={()=>onOpenPosition(target.id)}>{row}</button>:<div className="req-item">{row}</div>}</li>;
  })}</ul>;
 }
 const stateLabels:Record<string,string>={indisponivel:'Indisponível',nao_aplicavel:'Não se aplica'};
@@ -121,7 +130,8 @@ export function CyclePage({client,context,group,contexts,renderExport,authorized
  const v3=group?.modelo===3;
  // Every CAM context of the actor in this competence, from all groups.
  const camContexts=(contexts??group?.contexts??[]).filter(c=>c.role==='cam'&&c.competenciaId===context.competenciaId);
- const [groupRows,setGroupRows]=useState<GroupPosition[]>([]);
+ // null until read: the checklist items 1-3 never count an unread list as done.
+ const [groupRows,setGroupRows]=useState<GroupPosition[]|null>(null);
  const [decided,setDecided]=useState<string|null>(null);
  const [decisionFields,setDecisionFields]=useState<DecisionFields>({});
  const [checklist,setChecklist]=useState<CycleChecklist|null>(null);const [error,setError]=useState<string|null>(null);
@@ -164,32 +174,45 @@ export function CyclePage({client,context,group,contexts,renderExport,authorized
  }
  const decisions=v3&&checklist?checklist.blockers.filter(b=>b.code==='unavailability_pending'&&b.positionId):[];
  const blockers=checklist?checklist.blockers.filter(b=>!decisions.includes(b)):[];
- const positions=v3?groupRows.map(row=>row.position):authorizedPositions;
+ const positions=v3?(groupRows??[]).map(row=>row.position):authorizedPositions;
  const primary=v3?'primary':undefined;
+ const ready=checklist?checklist.ready??checklist.reviewed:0;
+ // CAM-03: why the consolidation button is disabled (ready includes decided unavailability, so "prontas").
+ const missing=v3&&checklist?.state==='aberta'&&ready<checklist.expected?checklist.expected-ready:0;
+ const checks=v3&&checklist&&groupRows?closingChecklist(checklist,countByStatus(groupRows)):null;const checksDone=checks?.filter(item=>item.done).length??0;
  const controls=checklist&&<>
   <label>Motivo do ciclo<textarea maxLength={1000} disabled={busy||!!pending} value={reason} onChange={e=>setReason(e.target.value)} /></label>
   <label>Referência do ciclo<input maxLength={500} disabled={busy||!!pending} value={reference} onChange={e=>setReference(e.target.value)} /></label>
-  {checklist.state==='aberta'&&<button type="button" className={primary} disabled={busy||!!pending||!checklist.canConsolidate} onClick={()=>void execute('consolidate')}>Iniciar consolidação</button>}
+  {checklist.state==='aberta'&&<button type="button" className={primary} aria-describedby={missing?'cycle-why':undefined} disabled={busy||!!pending||!checklist.canConsolidate} onClick={()=>void execute('consolidate')}>Iniciar consolidação</button>}
   {checklist.state==='em_consolidacao'&&<><button type="button" disabled={busy||!!pending||!checklist.fullCoverage} onClick={()=>void execute('reopen')}>Retornar à aberta</button><button type="button" className={primary} disabled={busy||!!pending||!checklist.canClose} onClick={event=>{confirmTrigger.current=event.currentTarget;setConfirm('close');}}>Fechar ciclo</button></>}
   {checklist.snapshotId&&checklist.publication==='nao_publicada'&&<button type="button" className={primary} disabled={busy||!!pending} onClick={event=>{confirmTrigger.current=event.currentTarget;setConfirm('publish');}}>Publicar demonstração</button>}
   {renderExport?.(checklist)}
  </>;
  // Model 3: the shell shows the page heading; focus after closing or publishing goes to the closing panel.
- return <section aria-label="Ciclo CAM">{!v3&&<h2 ref={heading} tabIndex={-1}>Ciclo da demonstração acadêmica</h2>}<p>Não representa decisão institucional nem pagamento.</p>
+ return <section aria-label="Ciclo CAM">{!v3&&<><h2 ref={heading} tabIndex={-1}>Ciclo da demonstração acadêmica</h2><p>Não representa decisão institucional nem pagamento.</p></>}
   <button type="button" disabled={busy||!!pending} onClick={()=>{if(decisionsDirty&&!requestAcademicLeave())return;setReload(n=>n+1);}}>Atualizar ciclo</button>
   {decided&&<p ref={decidedStatus} tabIndex={-1} role="status">Decisão registrada para {decided}.</p>}
   {!checklist&&!error&&<p role="status">Carregando ciclo…</p>}
-  {checklist&&(v3?<><CycleStepper checklist={checklist}/><CycleMetrics checklist={checklist}/>
-   <div className="v3-split"><div>
-    {decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows} camContexts={camContexts} fields={decisionFields} setFields={setDecisionFields} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);}} />}
-    {blockers.length>0?<section aria-labelledby="cycle-blockers" className="v3-panel"><h3 id="cycle-blockers">Bloqueios</h3><CycleBlockers blockers={blockers} positions={positions} label="Bloqueios" onOpenPosition={onOpenPosition}/></section>
-     :decisions.length===0&&<p>Nenhuma pendência impede o fechamento.</p>}
-   </div>
-   <section aria-labelledby="cycle-closing" className="v3-panel"><h3 id="cycle-closing" ref={heading} tabIndex={-1}>Fechamento e publicação</h3>
-    <p>Situação do ciclo: {competenceStateLabels[checklist.state]}</p><p>Publicação: {publicationLabels[checklist.publication]}</p>
-    {checklist.snapshotId&&<p>Snapshot fechado: {checklist.snapshotId}</p>}
-    {controls}
-   </section></div></>
+  {checklist&&(v3?<><CycleStepper checklist={checklist}/>
+   {missing>0&&<p id="cycle-why" className="sub">{`Para consolidar, as ${checklist.expected} entradas precisam estar prontas. ${missing===1?'Falta':'Faltam'} ${missing}.`}</p>}
+   <div className="grid2"><div className="stack">
+    {decisions.length>0&&<PendingDecisions client={client} positionIds={decisions.map(b=>b.positionId!)} rows={groupRows??[]} camContexts={camContexts} fields={decisionFields} setFields={setDecisionFields} onOpenPosition={onOpenPosition} onDecided={label=>{setDecided(label);setReload(n=>n+1);}} />}
+    {blockers.length>0?<section aria-labelledby="cycle-blockers" className="block"><div className="block-head"><h3 id="cycle-blockers">Requer ação<span className="pill" aria-hidden="true">{blockers.length}</span></h3></div>
+      <div className="box"><CycleBlockers blockers={blockers} positions={positions} onOpenPosition={onOpenPosition}/></div></section>
+     :decisions.length===0&&<section aria-labelledby="cycle-blockers" className="block"><div className="block-head"><h3 id="cycle-blockers">Nada bloqueia</h3></div>
+      <div className="box"><div className="empty"><strong>Todas as entradas estão prontas.</strong></div></div></section>}
+   </div><div className="stack">
+    {checks&&<section aria-labelledby="cycle-checks" className="box"><div className="check-head"><div className="block-head"><h3 id="cycle-checks">Checklist do fechamento</h3><span className="sub">{`${checksDone}/${checks.length} concluídos`}</span></div>
+      <span className="progress" role="progressbar" aria-label="Checklist do fechamento" aria-valuemin={0} aria-valuemax={checks.length} aria-valuenow={checksDone}><span style={{width:`${checksDone/checks.length*100}%`}}/></span></div>
+     <ul className="checks">{checks.map(item=><li key={item.title} className={item.done?'is-done':undefined}><span className={`ck ${item.done?'ok':'no'}`} aria-hidden="true">{item.done?'✓':''}</span>
+      <div><strong>{item.title}</strong><span className="sr-only">{item.done?' (concluído)':' (pendente)'}</span><span className="sub">{item.sub}</span></div></li>)}</ul></section>}
+    <section aria-labelledby="cycle-closing" className="box facts-box"><h3 id="cycle-closing" ref={heading} tabIndex={-1}>Fechamento e publicação</h3>
+     {/* Each row reads "Label: value" as one text (E2E gates); the colon is for that text only. */}
+     <dl className="facts">{[['Situação do ciclo',competenceStateLabels[checklist.state]],['Publicação',publicationLabels[checklist.publication]],['Snapshot',checklist.snapshotId??'Ainda não fechado']].map(([label,value])=>
+      <div key={label}><dt>{label}<span className="sr-only">:</span></dt>{' '}<dd>{value}</dd></div>)}</dl>
+     {controls}
+     <p className="sub">Publicação de demonstração acadêmica. Não é decisão institucional nem pagamento.</p>
+    </section></div></div></>
   :<><p>Estado do ciclo: {checklist.state}</p><p>Esperadas: {checklist.expected} · Recebidas: {checklist.received} · Conferidas: {checklist.reviewed}</p>
    <p>Indisponíveis: {checklist.unavailable} · Decididas: {checklist.decidedUnavailable} · Não aplicáveis: {checklist.notApplicable}</p>
    <ul>{blockers.map((b,i)=>{

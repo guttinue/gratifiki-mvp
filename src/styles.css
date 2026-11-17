@@ -2042,12 +2042,6 @@ td code,
 .v3-explainer { padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--blue-soft); }
 .v3-explainer ul { margin: 8px 0; padding-left: 18px; }
 .v3-explainer li { margin: 2px 0; }
-.v3-stepper { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 8px; margin: 16px 0; padding: 0; list-style: none; }
-.v3-stepper li { display: flex; flex-direction: column; margin: 0; padding: 12px; border-top: 3px solid var(--line); color: var(--muted); font-size: 14px; }
-.v3-stepper li.done { border-top-color: var(--success); }
-.v3-stepper li.current { border-top-color: var(--blue); }
-.v3-stepper b { color: var(--ink); font-weight: 600; }
-.v3-stepper li.current b { color: var(--blue-dark); }
 .v3-bar { height: 8px; margin-top: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .v3-bar span { display: block; height: 100%; background: var(--blue); }
 .v3-metric progress { width: 100%; height: 10px; }
@@ -2306,3 +2300,43 @@ td code,
 .academic-app .feed-foot { padding: var(--s2) var(--s3); border-top: 1px solid var(--line); }
 .academic-app button.link { min-height: 0; padding: var(--s1); border: 0; background: none; color: var(--info); font: 500 13px var(--ui); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 @media (max-width: 760px) { .academic-app .log li { grid-template-columns: 44px minmax(0, 1fr); gap: var(--s2); } }
+/* Ciclo e fechamento (V4 lines 311-338, 394, 424-426): steps, requires action, checklist, facts. */
+.academic-app .stepper { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s2); margin: 16px 0; padding: 0; list-style: none; }
+.academic-app .stepper li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 2px var(--s2); align-items: start; margin: 0; padding: 12px var(--s3); border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--card); }
+.academic-app .stepper .ix { display: grid; grid-row: span 2; place-items: center; width: 22px; height: 22px; border-radius: var(--r); background: var(--chip); color: var(--neutral); font: 500 12px var(--mono); }
+.academic-app .stepper .done .ix { background: var(--ok-bg); color: var(--ok); }
+.academic-app .stepper .current { box-shadow: 0 0 0 1px var(--ink), 0 1px 3px rgba(0, 0, 0, 0.06); }
+.academic-app .stepper .current .ix { background: var(--ink); color: #fff; }
+.academic-app .stepper b { font: 550 14px var(--ui); }
+.academic-app .stepper .d { color: var(--muted); font-size: 12px; }
+.academic-app .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s4); align-items: start; margin-top: 16px; }
+.academic-app .req-list, .academic-app .checks { margin: 0; padding: 0; list-style: none; }
+.academic-app .req-list li { margin: 0; }
+.academic-app .req-list li + li { border-top: 1px solid var(--line); }
+.academic-app .req-item { display: flex; align-items: center; gap: var(--s3); width: 100%; min-height: 0; padding: 12px var(--s3); border: 0; border-radius: 0; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.academic-app button.req-item:hover { background: var(--surface-2); }
+.academic-app .req-list li:first-child .req-item { border-radius: var(--r-lg) var(--r-lg) 0 0; }
+.academic-app .req-list li:last-child .req-item { border-radius: 0 0 var(--r-lg) var(--r-lg); }
+.academic-app .req-item .todo-txt span { font-size: 12px; }
+.academic-app .req-note { display: grid; gap: var(--s2); padding: 12px var(--s3); color: var(--muted); font-size: 13px; }
+.academic-app .req-note button { justify-self: start; }
+.academic-app .chev { color: var(--muted); font-size: 18px; line-height: 1; }
+.academic-app .check-head { display: grid; gap: var(--s2); padding: var(--s3); border-bottom: 1px solid var(--line); }
+.academic-app .progress { display: block; height: 6px; overflow: hidden; border-radius: 3px; background: var(--active); }
+.academic-app .progress span { display: block; height: 100%; background: var(--green); }
+.academic-app .checks li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: var(--s2); align-items: start; margin: 0; padding: 10px var(--s3); border-top: 1px solid var(--line); }
+.academic-app .checks li:first-child { border-top: 0; }
+.academic-app .checks strong { font: 500 14px var(--ui); }
+.academic-app .checks .is-done strong { color: var(--muted); font-weight: 450; }
+.academic-app .ck { display: grid; place-items: center; width: 18px; height: 18px; margin-top: 1px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.academic-app .ck.ok { background: var(--green); color: #fff; }
+.academic-app .ck.no { border: 1.5px solid #a3a3a3; }
+.academic-app .facts-box { display: grid; gap: var(--s3); padding: var(--s3); }
+.academic-app .facts-box h3 { margin: 0; }
+/* A facts row wrapped in a div (one "Label: value" text) keeps the dl's two columns. */
+.academic-app .facts > div { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; }
+@media (max-width: 960px) { .academic-app .grid2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) {
+  .academic-app .stepper { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .academic-app .req-item .v3-badge { display: none; } /* the reason already says the situation */
+}

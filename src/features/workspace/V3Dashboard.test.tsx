@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { groupContexts } from '../context/contextGroups';
-import { rpcClient, v3Context } from '../results/resultsFixtures';
+import { completeUnit, partialUnit, results, rpcClient, v3Context } from '../results/resultsFixtures';
 import type { AuthorizedContext, Role } from '../pilot/types';
 import { AcademicV3Dashboard } from './DashboardPage';
 
@@ -14,17 +14,20 @@ function group(role: Role, indicators = 4) {
 // indicadorId runs against the code order, so the panel must sort by indicator code itself.
 const indicators = [['DEMO-V1-01', 'Registros conferidos'], ['DEMO-V1-02', 'Rotinas concluídas'], ['DEMO-V1-03', 'Tempo de resposta'], ['DEMO-V1-04', 'Verificações realizadas']];
 const units = [['beta', 'ACADEMIC-NORTE-2'], ['alfa', 'ACADEMIC-NORTE-1']];
-function unitGroup(role: Role) {
-  return groupContexts(units.flatMap(([id, code]) => indicators.map((_, n): AuthorizedContext =>
+// The CAM sees the 16 entries: four units × four indicators.
+const allUnits = [...units, ['gama', 'ACADEMIC-SUL-1'], ['delta', 'ACADEMIC-SUL-2']];
+function unitGroup(role: Role, list = units) {
+  return groupContexts(list.flatMap(([id, code]) => indicators.map((_, n): AuthorizedContext =>
     ({ ...v3Context, role, key: `${id}-${n}`, vinculoId: `link-${id}-${n}`, indicadorId: `ind-${9 - n}`, escopoId: id, escopoCodigo: code, competenciaEstado: 'aberta' }))))[0];
 }
-const unitCode = (id: string) => units.find(unit => unit[0] === id)![1];
+const unitCode = (id: string) => allUnits.find(unit => unit[0] === id)![1];
 // statuses: `${unit}:${indicator index}` → status; every other position has `fallback`.
 // The unit batch carries the return reason; `reason: false` makes that read fail.
-function unitClient(statuses: Record<string, string>, fallback = 'validada', reason: string | null | false = 'A fonte informada é de setembro.', cycle: object = checklist) {
+function unitClient(statuses: Record<string, string>, fallback = 'validada', reason: string | null | false = 'A fonte informada é de setembro.', cycle: object = checklist, unitResults: object = {}) {
   const status = (unit: string, n: number) => statuses[`${unit}:${n}`] ?? fallback;
   return rpcClient((name, body) => {
     if (name === 'get_cycle_checklist') return cycle;
+    if (name === 'get_unit_results') return unitResults;
     if (name === 'get_operational_positions') {
       const [, id, n] = /^link-(\w+)-(\d)$/.exec((body.p_contexto as { vinculoId: string }).vinculoId)!;
       const [code, label] = indicators[Number(n)];
@@ -184,41 +187,75 @@ describe('AcademicV3Dashboard', () => {
     expect(screen.getByRole('button', { name: 'Ver entradas Unidade Alfa' })).toBeTruthy();
   });
 
-  it('CAM painel shows steps, numbers, blockers and a read-only closing panel', async () => {
-    const onNavigate = vi.fn();const onOpenPosition = vi.fn();
-    const { client, calls } = unitClient({ 'alfa:0': 'ausente' }, 'validada', null, { ...checklist, blockers: [{ positionId: 'alfa-0', code: 'missing_submission', message: 'Envio ausente.' }] });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('cam')} onNavigate={onNavigate} onOpenPosition={onOpenPosition} />);
-    expect(await screen.findByText('9 de 16 prontas')).toBeTruthy();
-    expect(calls.filter(call => call.name === 'get_cycle_checklist')).toHaveLength(1);
-    const steps = within(screen.getByRole('list', { name: 'Etapas da competência' })).getAllByRole('listitem');
-    expect(steps).toHaveLength(4);
-    expect(steps[0].getAttribute('aria-current')).toBe('step');
-    expect(steps.map(step => step.querySelector('b')!.textContent)).toEqual(['Aberta', 'Consolidação', 'Fechada', 'Publicada']);
-    for (const label of ['Esperadas', 'Recebidas', 'Prontas', 'Indisponíveis']) expect(screen.getByText(label)).toBeTruthy();
-    const blockers = screen.getByRole('region', { name: 'O que impede o fechamento' });
-    expect(within(blockers).getByRole('heading', { name: 'O que impede o fechamento' }).tagName).toBe('H3');
-    expect(within(blockers).getByText('Unidade Alfa · DEMO-V1-01 Registros conferidos: Não enviado')).toBeTruthy();
-    fireEvent.click(within(blockers).getByRole('button', { name: 'Ver entrada Unidade Alfa · DEMO-V1-01' }));
-    expect(onOpenPosition).toHaveBeenCalledWith('alfa-0');
-    const closing = screen.getByRole('region', { name: 'Fechamento e publicação' });
-    expect(within(closing).getByText('Situação do ciclo: Aberta')).toBeTruthy();
-    expect(within(closing).getByText('Publicação: Não publicada')).toBeTruthy();
-    fireEvent.click(within(closing).getByRole('button', { name: 'Abrir ciclo e fechamento' }));
+  // CAM-01 (replaces the painel that repeated the cycle screen). F11: 2 ausente, 1 devolvida, 1 enviada, 1 em_revisao, 11 validada.
+  const camStatuses = { 'alfa:0': 'ausente', 'beta:1': 'ausente', 'alfa:2': 'devolvida', 'gama:3': 'enviada', 'delta:0': 'em_revisao' };
+  const camCycle = { ...checklist, ready: 11, received: 14 };
+  const cam = (cycle: object, statuses: Record<string, string> = camStatuses, unitResults: object = results(completeUnit, partialUnit)) => {
+    const onNavigate = vi.fn(); const onOpenUnit = vi.fn(); const onOpenPosition = vi.fn();
+    const { client, calls } = unitClient(statuses, 'validada', null, cycle, unitResults);
+    render(<AcademicV3Dashboard client={client} group={unitGroup('cam', allUnits)} onNavigate={onNavigate} onOpenUnit={onOpenUnit} onOpenPosition={onOpenPosition} />);
+    return { calls, onNavigate, onOpenUnit, onOpenPosition };
+  };
+
+  it('CAM painel is read-only and points to the cycle', async () => {
+    const { calls, onNavigate, onOpenUnit } = cam(camCycle);
+    const stages = await screen.findByRole('region', { name: 'Etapas do fluxo' });
+    const tile = (label: string) => within(stages).getByText(label).closest('.tile')!;
+    expect(['Não enviados', 'Para conferir', 'Em conferência', 'Devolvidas', 'Aceitas'].map(label => tile(label).querySelector('.tile-n')!.textContent)).toEqual(['2', '1', '1', '1', '11']);
+    expect(tile('Não enviados').querySelector('.tile-sub')!.textContent).toBe('com a área técnica');
+    expect(tile('Aceitas').querySelector('.tile-sub')!.textContent).toBe('de 16 entradas');
+    const todo = screen.getByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getByText('5 entradas impedem a consolidação')).toBeTruthy();
+    fireEvent.click(within(todo).getByRole('button', { name: 'Ver o que falta' }));
     expect(onNavigate).toHaveBeenCalledWith('ciclo');
+    const cards = within(screen.getByRole('region', { name: 'Unidades' })).getAllByRole('article');
+    expect(cards.map(card => within(card).getByRole('heading', { level: 4 }).textContent)).toEqual(['Unidade Alfa', 'Unidade Beta', 'Unidade Gama', 'Unidade Delta']);
+    const [alfa, beta, gama] = cards;
+    expect(alfa.querySelector('.big')!.textContent).toBe('93,42 / 100');
+    expect(beta.querySelector('.big')!.textContent).toBe('70,00 / 100 parcial');
+    // A unit outside the results keeps its card without a score.
+    expect(gama.querySelector('.big')!.textContent).toBe('');
+    expect(within(alfa).getByText('2 pendentes')).toBeTruthy();
+    expect(alfa.textContent).toContain('2 de 4 aceitas');
+    expect(within(alfa).getByRole('img').getAttribute('aria-label')).toContain('1 devolvida, 1 não enviado');
+    fireEvent.click(within(alfa).getByRole('button', { name: 'Ver resultado Unidade Alfa' }));
+    expect(onOpenUnit).toHaveBeenCalledWith('alfa');
+    expect(screen.getByRole('complementary', { name: 'Atividade recente' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Iniciar consolidação' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Fechar ciclo' })).toBeNull();
     expect(screen.queryByRole('textbox')).toBeNull();
+    for (const name of ['transition_cycle', 'publish_cycle_demo', 'decide_unavailability']) expect(calls.map(call => call.name)).not.toContain(name);
+    const read = (name: string) => calls.filter(call => call.name === name);
+    expect(read('get_cycle_checklist')).toHaveLength(1);
+    expect(read('get_unit_results')).toHaveLength(1);
+    expect(read('get_unit_results')[0].body.p_contexto).toEqual(read('get_cycle_checklist')[0].body.p_contexto);
   });
 
-  it('marks the published step once the closed cycle was published', async () => {
-    const { client } = unitClient({}, 'validada', null, { ...checklist, state: 'fechada', publication: 'publicada_demo', snapshotId: 's', publicationId: 'p', ready: 16, reviewed: 16, received: 16, blockers: [] });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('cam')} onNavigate={vi.fn()} />);
-    expect(await screen.findByText('16 de 16 prontas')).toBeTruthy();
-    const steps = within(screen.getByRole('list', { name: 'Etapas da competência' })).getAllByRole('listitem');
-    expect(steps[3].getAttribute('aria-current')).toBe('step');
-    expect(steps[0].className).toContain('done');
-    expect(screen.getByText('Nenhuma pendência impede o fechamento.')).toBeTruthy();
-    expect(screen.getByText('Publicação: Publicada na demonstração')).toBeTruthy();
+  it('CAM painel keeps its cards when the results cannot be read, and says when a unit is complete', async () => {
+    cam(camCycle, { 'beta:1': 'ausente' }, { code: 'x' });
+    const units = await screen.findByRole('region', { name: 'Unidades' });
+    const alfa = within(units).getAllByRole('article')[0];
+    expect(within(alfa).getByText('Completa')).toBeTruthy();
+    expect(alfa.querySelector('.big')!.textContent).toBe('');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    [{ ready: 16, canConsolidate: true, blockers: [] }, 'Todas as 16 entradas estão prontas', 'Abrir ciclo e fechamento'],
+    [{ state: 'em_consolidacao', ready: 16, blockers: [] }, 'Revisar e fechar outubro', 'Abrir ciclo e fechamento'],
+    [{ state: 'fechada', ready: 16, snapshotId: 's', blockers: [] }, 'Publicar outubro', 'Abrir ciclo e fechamento'],
+  ])('CAM painel names the next cycle step and only navigates: %#', async (extra, title, button) => {
+    const { calls, onNavigate } = cam({ ...checklist, ...extra }, {});
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getAllByRole('listitem')[0].querySelector('strong')!.textContent).toBe(title);
+    fireEvent.click(within(todo).getAllByRole('button', { name: button })[0]);
+    expect(onNavigate).toHaveBeenCalledWith('ciclo');
+    for (const name of ['transition_cycle', 'publish_cycle_demo']) expect(calls.map(call => call.name)).not.toContain(name);
+  });
+
+  it('CAM painel offers the export once the cycle was published', async () => {
+    cam({ ...checklist, state: 'fechada', publication: 'publicada_demo', snapshotId: 's', publicationId: 'p', ready: 16, blockers: [] }, {});
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getAllByRole('listitem').map(item => item.querySelector('strong')!.textContent)).toEqual(['Exportar a competência em CSV']);
   });
 
   it('reports a failed read and retries', async () => {
