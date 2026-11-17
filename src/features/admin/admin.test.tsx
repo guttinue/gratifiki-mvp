@@ -111,7 +111,55 @@ describe('administrative metadata boundary',()=>{
   expect(within(table).getByText('Revisor técnico')).toBeTruthy();
   expect(screen.getByRole('button',{name:'Salvar vínculo'}).className).toContain('primary');
  });
- it('preserves a revoked ambiguous link attempt, payload and version on retry',async()=>{
+ const academicCatalog=():AdminCatalog=>({...catalog,scopes:[{id:'alfa',codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:'d',ativo:true,version:1}],accounts:[{actorId:'tech',label:'Conta acadêmica area_tecnica',ativo:true}],
+ links:[{...catalog.links[0],actorId:'tech',escopoId:'alfa'},{...catalog.links[0],id:'off',actorId:'tech',escopoId:'alfa',role:'revisor_tecnico',ativo:false,version:4}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]});
+const v4Page=()=>render(<GuardedAdmin><AccessAdminPage v4 client={client(vi.fn().mockResolvedValue({data:academicCatalog(),error:null}))} context={context} actorId="self"/></GuardedAdmin>);
+const editName='Editar vínculo Conta acadêmica area_tecnica · area_tecnica · ACADEMIC-NORTE-1';
+describe('model-3 business links',()=>{
+ it('links table shows a status badge and keeps the edit name',async()=>{
+  v4Page();
+  const edit=await screen.findByRole('button',{name:editName});
+  const table=screen.getByRole('table');
+  // AD-05 removes the version column from the table (it stays in the form); this replaces the model-2 assertion that ended with the version cell.
+  expect(within(table).getAllByRole('columnheader').map(h=>h.textContent)).toEqual(['Pessoa','Papel','Escopo','Indicador','Situação','Ação']);
+  const row=edit.closest('tr') as HTMLElement;
+  expect(within(row).getAllByRole('cell').slice(0,5).map(c=>c.textContent)).toEqual(['Conta acadêmica area_tecnica','Área técnica','Unidade Alfa','DEMO-V1-01','Ativo']);
+  expect(within(row).getByText('Ativo').className).toContain('t-ok');
+  expect(within(table).getByText('Inativo').className).toContain('t-neutral');
+  expect(screen.getByText('1 vínculo ativo')).toBeTruthy();
+ });
+ it('form opens from Novo vínculo and from Editar',async()=>{
+  v4Page();
+  const novo=await screen.findByRole('button',{name:'Novo vínculo'});
+  expect(screen.queryByLabelText('Conta de demonstração')).toBeNull();
+  expect(novo.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(novo);
+  expect(novo.getAttribute('aria-expanded')).toBe('true');
+  expect(novo.getAttribute('aria-controls')).toBe(screen.getByRole('group',{name:'Conceder, atualizar ou revogar vínculo'}).closest('form')?.id);
+  expect(document.activeElement).toBe(screen.getByLabelText('Conta de demonstração'));
+  expect(within(screen.getByLabelText('Papel de negócio')).getByRole('option',{name:'Área técnica'})).toBeTruthy();
+  fireEvent.click(novo);
+  expect(screen.queryByLabelText('Conta de demonstração')).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:editName}));
+  expect(screen.getByLabelText('Papel de negócio')).toHaveProperty('value','area_tecnica');
+  expect(screen.getByRole('option',{name:'Área técnica',selected:true})).toBeTruthy();
+  expect(screen.getByLabelText('Conta de demonstração')).toHaveProperty('value','tech');
+  expect(document.activeElement).toBe(screen.getByLabelText('Conta de demonstração'));
+ });
+ it('closing a dirty form asks first',async()=>{
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+  v4Page();
+  const novo=await screen.findByRole('button',{name:'Novo vínculo'});
+  fireEvent.click(novo);
+  fireEvent.change(screen.getByLabelText('Início da vigência'),{target:{value:'2026-03-01'}});
+  fireEvent.click(novo);
+  expect(confirm).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText('Início da vigência')).toHaveProperty('value','2026-03-01');
+  confirm.mockReturnValue(true);fireEvent.click(novo);
+  expect(screen.queryByLabelText('Início da vigência')).toBeNull();
+ });
+});
+it('preserves a revoked ambiguous link attempt, payload and version on retry',async()=>{
   const payloads:unknown[]=[];let calls=0;
   const rpc=vi.fn(async(name:string,args:unknown)=>{if(name==='get_admin_catalog')return{data:catalog,error:null};payloads.push(args);return ++calls===1?{data:null,error:{code:'42501',message:'private database detail'}}:{data:{resourceId:'l',version:3,revisionId:null,status:'inativo',resultValue:null},error:null};});
   render(<AccessAdminPage client={client(rpc)} context={context} actorId="self"/>);

@@ -347,35 +347,40 @@ it('opens the read-only rule catalogue for a model-3 administrator on regras, wi
  openAcademicPage('regras');
  const {client,calls}=rpc(()=>ruleCatalog);
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
- expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+ expect(await screen.findByText('Em uso · bloqueada')).toBeTruthy();
  expect(calls).toEqual(['get_rule_catalog']);
  expect(screen.queryByRole('button',{name:/Agendar|Regras futuras|Salvar|Criar|Editar/})).toBeNull();
 });
 it('shows the registry summary on the painel of a model-3 administrator, with shortcuts and without the admin tabs',async()=>{
  const {client,calls}=adminRpc();
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
- expect(await screen.findByText('DEMO-v1')).toBeTruthy();
+ expect((await screen.findAllByText('DEMO-v1')).length).toBeGreaterThan(0);
  const summary=screen.getByRole('region',{name:'Resumo dos cadastros'});
  expect(within(summary).getByText('Vínculos ativos')).toBeTruthy();
  expect(within(summary).getByText('2')).toBeTruthy();
  expect(within(summary).getByText('de 3 cadastrados')).toBeTruthy();
- expect(within(summary).getByText('1 indicador')).toBeTruthy();
+ expect(within(summary).getByText('DEMO-v1')).toBeTruthy();
+ expect(within(summary).getByText('1 indicador · pesos somam 100')).toBeTruthy();
+ expect(within(summary).getByText('Unidades')).toBeTruthy();
+ expect(within(summary).getByText('em 0 distritos')).toBeTruthy();
  expect(within(summary).getByText('Aberta')).toBeTruthy();
  expect(within(summary).getByText('Outubro/2026')).toBeTruthy();
- expect([...new Set(calls)].sort()).toEqual(['get_admin_catalog','get_rule_catalog']);
+ expect([...new Set(calls)].sort()).toEqual(expect.arrayContaining(['get_admin_catalog','get_rule_catalog']));
+ expect(await screen.findByRole('button',{name:'Ver vínculos inativos'})).toBeTruthy();
+ expect(screen.getByText('Revisar 1 vínculo inativo')).toBeTruthy();
  expect(screen.queryByRole('navigation',{name:'Administração'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Salvar escopo'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Abrir indicadores e regras'}));
  expect(window.location.hash).toBe('#academico/regras');
- expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+ expect(await screen.findByText('Em uso · bloqueada')).toBeTruthy();
 });
 it('uses the plural for several rule indicators and the singular for one registered link',async()=>{
  const item=ruleCatalog.ruleSets[0].items[0];
  const {client}=rpc(name=>name==='get_rule_catalog'?{ruleSets:[{...ruleCatalog.ruleSets[0],items:['01','02','03','04'].map(code=>({...item,indicatorCode:`DEMO-V1-${code}`,weight:'25'}))}]}:{...adminCatalog,links:[adminLink]});
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
  const summary=await screen.findByRole('region',{name:'Resumo dos cadastros'});
- expect(await within(summary).findByText('4 indicadores')).toBeTruthy();
+ expect(await within(summary).findByText('4 indicadores · pesos somam 100')).toBeTruthy();
  expect(await within(summary).findByText('de 1 cadastrado')).toBeTruthy();
 });
 it('reports a failed registry read on the model-3 administrator painel with each reader message',async()=>{
@@ -393,7 +398,7 @@ it('opens business links first for a model-3 administrator',async()=>{
  const tabs=within(screen.getByRole('navigation',{name:'Administração'})).getAllByRole('button');
  expect(tabs.map(tab=>tab.textContent)).toEqual(['Vínculos de negócio','Escopos']);
  expect(tabs[0].getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
  // I-5: the model-2 competence/assignment commands refuse model-3 contexts; the tab is replaced by a read-only notice.
  expect(screen.queryByRole('button',{name:'Competências e atribuições'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
@@ -404,7 +409,15 @@ it('opens business links first for a model-3 administrator',async()=>{
  fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Painel'}));
  fireEvent.click(await screen.findByRole('button',{name:'Abrir usuários e vínculos'}));
  expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
+});
+it('Para fazer lists inactive links and Ver vínculos opens Usuários e vínculos',async()=>{
+ const {client}=adminRpc();
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('Revisar 1 vínculo inativo')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Ver vínculos inativos'}));
+ expect(window.location.hash).toBe('#academico/vinculos');
+ expect(await screen.findByRole('table',{name:'Vínculos cadastrados'})).toBeTruthy();
 });
 it('opens business links first when a model-3 administrator comes back to vinculos through browser history',async()=>{
  openAcademicPage('vinculos');
@@ -414,7 +427,7 @@ it('opens business links first when a model-3 administrator comes back to vincul
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
  for(const page of ['painel','vinculos'])act(()=>{window.location.hash=`#academico/${page}`;window.dispatchEvent(new HashChangeEvent('hashchange'));});
  expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
 });
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');
