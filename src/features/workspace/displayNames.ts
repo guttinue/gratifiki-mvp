@@ -1,4 +1,4 @@
-import type { CompetenceState, CycleChecklist, Role } from '../pilot/types';
+import type { CompetenceState, CycleChecklist, EntryStatus, PositionSummary, Role } from '../pilot/types';
 
 // Presentation only: friendly V3 names for the synthetic academic scopes.
 // Authorization and domain data keep using the scope codes.
@@ -61,4 +61,37 @@ export const auditActions: Readonly<Record<string, { verb: string; role: Role }>
   competencia_demo_aberta: { verb: 'Abriu competência', role: 'administrador' },
   posicao_demo_reatribuida: { verb: 'Reatribuiu posição', role: 'administrador' },
   regra_demo_agendada: { verb: 'Agendou regra', role: 'administrador' },
+  snapshot_exportado_demo: { verb: 'Exportou o snapshot', role: 'cam' },
 };
+
+// V4 tones (spec §4.1.1): they color badges, dots and bars.
+export type Tone = 'neutral' | 'info' | 'warn' | 'vio' | 'bad' | 'ok';
+
+export const statusTones: Readonly<Record<EntryStatus | 'ausente', Tone>> = {
+  ausente: 'neutral', rascunho: 'info', enviada: 'warn', em_revisao: 'vio', devolvida: 'bad', validada: 'ok', invalidada: 'neutral',
+};
+
+export const stateTones: Readonly<Record<CompetenceState, Tone>> = {
+  aberta: 'info', em_consolidacao: 'warn', em_revisao: 'warn', fechada: 'vio', invalidada: 'neutral',
+};
+
+export const blockerReasons: Readonly<Record<'ausente' | 'rascunho' | 'enviada' | 'em_revisao' | 'devolvida', string>> = {
+  ausente: 'Não enviado pela área técnica', rascunho: 'Rascunho ainda não enviado', enviada: 'Aguardando o revisor técnico',
+  em_revisao: 'Em conferência pelo revisor', devolvida: 'Devolvida, aguardando correção',
+};
+
+// History filter (§5.1). An action outside every category shows only under "Todos".
+export const auditCategories: readonly { id: 'todos' | 'envio' | 'conferencia' | 'ciclo' | 'cadastro' | 'exportacao'; label: string; actions: readonly string[] | null }[] = [
+  { id: 'todos', label: 'Todos os eventos', actions: null },
+  { id: 'envio', label: 'Envios e rascunhos', actions: ['rascunho_salvo', 'posicao_enviada', 'posicao_corrigida'] },
+  { id: 'conferencia', label: 'Conferência', actions: ['posicao_em_revisao', 'posicao_validada', 'posicao_devolvida'] },
+  { id: 'ciclo', label: 'Ciclo da competência', actions: ['ciclo_em_consolidacao', 'ciclo_reaberto', 'ciclo_fechado', 'ciclo_publicado_demo', 'retificacao_autorizada', 'indisponibilidade_decidida'] },
+  { id: 'cadastro', label: 'Cadastros', actions: ['escopo_demo_salvo', 'vinculo_demo_alterado', 'competencia_demo_aberta', 'posicao_demo_reatribuida', 'regra_demo_agendada'] },
+  { id: 'exportacao', label: 'Exportações', actions: ['snapshot_exportado_demo'] },
+];
+
+export function countByStatus(rows: readonly { position: PositionSummary }[]) {
+  const counts = { ausente: 0, rascunho: 0, enviada: 0, em_revisao: 0, devolvida: 0, validada: 0, invalidada: 0, total: rows.length };
+  for (const { position } of rows) counts[position.status] += 1;
+  return counts;
+}

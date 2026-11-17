@@ -50,16 +50,25 @@ describe("workspace responsive stylesheet", () => {
     expect(/\.academic-app button\.primary\s*\{[^}]*background:\s*var\(--primary\)/s.test(stylesheet)).toBe(true);
   });
 
-  it("colors each situation badge from the tokens", () => {
-    expect(/\.v3-st-devolvida\s*\{[^}]*var\(--danger/s.test(stylesheet)).toBe(true);
-    expect(/\.v3-st-validada\s*\{[^}]*var\(--success/s.test(stylesheet)).toBe(true);
-  });
-
   it("scrolls the tab bar instead of shrinking tabs over each other", () => {
     expect(/\.v3-tabs button\s*\{[^}]*flex:\s*none/s.test(stylesheet)).toBe(true);
   });
 
   it("keeps whole words in V3 table cells, which scroll inside their container", () => {
     expect(/\.v3-table\s*\{[^}]*overflow-wrap:\s*normal/s.test(stylesheet)).toBe(true);
+  });
+
+  const rule = (selector: string) => new RegExp(selector.replace(/[.[\]()]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(stylesheet)?.[1] ?? "";
+  it("colors each situation badge from the tokens", () => {
+    expect(rule(".v3-st-devolvida")).toContain("var(--bad");
+    expect(rule(".v3-st-validada")).toContain("var(--ok");
+    expect(rule(".v3-st-em_revisao")).toContain("var(--vio");
+  });
+
+  it("turns V4 tables into cards below 760px", () => {
+    const narrow = [...stylesheet.matchAll(/@media \(max-width: 760px\)\s*\{(.*?)\n\}/gs)].map((m) => m[1]).find((block) => block.includes(".v4-tbl")) ?? "";
+    expect(/\.v4-tbl thead\s*\{[^}]*clip/s.test(narrow)).toBe(true);
+    expect(/\.v4-tbl tr\s*\{[^}]*display:\s*grid/s.test(narrow)).toBe(true);
+    expect(/\.v4-tbl td\[data-label\]::before\s*\{[^}]*content:\s*attr\(data-label\)/s.test(narrow)).toBe(true);
   });
 });
