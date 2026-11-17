@@ -23,15 +23,16 @@ function ContextOverview({client,context}:Props){
   <StageTiles label="Resumo agregado" tiles={[
    {label:'Entradas aceitas',value:floorPercent(data.acceptedPercent),sub:'das entradas da competência',tone:'ok'},
    ...(state?[{label:'Etapa do ciclo',value:competenceStateLabels[state],sub:'competência atual',tone:stateTones[state],text:true}]:[]),
-   {label:'Unidades com pendência',value:data.attention.length,sub:data.attention.length?'veja onde agir':'nenhuma',tone:'warn' as const},
+   {label:'Unidades com pendência',value:data.attention.length,sub:data.attention.length?'veja onde agir':'nenhuma',tone:data.attention.length?'warn' as const:'ok' as const},
    {label:'Unidades completas',value:`${data.districts.reduce((n,d)=>n+d.completeUnits,0)} de ${data.districts.reduce((n,d)=>n+d.totalUnits,0)}`,sub:'com todos os indicadores aceitos',tone:'info' as const}]}/>
   <div className="stack">
-   <TodoList title="Onde agir" empty={<strong>Nenhuma pendência.</strong>} items={data.attention.map(unit=>({tone:'warn',title:`${scopeName(unit.unitCode)}: ${plural(unit.pending,'entrada pendente','entradas pendentes')}.`,sub:'Converse com a gestão distrital antes do fechamento.'}))}/>
+   <TodoList title="Onde agir" empty={<strong>Nenhuma pendência.</strong>} items={data.attention.map(unit=>({tone:'warn',title:`${scopeName(unit.unitCode)}: ${plural(unit.pending,'entrada pendente','entradas pendentes')}.`}))}/>
+   {data.attention.length>0&&<p className="v3-note">Converse com a gestão distrital antes do fechamento.</p>}
    {/* LI-03: cards without "vs. setembro" (the overview has no previous month, spec §5.2). */}
    <section className="block" aria-label="Médias por distrito"><div className="block-head"><h3>Média por distrito</h3></div><div className="cards">
     {data.districts.map(district=><UnitCard key={district.districtCode} title={scopeName(district.districtCode)} sub={`${district.completeUnits} de ${district.totalUnits} unidades completas`}
      badge={state&&<span className={`v3-badge t-${stateTones[state]}`}>{competenceStateLabels[state]}</span>}
-     big={<>{district.average===null?'–':formatDecimal(district.average,2)} <small>/ 100</small></>} foot={district.average===null?'Aguardando unidades completas':undefined}/>)}
+     big={district.average===null?'–':<>{formatDecimal(district.average,2)} <small>/ 100</small></>} foot={district.average===null?'Aguardando unidades completas':undefined}/>)}
    </div>
    <p className="v3-note">{`Média só de unidades com todos os indicadores aceitos. ${absenceCopy[data.mode]}`}</p></section>
   </div></>}

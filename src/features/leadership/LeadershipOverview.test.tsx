@@ -26,6 +26,8 @@ it('summary strip and where to act', async () => {
   expect(within(attention).getByText('Unidade Alfa: 3 entradas pendentes.')).toBeTruthy();
   expect(within(attention).getByText('Unidade Beta: 1 entrada pendente.')).toBeTruthy();
   expect(within(attention).queryByRole('button')).toBeNull();
+  expect(screen.getAllByText('Converse com a gestão distrital antes do fechamento.')).toHaveLength(1);
+  expect(screen.getByText('Unidades com pendência').querySelector('.dot')?.className).toContain('t-warn');
   // LI-03: the district table becomes cards in a region with the same name.
   const districts = screen.getByRole('region', { name: 'Médias por distrito' });
   const cards = within(districts).getAllByRole('article');
@@ -34,6 +36,7 @@ it('summary strip and where to act', async () => {
   expect(within(cards[0]).getByText('1 de 2 unidades completas')).toBeTruthy();
   expect(within(cards[1]).getByRole('heading', { level: 4 }).textContent).toBe('Distrito Sul');
   expect(within(cards[1]).getByText('–')).toBeTruthy();
+  expect(cards[1].textContent).not.toContain('/ 100');
   expect(within(cards[1]).getByText('Aguardando unidades completas')).toBeTruthy();
   expect(screen.queryByRole('table')).toBeNull();
   expect(container.textContent).not.toMatch(/vs\./);
@@ -54,6 +57,8 @@ it('says nothing needs action when no entry is pending', async () => {
   expect(await screen.findByText('100 %')).toBeTruthy();
   expect(within(screen.getByRole('region', { name: 'Onde agir' })).getByText('Nenhuma pendência.')).toBeTruthy();
   expect(tile('Unidades com pendência')).toBe('0');
+  expect(screen.getByText('Unidades com pendência').querySelector('.dot')?.className).toContain('t-ok');
+  expect(screen.queryByText('Converse com a gestão distrital antes do fechamento.')).toBeNull();
   expect(screen.queryByText(/Etapa do ciclo/)).toBeNull();
 });
 

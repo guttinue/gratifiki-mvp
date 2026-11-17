@@ -163,6 +163,14 @@ describe('ResultsPage', () => {
     expect((await screen.findByText(/^1 indicador aceito como indisponível ou não aplicável não gera pontos numéricos\./)).className).toBe('notice warning');
   });
 
+  it('draws an empty points bar for a zero weight instead of NaN', async () => {
+    const zero = { ...completeUnit, items: completeUnit.items.map((item, index) => index === 0 ? { ...item, weight: '0', effectiveWeight: '0', points: '0' } : item) };
+    const { client } = rpcClient(() => results(zero));
+    const { container } = render(<ResultsPage client={client} group={group} />);
+    await screen.findByText('93,42');
+    expect((container.querySelector('.pts-bar span') as HTMLElement).style.width).toBe('0%');
+  });
+
   it('units are chips that keep arrow-key selection', async () => {
     const { client } = rpcClient(() => results(completeUnit, partialUnit));
     render(<ResultsPage client={client} group={groupContexts([{ ...v3Context, role: 'gestor_distrital', escopoCodigo: 'ACADEMIC-NORTE' }])[0]} />);

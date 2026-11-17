@@ -110,7 +110,7 @@ export function ResultsPage({ client, group, initialUnitId, onOpenHistory, onOpe
           <tbody>{unit.items.map(item => {
             const key = `${unit.unitId}:${item.indicatorCode}`, open = explaining === key;
             // Bar width only (aria-hidden); the official points stay the server's text.
-            const share = item.points === null ? 0 : Math.min(100, Number(item.points) / Number(item.weight) * 100);
+            const share = item.points === null || !Number(item.weight) ? 0 : Math.min(100, Number(item.points) / Number(item.weight) * 100);
             return <Fragment key={item.indicatorCode}><tr>
               <td id={`v3-ind-${key}`}><strong>{item.indicatorCode}</strong><span className="sub">{item.name}</span></td>
               <td data-label="Meta">{`${directionSymbol(item.direction)} ${formatDecimal(item.meta)}`}</td>
