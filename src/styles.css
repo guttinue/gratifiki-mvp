@@ -1,3 +1,13 @@
+@font-face { font-family: "Geist"; src: url("/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face { font-family: "Geist Mono"; src: url("/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 :root {
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #202b3c;
@@ -1730,18 +1740,33 @@ td code,
   line-height: 1.6;
   overflow-wrap: anywhere;
   font-family: var(--font);
-  /* V3 prototype palette, scoped here so the legacy :root keeps its own. */
-  --page: #f3f5f9; --surface: #fff; --surface-muted: #f7f9fc;
-  --ink: #172033; --muted: #4a586d; --faint: #6b778a;
-  --line: #dbe2ec; --line-strong: #b4c0d2;
-  --blue: #1d5fc2; --blue-dark: #174b99; --blue-soft: #eaf2ff;
-  --success: #17613d; --success-soft: #e8f6ee;
-  --warning: #7a5200; --warning-soft: #fff5dc;
-  --danger: #a12727; --danger-soft: #fdeeed;
-  --focus: #155cc5;
-  --font: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --r-sm: 6px; --r: 10px;
+  /* V4 tokens (prototype :root), scoped here so the legacy :root keeps its own. */
+  --bg: #f7f7f7; --surface-2: #fafafa; --tray: #f5f5f5; --chip: #ededed; --hover: #f5f5f5; --active: #ebebeb;
+  --ink: #171717; --ink-2: #262626; --muted: #525252;
+  --line-2: #e5e5e5; --field: #8f8f8f;
+  --primary: #171717; --primary-hover: #404040; --focus: #0070e0;
+  --green: #00a63e; --amber: #e17100; --red: #e7000b; --violet: #7f22fe; --gray: #737373;
+  --ok: #016630; --ok-bg: rgba(0, 166, 62, 0.08);
+  --warn: #973c00; --warn-bg: rgba(225, 113, 0, 0.08);
+  --bad: #c10007; --bad-bg: rgba(231, 0, 11, 0.08);
+  --info: #1447e6; --info-bg: rgba(21, 93, 252, 0.08);
+  --vio: #7008e7; --vio-bg: rgba(127, 34, 254, 0.08);
+  --neutral: #404040; --neutral-bg: rgba(23, 23, 23, 0.06);
+  --up: #008236; --down: #c10007;
+  --card: 0 0 0 0.5px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.05);
+  --raised: 0 1px 1.6px rgba(0, 0, 0, 0.05), 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ui: "Geist", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --r-chip: 7px; --r-lg: 10px;
+  /* V3 names kept as aliases of the V4 values. */
+  --page: var(--bg); --surface: #fff; --surface-muted: var(--surface-2);
+  --faint: #525252; --line: #ebebeb; --line-strong: var(--field);
+  --blue: #155dfc; --blue-dark: #1447e6; --blue-soft: var(--info-bg);
+  --success: #00a63e; --success-soft: var(--ok-bg);
+  --warning: #e17100; --warning-soft: var(--warn-bg);
+  --danger: #e7000b; --danger-soft: var(--bad-bg);
+  --r-sm: 6px; --r: 6px;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
 }
 /* Menu lateral, as in the V3 prototype; below 768px it is closed behind the
@@ -1885,8 +1910,8 @@ td code,
   overflow-wrap: anywhere;
   cursor: pointer;
 }
-.academic-app button.primary { border-color: var(--blue); background: var(--blue); color: #fff; font-weight: 600; }
-.academic-app button.primary:hover:not(:disabled) { border-color: var(--blue-dark); background: var(--blue-dark); }
+.academic-app button.primary { border-color: var(--primary); background: var(--primary); color: #fff; font-weight: 600; }
+.academic-app button.primary:hover:not(:disabled) { border-color: var(--primary-hover); background: var(--primary-hover); }
 .academic-app button.primary:disabled { border-color: var(--line); background: var(--surface-muted); color: var(--faint); }
 .academic-app button[aria-current="page"], .academic-app button[aria-pressed="true"] {
   border-color: var(--blue);
