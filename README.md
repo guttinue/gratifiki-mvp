@@ -2,9 +2,9 @@
 
 Este repositório contém o MVP acadêmico sintético React/Vite/TypeScript + Supabase-first. Sete jornadas autenticadas usam um indicador `DEMO-01`; não é a gratificação institucional integral, não usa dados/serviços SESAU e não declara aceite institucional. A baseline histórica de dois papéis continua identificada como legado.
 
-## Estado do projeto — V3 completo no ramo (02/11/2026)
+## Estado do projeto — telas V4 na main (17/11/2026)
 
-O modelo 3 (V3) está implementado de ponta a ponta no ramo `feat/mvp-academico-completo`, com dados sintéticos e regra fictícia **DEMO-v1**. Não há implantação remota, homologação SESAU nem efeito institucional.
+As telas seguem o Protótipo V4 desde 17/11/2026 (PR #2). O modelo 3 (V3) está implementado de ponta a ponta, com dados sintéticos e regra fictícia **DEMO-v1**. Não há implantação remota, homologação SESAU nem efeito institucional.
 
 - **Quatro indicadores DEMO** (`DEMO-V1-01` a `DEMO-V1-04`, pesos 30/25/25/20) formam o conjunto de regras DEMO-v1, tratado como `zero` quando falta valor. Quatro unidades (Alfa e Beta no Distrito Norte; Gama e Delta no Distrito Sul) e dois meses (`ACADEMIC-V3-2026-09`, fechado e publicado; `ACADEMIC-V3-2026-10`, aberto) vêm do bootstrap.
 - **Modelo 3, fluxo:** a área técnica preenche e envia a unidade em lote (tudo ou nada), com prévia de pontos; o revisor aceita ou devolve um item por vez; a CAM decide indisponibilidade e não aplicação, consolida, fecha e publica com referência `DEMO-DECISAO-…`/`DEMO-PUBLICACAO-…`; o gestor vê nota, comparação com o mês anterior e “Como foi calculado?”; a liderança vê médias por distrito; o CSV (contrato 2) traz `valor`, `meta`, `peso`, `peso_efetivo` e `pontos`.
@@ -32,51 +32,63 @@ Este repositório privado preserva a versão em desenvolvimento; não contém cr
 - Docker Desktop, OrbStack ou runtime compatível com a API do Docker, com o daemon ativo.
 - O Supabase CLI usado pelo projeto já vem nas dependências; não é necessário instalá-lo globalmente.
 
-## Abrir a aplicação
+## Rodar o MVP (telas V4)
 
-Instale as dependências uma vez e inicie os serviços locais:
+Este é o único caminho para ver as telas atuais, no estilo V4. Use um terminal **bash** a partir da pasta do repositório, com o Docker já aberto. Cada bloco abaixo assume a mesma janela de terminal.
 
-```sh
+### 1. Banco local (uma vez)
+
+```bash
 npm ci
 npx supabase start
+npx supabase migration up --local
+docker exec -i supabase_db_gratifiki-mvp-local psql -q -1 -v ON_ERROR_STOP=1 -U postgres -d postgres < supabase/seed.sql
 ```
 
-Copie `.env.example` para `.env.local` e configure apenas os valores públicos locais do frontend: URL loopback, chave publishable/anon e `VITE_RUNTIME_MODE=local`. O cliente rejeita URL remota nesse modo e chaves administrativas em qualquer modo. Não coloque `service_role`, `sb_secret_*`, senha ou segredo em `VITE_*`; esse prefixo é público. `.env.local` nunca vai ao Git. O cadastro público é negado em Auth (`enable_signup=false`), não apenas escondido na interface. Aplicar a configuração a um serviço de uso/reiniciá-lo é uma operação humana separada, não parte dos testes.
+Se o banco já existia, o `migration up` aplica só o que falta, sem apagar dados.
 
-Inicie a interface:
+### 2. Contas fictícias (uma vez)
 
-```sh
-npm run dev -- --host 127.0.0.1 --port 5173
+O bloco cria sete contas fictícias, uma por papel, com senhas aleatórias. Os e-mails e as senhas ficam em `.verification/demo/credentials.env`, pasta que o Git ignora. Não compartilhe esse arquivo.
+
+```bash
+mkdir -p .verification/demo && umask 077
+for r in AREA_TECNICA REVISOR_TECNICO CAM GESTOR_UNIDADE GESTOR_DISTRITAL ADMINISTRADOR LIDERANCA; do
+  l=$(echo $r | tr 'A-Z_' 'a-z-')
+  echo "ACADEMIC_${r}_EMAIL=${l}@gratifiki-demo.invalid"
+  echo "ACADEMIC_${r}_PASSWORD=$(openssl rand -hex 12)"
+done > .verification/demo/credentials.env
+npx supabase status -o env > .verification/demo/status.env
+set -a; . .verification/demo/credentials.env; . .verification/demo/status.env; set +a
+SUPABASE_URL="$API_URL" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" npm run demo:academic
 ```
 
-Abra [http://127.0.0.1:5173](http://127.0.0.1:5173). O ambiente local mostra a tela de login, sem fornecer credenciais fictícias. Depois da autenticação, o perfil e o escopo vêm do vínculo autorizado da sessão.
+O comando termina com `Academic synthetic bootstrap complete`. Não rode este passo de novo depois de fechar um ciclo na interface, porque a repetição após o fechamento ainda tem uma falha conhecida.
 
-## Sete jornadas acadêmicas e baseline legada
+### 3. Interface
 
-- Área técnica: rascunho, envio, origem e correção versionada.
-- Revisor: assume revisão, aceita/devolve a revisão exata; não aprova a própria autoria.
-- CAM: checklist completo, retificação, indisponibilidade, consolidação, fechamento, publicação de demonstração separada e CSV/manifesto auditados.
-- Gestor de unidade: somente avaliação própria autorizada; gestor distrital: próprio versus unidades do território congelado.
-- Liderança: agregados definidos, sem detalhe pessoal/drill-down.
-- Administrador: metadados/vínculos, competências/atribuições e regras futuras; sem autoprivilégio, concessão de admin ou ato CAM.
-
-O seletor mostra contextos descobertos pelo servidor, nunca papéis livres. RPC/grants/RLS decidem autorização, transição e cálculo exato no banco. Zero, ausência, indisponibilidade e não aplicação são diferentes. Snapshot não é pagamento e publicação é explicitamente de demonstração. ML não participa do cálculo. As rotas legadas `#overview/#entries/#history` e o comando de duas contas abaixo continuam baseline histórica, não o fluxo acadêmico completo; `pendente` legado nunca significa aceite.
-
-## Provisionar demonstração acadêmica local
-
-Após instalar e iniciar um projeto local **separado**, aplique migrações aditivas com `npx supabase migration up --local`. Não use reset num banco em uso. Forneça por ambiente de processo protegido `SUPABASE_URL` loopback, `SUPABASE_SERVICE_ROLE_KEY` local e os pares `ACADEMIC_<PAPEL>_EMAIL/PASSWORD` listados em `.env.example`. Os sete emails são distintos e terminam `.invalid`; não publique nem digite senhas no histórico de comandos. O CLI não lê `.env.local` automaticamente e não aceita credenciais por argumentos.
-
-```sh
-npm run demo:academic
+```bash
+set -a; . .verification/demo/status.env; set +a
+VITE_SUPABASE_URL="$API_URL" VITE_SUPABASE_PUBLISHABLE_KEY="$PUBLISHABLE_KEY" VITE_RUNTIME_MODE=local \
+  npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
-O bootstrap existente cria sete papéis principais e três contas auxiliares sintéticas, com dois meses e posições, sem reset de histórico ou rotação de senhas. A repetição após fechamento está pendente de correção, conforme o estado acima. Ele recusa remoto e identidades não sintéticas antes de requests. Não há serviço de inscrição pública ou operação Auth na interface administrativa. Não execute contra o banco de uso para repetir testes; use os gates descartáveis a seguir.
+Abra [http://127.0.0.1:5173](http://127.0.0.1:5173) e entre com um dos e-mails de `.verification/demo/credentials.env`. Cada papel abre as próprias telas:
 
-## Contas locais de demonstração
+- **Área técnica:** preenche e envia a unidade.
+- **Revisor técnico:** confere e aceita ou devolve cada item.
+- **CAM:** decide pendências, fecha e publica o mês.
+- **Gestor de unidade e gestor distrital:** veem a nota e como ela foi calculada.
+- **Liderança:** vê médias por distrito.
+- **Administrador:** cuida de vínculos e configurações.
 
-O comando `npm run demo:users` cria duas identidades locais: `area_tecnica` e `cam`, vinculadas ao escopo fictício do piloto. Configure no `.env.local` `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` local e as variáveis `DEMO_TECHNICAL_EMAIL`, `DEMO_TECHNICAL_PASSWORD`, `DEMO_CAM_EMAIL` e `DEMO_CAM_PASSWORD`. O script lê esse arquivo localmente; informe senhas somente nele. A chave administrativa nunca deve estar em variável `VITE_*`.
+As contas antigas do piloto (`npm run demo:users`) abrem o painel legado, com o visual anterior. Não as use para ver o MVP.
 
-Execute a criação de contas após iniciar o Supabase pela primeira vez ou quando precisar recriar as identidades. Não é necessário resetar o banco para usar a aplicação.
+Nas próximas vezes, basta rodar `npx supabase start` e o passo 3.
+
+## Regras de acesso
+
+O seletor mostra contextos descobertos pelo servidor, nunca papéis livres. RPC/grants/RLS decidem autorização, transição e cálculo exato no banco. Zero, ausência, indisponibilidade e não aplicação são diferentes. Snapshot não é pagamento e publicação é explicitamente de demonstração. ML não participa do cálculo. O cliente rejeita URL remota no modo local e chaves administrativas em qualquer modo. Não coloque `service_role`, `sb_secret_*`, senha ou segredo em `VITE_*`; esse prefixo é público. O cadastro público é negado em Auth (`enable_signup=false`).
 
 ## Verificação isolada: E2E e pgTAP
 
