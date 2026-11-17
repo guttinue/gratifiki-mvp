@@ -437,7 +437,7 @@ it('model-3 CAM: a position opened from Ciclo is not reopened by a later menu vi
  fireEvent.click(within(menu).getByRole('button',{name:'Ciclo e fechamento'}));
  expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
  fireEvent.click(within(menu).getByRole('button',{name:'Todas as entradas'}));
- expect(await screen.findByText('1 de 1 entradas')).toBeTruthy();
+ expect(await screen.findByText('1 entrada')).toBeTruthy();
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,50));});
  expect(screen.queryByText('Unidade sem este serviço.')).toBeNull();
  expect(calls.filter(name=>name==='get_position_detail')).toHaveLength(1);
@@ -450,6 +450,19 @@ it('model-3 technical area: the fill screen is the batch page, so no single-posi
  expect(screen.queryByRole('region',{name:'Correção versionada'})).toBeNull();
  expect(screen.queryByLabelText('Justificativa da correção')).toBeNull();
  expect((screen.getByRole('button',{name:'Enviar 0 itens'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('Conferir unidade opens the queue with that chip',async()=>{
+ openAcademicPage('painel');
+ const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+ const {client,calls}=rpc(()=>({items:Object.entries(units).map(([id,code])=>({...position,id:`pos-${id}`,escopoId:id,escopoCodigo:code,status:'enviada',revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'})),total:2,page:1,pageSize:100}));
+ render(<AcademicWorkspace client={client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Conferir unidade Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/conferencia');
+ const chips=await screen.findByRole('group',{name:'Filtrar por unidade'});
+ expect(within(chips).getByRole('button',{name:'Unidade Beta'}).getAttribute('aria-pressed')).toBe('true');
+ expect(within(chips).getByRole('button',{name:'Todas as unidades'}).getAttribute('aria-pressed')).toBe('false');
+ expect(screen.getAllByRole('row').slice(1).map(line=>line.querySelector('.row-link strong')?.textContent)).toEqual(['Unidade Beta']);
+ for(const name of ['start_position_review','review_position'])expect(calls).not.toContain(name);
 });
 it('model-3 reviewer: the Conferência page mounts the tabbed queue; a model-2 reviewer keeps the paged queue',async()=>{
  openAcademicPage('conferencia');

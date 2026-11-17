@@ -151,29 +151,36 @@ describe('AcademicV3Dashboard', () => {
     expect(onOpenHistory).toHaveBeenCalled();
   });
 
-  it('tells the reviewer the first waiting entry and opens it', async () => {
-    const onOpenPosition = vi.fn();const onNavigate = vi.fn();
+  // RV-01 to RV-04 (the old "first waiting entry" test went with the Próximo passo it checked, RV-02).
+  it('reviewer to-dos list waiting and in-review entries', async () => {
+    const onOpenPosition = vi.fn();const onOpenUnit = vi.fn();
     const { client, calls } = unitClient({ 'alfa:1': 'enviada', 'beta:0': 'em_revisao' });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={onNavigate} onOpenPosition={onOpenPosition} />);
-    expect(await screen.findByRole('heading', { name: '2 entradas aguardam sua conferência' })).toBeTruthy();
-    expect(screen.getByText('Próximo passo')).toBeTruthy();
-    expect(screen.getByText('A primeira da fila é Unidade Alfa · Rotinas concluídas.')).toBeTruthy();
-    expect(calls.some(call => call.name === 'get_unit_batch')).toBe(false);
-    const action = screen.getByRole('button', { name: 'Conferir agora' });
-    expect(action.className).toContain('primary');
-    fireEvent.click(action);
+    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={vi.fn()} onOpenPosition={onOpenPosition} onOpenUnit={onOpenUnit} />);
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getAllByRole('listitem').map(item => [item.querySelector('strong')!.textContent, item.querySelector('.todo-txt span')!.textContent])).toEqual([
+      ['Conferir Unidade Alfa · DEMO-V1-02 Rotinas concluídas', 'Aguardando conferência'],
+      ['Conferir Unidade Beta · DEMO-V1-01 Registros conferidos', 'Em conferência']]);
+    const stages = screen.getByRole('region', { name: 'Etapas do fluxo' });
+    const count = (label: string) => within(stages).getByText(label).closest('.tile')!.querySelector('.tile-n')!.textContent;
+    expect(['Com a área técnica', 'Para conferir', 'Em conferência', 'Devolvidas', 'Aceitas'].map(count)).toEqual(['0', '1', '1', '0', '6']);
+    fireEvent.click(within(todo).getByRole('button', { name: 'Conferir DEMO-V1-02 · Unidade Alfa' }));
     expect(onOpenPosition).toHaveBeenCalledWith('alfa-1');
-    expect(onNavigate).not.toHaveBeenCalled();
-    const table = screen.getByRole('region', { name: 'Situação por unidade' });
-    expect(within(table).queryByRole('button', { name: /Abrir/ })).toBeNull();
-    expect(screen.queryByRole('region', { name: 'Pendências por aba' })).toBeNull();
+    const units = screen.getByRole('region', { name: 'Unidades do distrito' });
+    const beta = within(units).getAllByRole('article')[1];
+    expect(beta.textContent).toContain('3 de 4 aceitas');
+    expect(within(beta).getByText('1 para conferir')).toBeTruthy();
+    fireEvent.click(within(units).getByRole('button', { name: 'Conferir unidade Unidade Beta' }));
+    expect(onOpenUnit).toHaveBeenCalledWith('beta');
+    expect(screen.getByRole('complementary', { name: 'Atividade recente' })).toBeTruthy();
+    for (const name of ['get_unit_batch', 'start_position_review', 'review_position']) expect(calls.map(call => call.name)).not.toContain(name);
   });
 
   it('shows the reviewer an empty queue', async () => {
     const { client } = unitClient({});
-    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={vi.fn()} />);
-    expect(await screen.findByRole('heading', { name: 'Nada aguardando você' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Conferir agora' })).toBeNull();
+    render(<AcademicV3Dashboard client={client} group={unitGroup('revisor_tecnico')} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
+    expect(await screen.findByText('Nada aguardando você.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Conferir / })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Ver entradas Unidade Alfa' })).toBeTruthy();
   });
 
   it('CAM painel shows steps, numbers, blockers and a read-only closing panel', async () => {

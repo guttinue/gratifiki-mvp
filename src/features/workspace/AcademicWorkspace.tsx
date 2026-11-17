@@ -219,7 +219,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
      }} /> : <p>Esta posição não está disponível para editar rascunho.</p>}
    </section>}
   </section>}
-  {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
+  {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} initialUnitId={unitRequest?.unitId} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
   {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={openPosition} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
