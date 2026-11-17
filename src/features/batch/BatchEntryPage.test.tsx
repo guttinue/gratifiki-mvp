@@ -51,7 +51,7 @@ function rpc(handler: (call: Call) => Response | undefined = () => undefined) {
   } } });
   return { client, calls };
 }
-const card = (code: string) => screen.getByRole('region', { name: new RegExp(code) });
+const card = (code: string) => screen.getByRole('rowgroup', { name: new RegExp(`^${code} ·`) });
 async function open() {
   const view = rpc();
   render(<BatchEntryPage client={view.client} group={group} />);
@@ -62,7 +62,7 @@ async function open() {
 describe('BatchEntryPage', () => {
   it('lists one card per indicator of the unit, counts 1 ready (01 = 90) and enables the send button', async () => {
     const { calls } = await open();
-    expect(screen.getAllByRole('region', { name: /DEMO-V1/ }).length).toBe(4);
+    expect(screen.getAllByRole('rowgroup', { name: /^DEMO-V1/ }).length).toBe(4);
     expect(screen.getByText('1 pronto para envio')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Enviar 1 item' }) as HTMLButtonElement).disabled).toBe(false);
     const batchCall = calls.find(c => c.name === 'get_unit_batch')!;
@@ -73,9 +73,9 @@ describe('BatchEntryPage', () => {
   it('shows the fixed copy of the three situations as a radio group and the unit selector', async () => {
     await open();
     const situation = within(card('DEMO-V1-01')).getByRole('radiogroup', { name: 'Situação do dado' });
-    expect(within(situation).getAllByRole('radio').map(r => (r as HTMLInputElement).labels?.[0].textContent)).toEqual(['Tenho o valor', 'Não se aplica', 'Indisponível']);
-    expect((within(situation).getByRole('radio', { name: 'Tenho o valor' }) as HTMLInputElement).checked).toBe(true);
-    expect(within(screen.getByRole('navigation', { name: 'Unidades' })).getByRole('button', { name: /^Unidade Alfa/ })).toBeTruthy();
+    expect(within(situation).getAllByRole('radio').map(r => (r as HTMLInputElement).labels?.[0].textContent)).toEqual(['Valor', 'Não se aplica', 'Indisponível']);
+    expect((within(situation).getByRole('radio', { name: 'Valor' }) as HTMLInputElement).checked).toBe(true);
+    expect(within(screen.getByRole('tablist', { name: 'Unidades do seu escopo' })).getByRole('tab', { name: /^Unidade Alfa/ })).toBeTruthy();
   });
 
   it('shows the live points as a preview with the server rounding (88 → 27,79 and 90 → 28,42)', async () => {
@@ -84,7 +84,7 @@ describe('BatchEntryPage', () => {
     expect(within(first).getByText('28,42')).toBeTruthy();
     fireEvent.change(within(first).getByLabelText('Valor apurado'), { target: { value: '88' } });
     expect(within(first).getByText('27,79')).toBeTruthy();
-    expect(within(first).getByText(/prévia/i)).toBeTruthy();
+    expect(screen.getByText('Prévia da unidade')).toBeTruthy();
     expect(within(first).getByText('min(88 ÷ 95; 1) × 30')).toBeTruthy();
   });
 
@@ -270,7 +270,8 @@ describe('BatchEntryPage', () => {
     const view = rpc();
     render(<BatchEntryPage client={view.client} group={closed} />);
     await screen.findByText(/DEMO-V1-01/);
-    expect(screen.getByText(/somente consulta/i)).toBeTruthy();
+    expect(screen.getByText('Somente consulta.').parentElement!.textContent).toBe('Somente consulta. A CAM está consolidando outubro. Para corrigir algo, a CAM precisa retornar a competência para aberta.');
+    expect(screen.getByText('somente consulta')).toBeTruthy();
     expect(screen.queryByLabelText('Valor apurado')).toBeNull();
     expect(screen.queryByRole('button', { name: /^Enviar/ })).toBeNull();
   });
@@ -299,7 +300,7 @@ describe('BatchEntryPage', () => {
     });
     render(<BatchEntryPage client={view.client} group={group} />);
     expect((await screen.findByRole('alert')).textContent).toContain('indicadores da unidade');
-    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Beta/ }));
     await screen.findByText(/DEMO-V1-01/);
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -316,9 +317,9 @@ describe('BatchEntryPage', () => {
       ? new Response(JSON.stringify({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } }) : undefined);
     render(<BatchEntryPage client={view.client} group={group} />);
     await screen.findByText(/DEMO-V1-01/);
-    const list = within(screen.getByRole('navigation', { name: 'Unidades' })).getAllByRole('button');
-    expect(list.map(button => button.querySelector('b')?.textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
-    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
+    const list = within(screen.getByRole('tablist', { name: 'Unidades do seu escopo' })).getAllByRole('tab');
+    expect(list.map(tab => tab.querySelector('.ut-name')?.textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Beta/ }));
     await waitFor(() => expect(view.calls.filter(c => c.name === 'get_unit_batch').at(-1)!.body.p_unidade_id).toBe('beta'));
     expect(view.calls.filter(c => c.name === 'get_unit_batch').at(-1)!.body.p_contextos.map((c) => c.indicadorId)).toEqual(['indicator-1']);
   });
@@ -334,13 +335,13 @@ describe('BatchEntryPage', () => {
     });
     render(<BatchEntryPage client={view.client} group={group} initialUnitId="beta" />);
     expect(await screen.findByRole('heading', { name: 'Unidade Beta', level: 3 })).toBeTruthy();
-    expect(screen.getByText('Outubro/2026 · regra fictícia DEMO-v1')).toBeTruthy();
+    expect(screen.getByText('1 item editável')).toBeTruthy();
     expect(view.calls.filter(c => c.name === 'get_unit_batch').map(c => c.body.p_unidade_id)).toEqual(['beta']);
     // Enviados = enviada, em revisão e validada (02 and 04 of Alfa).
-    const alfa = screen.getByRole('button', { name: 'Unidade Alfa 2 de 4 enviados · 1 devolvida' });
-    const beta = screen.getByRole('button', { name: 'Unidade Beta 0 de 1 enviados' });
-    expect(beta.getAttribute('aria-pressed')).toBe('true');
-    expect(alfa.getAttribute('aria-pressed')).toBe('false');
+    const alfa = screen.getByRole('tab', { name: 'Unidade Alfa 2 de 4 enviados · 1 devolvida' });
+    const beta = screen.getByRole('tab', { name: 'Unidade Beta 0 de 1 enviados' });
+    expect(beta.getAttribute('aria-selected')).toBe('true');
+    expect(alfa.getAttribute('aria-selected')).toBe('false');
     expect(within(card('DEMO-V1-01')).getByText('Não enviado').className).toContain('v3-st-ausente');
     expect(screen.getByRole('button', { name: 'Enviar 0 itens' }).className).toContain('primary');
     expect(screen.queryByRole('heading', { name: 'Preenchimento da unidade' })).toBeNull();
@@ -359,7 +360,7 @@ describe('BatchEntryPage', () => {
     render(<BatchEntryPage client={view.client} group={group} />);
     await screen.findByText(/DEMO-V1-01/);
     fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '91' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Unidade Beta/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Beta/ }));
     expect(await screen.findByRole('heading', { name: 'Unidade Beta', level: 3 })).toBeTruthy();
     fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '80' } });
     fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Fonte do dado'), { target: { value: 'Relatório Beta' } });
@@ -367,7 +368,7 @@ describe('BatchEntryPage', () => {
     expect(await screen.findByText('1 item enviado para conferência.')).toBeTruthy();
     const submit = view.calls.find(c => c.name === 'submit_unit_batch')!;
     expect(submit.body.p_itens.map(item => item.positionId)).toEqual(['position-5']);
-    fireEvent.click(screen.getByRole('button', { name: /^Unidade Alfa/ }));
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Alfa/ }));
     expect(await screen.findByRole('heading', { name: 'Unidade Alfa', level: 3 })).toBeTruthy();
     expect((within(card('DEMO-V1-01')).getByLabelText('Valor apurado') as HTMLInputElement).value).toBe('91');
   });
@@ -417,7 +418,80 @@ describe('BatchEntryPage', () => {
     await screen.findByText(/DEMO-V1-01/);
     fireEvent.click(within(card('DEMO-V1-01')).getByRole('radio', { name: 'Indisponível' }));
     expect(within(card('DEMO-V1-01')).getByText('Indisponível ou não se aplica não pontua; o peso é redistribuído entre os demais indicadores, após decisão da CAM.')).toBeTruthy();
-    expect(screen.queryByText(/vira zero/)).toBeNull();
+    expect(within(card('DEMO-V1-01')).queryByText(/vira zero/)).toBeNull();
+  });
+  // AT-05 to AT-11: unit tabs, dense table, focus request, sticky footer and error summary.
+  const twoUnits = (call: Call) => call.name === 'get_operational_positions' && call.body.p_contexto.indicadorId === 'indicator-1'
+    ? new Response(JSON.stringify({ items: [summary(1, 'rascunho'), { ...summary(5, 'ausente'), escopoId: 'beta', escopoCodigo: 'ACADEMIC-NORTE-2' }], total: 2, page: 1, pageSize: 100 }), { headers: { 'content-type': 'application/json' } })
+    : undefined;
+
+  it('unit tabs show progress and follow arrow keys', async () => {
+    const view = rpc(twoUnits);
+    render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    const alfa = screen.getByRole('tab', { name: /^Unidade Alfa 2 de 4 enviados · 1 devolvida/ });
+    expect(alfa.getAttribute('aria-selected')).toBe('true');
+    expect(alfa.getAttribute('aria-controls')).toBe('batch-panel');
+    expect(screen.getByRole('tabpanel').id).toBe('batch-panel');
+    alfa.focus();
+    fireEvent.keyDown(alfa, { key: 'ArrowRight' });
+    const beta = screen.getByRole('tab', { name: /^Unidade Beta/ });
+    expect(beta.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(beta);
+    await waitFor(() => expect(view.calls.filter(c => c.name === 'get_unit_batch').at(-1)!.body.p_unidade_id).toBe('beta'));
+    fireEvent.keyDown(beta, { key: 'Home' });
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Unidade Alfa/ }));
+    fireEvent.keyDown(document.activeElement!, { key: 'End' });
+    expect(document.activeElement).toBe(screen.getByRole('tab', { name: /^Unidade Beta/ }));
+  });
+
+  it('each indicator is a named row group with a segmented situation', async () => {
+    await open();
+    const row = screen.getByRole('rowgroup', { name: /^DEMO-V1-01 · Registros conferidos/ });
+    for (const name of ['Valor', 'Não se aplica', 'Indisponível']) expect(within(row).getByRole('radio', { name })).toBeTruthy();
+    expect(within(row).getByLabelText('Valor apurado')).toBeTruthy();
+    expect(screen.getByRole('table', { name: 'Indicadores de Unidade Alfa em Outubro/2026' })).toBeTruthy();
+    expect(within(card('DEMO-V1-03')).getByText('Devolvida pelo revisor técnico.')).toBeTruthy();
+    expect(card('DEMO-V1-03').className).toContain('is-ret');
+    expect(card('DEMO-V1-02').className).toContain('is-locked');
+    expect(screen.getByRole('complementary', { name: 'Dicas rápidas' }).querySelectorAll('li')).toHaveLength(6);
+  });
+
+  it('focuses the requested field after loading', async () => {
+    const view = rpc();
+    render(<BatchEntryPage client={view.client} group={group} initialUnitId="alfa" initialFocus={{ positionId: 'position-3', field: 'explicacao' }} />);
+    await screen.findByText(/DEMO-V1-01/);
+    await waitFor(() => expect(document.activeElement).toBe(within(card('DEMO-V1-03')).getByLabelText('O que você corrigiu?')));
+  });
+
+  it('sticky footer sums the unit preview and sends N items', async () => {
+    const { calls } = await open();
+    // 01 = 90 → 28,42; locked 02 (20 of 20) → 25,00; returned 03 (96 h, max 48) → 12,50; accepted 04 → 20,00.
+    expect(screen.getByText('Prévia da unidade').parentElement!.textContent).toContain('85,92 / 100');
+    fireEvent.click(screen.getByRole('button', { name: 'Enviar 1 item' }));
+    await screen.findByText('1 item enviado para conferência.');
+    const sent = calls.filter(c => c.name === 'submit_unit_batch');
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.p_itens).toHaveLength(1);
+  });
+
+  it('error summary blocks sending', async () => {
+    await open();
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '90,123' } });
+    expect(screen.getByRole('alert').textContent).toContain('1 campo precisa de correção. Nada foi enviado.');
+    expect((screen.getByRole('button', { name: /^Enviar/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('switching unit with an unsaved edit asks first', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const view = rpc(twoUnits);
+    render(<NavigationSafety><BatchEntryPage client={view.client} group={group} /></NavigationSafety>);
+    await screen.findByText(/DEMO-V1-01/);
+    fireEvent.change(within(card('DEMO-V1-01')).getByLabelText('Valor apurado'), { target: { value: '91' } });
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Beta/ }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('tab', { name: /^Unidade Alfa/ }).getAttribute('aria-selected')).toBe('true');
+    expect((within(card('DEMO-V1-01')).getByLabelText('Valor apurado') as HTMLInputElement).value).toBe('91');
+    expect(view.calls.filter(c => c.name === 'get_unit_batch').map(c => c.body.p_unidade_id)).toEqual(['alfa']);
   });
 });
-

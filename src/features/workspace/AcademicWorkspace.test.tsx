@@ -246,7 +246,7 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
  fireEvent.click(card);
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
- expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('tab',{name:/^Unidade Beta/}).getAttribute('aria-selected')).toBe('true');
  expect(batches).toEqual(['beta']);
  // The painel's unit applies to that visit only: a later menu visit opens the first unit.
  const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
@@ -273,7 +273,9 @@ it('Corrigir lands on Preenchimento with that unit',async()=>{
  fireEvent.click(await screen.findByRole('button',{name:'Corrigir DEMO-V1-01 · Unidade Beta'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
- expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('tab',{name:/^Unidade Beta/}).getAttribute('aria-selected')).toBe('true');
+ // Corrigir focuses the correction field of the returned item.
+ await waitFor(()=>expect(document.activeElement).toBe(screen.getByLabelText('O que você corrigiu?')));
  for(const name of ['save_position_draft','submit_unit_batch','start_position_review'])expect(calls).not.toContain(name);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
