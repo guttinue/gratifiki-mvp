@@ -2125,6 +2125,7 @@ td code,
 .academic-app .tile-sub { color: var(--muted); font-size: 12px; }
 .academic-app .dash { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
 @media (min-width: 1200px) { .academic-app .dash { grid-template-columns: minmax(0, 1fr) 300px; } }
+.academic-app .stack { display: grid; gap: 24px; min-width: 0; }
 .academic-app .todo { margin: 0; padding: 0; list-style: none; }
 .academic-app .todo li { display: flex; align-items: center; gap: 16px; margin: 0; padding: 12px 16px; border-top: 1px solid var(--line); }
 .academic-app .todo li:first-child { border-top: 0; }

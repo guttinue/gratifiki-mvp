@@ -10,8 +10,10 @@ import { loadDashboard } from './academicDashboardApi';
 import { listPositions } from '../submission/positionApi';
 import { loadCycleChecklist } from '../cycle/cycleApi';
 import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
-import { loadUnitBatch } from '../batch/batchApi';
-import { competenceStateLabels, monthName, publicationLabels, scopeName } from './displayNames';
+import { loadUnitBatch, type UnitBatch } from '../batch/batchApi';
+import { competenceStateLabels, countByStatus, plural, publicationLabels, scopeName } from './displayNames';
+import { formatDecimal } from '../pilot/decimal';
+import { ActivityFeed, StackBar, StageTiles, TodoList, UnitCard } from './v4Parts';
 import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
 type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
 export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
@@ -26,19 +28,20 @@ function ContextDashboard({client,context}:AcademicDashboardProps){
 }
 
 // ---- Model 3 (V3): one dashboard per role over the whole group of indicators ----
-type V3Data={kind:'positions';rows:GroupPosition[];returnReason:string|null}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
+type V3Data={kind:'positions';rows:GroupPosition[];batches:Map<string,UnitBatch>}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
 const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
 const byUnitAndIndicator=(a:GroupPosition,b:GroupPosition)=>compare(a.position.escopoCodigo,b.position.escopoCodigo)||compare(a.position.indicatorCode??'',b.position.indicatorCode??'');
-// Each position keeps the context that listed it. For the technical area, the reason of the
-// first returned one comes from its unit's batch, read with that unit's contexts only.
+const pending=(status:string)=>status==='devolvida'||status==='rascunho'||status==='ausente';
+// Each position keeps the context that listed it. For the technical area, every unit with a to-do
+// has its batch read (reason, goal, saved value) with that unit's contexts only, in parallel.
 async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Promise<V3Data>{
  const rows=(await loadGroupPositions(client,group)).sort(byUnitAndIndicator);
- const returned=rows.find(row=>row.position.status==='devolvida');
- if(!returned||group.role!=='area_tecnica')return{kind:'positions',rows,returnReason:null};
- const unitId=returned.position.escopoId;
- // The reason is a hint here; without it the step still points at the correction.
- const returnReason=await loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
- return{kind:'positions',rows,returnReason};
+ const batches=new Map<string,UnitBatch>();
+ if(group.role!=='area_tecnica')return{kind:'positions',rows,batches};
+ const units=[...new Set(rows.filter(row=>pending(row.position.status)).map(row=>row.position.escopoId))];
+ // The batch is detail here: a failed one leaves its to-dos without the sub-line.
+ await Promise.all(units.map(unitId=>loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>{batches.set(unitId,batch);},()=>undefined)));
+ return{kind:'positions',rows,batches};
 }
 function NextStep({kicker,title,text,action,alert}:{kicker:string;title:string;text:string;action?:{label:string;go:()=>void};alert?:boolean}){
  return <section className={alert?'v3-next v3-next-alert':'v3-next'}><div><span className="v3-kicker">{kicker}</span><h3>{title}</h3><p>{text}</p></div>{action&&<button type="button" className="primary" onClick={action.go}>{action.label}</button>}</section>;
@@ -57,29 +60,55 @@ export function UnitStatusTable({rows,onOpenUnit}:{rows:GroupPosition[];onOpenUn
     {onOpenUnit&&<td className="r"><button type="button" aria-label={`Abrir ${scopeName(code)}`} onClick={()=>onOpenUnit(id)}>Abrir</button></td>}</tr>;})}</tbody>
  </table></div></section>;
 }
-type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string)=>void;onOpenPosition?:(id:string)=>void};
+export type UnitFocus={positionId:string;field:'valor'|'explicacao'};
+type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string,focus?:UnitFocus)=>void;onOpenPosition?:(id:string)=>void;onOpenHistory?:()=>void};
 export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDashboard key={props.group.key} {...props}/>;}
-function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition}:GroupDashboardProps){
+function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition,onOpenHistory}:GroupDashboardProps){
  const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
  useEffect(()=>{let current=true;setData(null);setError(false);
   const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group)]).then(([checklist,rows]):V3Data=>({kind:'cycle',checklist,rows})):loadPanelPositions(client,group);
   void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
- const openUnit=(unitId:string)=>onOpenUnit?onOpenUnit(unitId):onNavigate('preenchimento');
+ const openUnit=onOpenUnit??(()=>onNavigate('preenchimento'));
  const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
  return <section aria-label="Painel autorizado" className="v3-page">
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
   :data.kind==='cycle'?<CamPanel checklist={data.checklist} rows={data.rows} onNavigate={onNavigate} onOpenPosition={openPosition}/>
-  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
+  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} client={client} group={group} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
 }
-function TechnicalPanel({data,competence,onOpenUnit}:{data:Extract<V3Data,{kind:'positions'}>;competence:string;onOpenUnit:(unitId:string)=>void}){
- const returned=data.rows.find(({position})=>position.status==='devolvida')?.position;
- const todo=data.rows.filter(({position})=>position.status==='ausente'||position.status==='rascunho');
- const next=todo[0]?.position;
- return <>{returned?<NextStep alert kicker="Devolvida pelo revisor" title={`Corrigir ${scopeName(returned.escopoCodigo)} · ${returned.indicatorName??returned.indicatorCode??''}`} text={data.returnReason??'Abra o preenchimento para ver o motivo.'} action={{label:'Abrir correção',go:()=>onOpenUnit(returned.escopoId)}}/>
-  :next?<NextStep kicker="Próximo passo" title={`Preencher ${scopeName(next.escopoCodigo)}`} text={`${todo.length} de ${data.rows.length} indicadores ainda não foram enviados.`} action={{label:'Abrir preenchimento',go:()=>onOpenUnit(next.escopoId)}}/>
-  :<NextStep kicker="Tudo enviado" title={`Seus indicadores de ${monthName(competence)} estão com o revisor`} text="Se algum for devolvido, ele volta para o preenchimento com o motivo."/>}
-  <UnitStatusTable rows={data.rows} onOpenUnit={onOpenUnit}/></>;
+// AT-01 to AT-04: the flow stages, the to-dos of the open month, one card per unit and the recent activity.
+function TechnicalPanel({data,client,group,onOpenUnit,onOpenHistory}:{data:Extract<V3Data,{kind:'positions'}>;client:SupabaseClient;group:ContextGroup;onOpenUnit:(unitId:string,focus?:UnitFocus)=>void;onOpenHistory?:()=>void}){
+ const c=countByStatus(data.rows);
+ const item=(position:PositionSummary)=>data.batches.get(position.escopoId)?.items.find(i=>i.positionId===position.id);
+ const target=(position:PositionSummary)=>`${scopeName(position.escopoCodigo)} · ${position.indicatorCode??''} ${position.indicatorName??''}`.trim();
+ const unitText=(unit:string|null)=>unit?` ${unit}`:'';
+ const go=(position:PositionSummary,field:UnitFocus['field'])=>()=>onOpenUnit(position.escopoId,{positionId:position.id,field});
+ const having=(status:string)=>data.rows.map(row=>row.position).filter(position=>position.status===status);
+ const todos=group.contexts[0].competenciaEstado!=='aberta'?[]:[
+  ...having('devolvida').map(position=>{const i=item(position);return{tone:'bad' as const,title:`Corrigir ${target(position)}`,
+   sub:i&&(i.returnReason?`Devolvida pelo revisor técnico: ${i.returnReason}`:'Devolvida pelo revisor técnico.'),action:{label:'Corrigir',onClick:go(position,'explicacao')}};}),
+  ...having('rascunho').map(position=>{const i=item(position);return{tone:'info' as const,title:`Enviar o rascunho de ${target(position)}`,
+   // A draft can hold no number (unavailable data): then only its state is said.
+   sub:i&&(i.valor!==null?`Valor salvo: ${formatDecimal(i.valor)}${unitText(i.unit)}. Ainda não está com o revisor.`:'Ainda não está com o revisor.'),action:{label:'Revisar e enviar',onClick:go(position,'valor')}};}),
+  ...having('ausente').map(position=>{const i=item(position);return{tone:'neutral' as const,title:`Preencher ${target(position)}`,
+   sub:i&&`Meta: ${i.direction==='maior_melhor'?'no mínimo':'no máximo'} ${formatDecimal(i.meta)}${unitText(i.unit)}`,action:{label:'Preencher',onClick:go(position,'valor')}};}),
+ ];
+ const units=[...new Map(data.rows.map(({position})=>[position.escopoId,position.escopoCodigo])).entries()];
+ return <><StageTiles label="Etapas do fluxo" tiles={[
+   {label:'Não enviados',value:c.ausente,sub:'ainda sem valor',tone:'neutral'},
+   {label:'Rascunhos',value:c.rascunho,sub:'salvos, não enviados',tone:'info'},
+   {label:'Devolvidas',value:c.devolvida,sub:c.devolvida?'precisam de correção':'nenhuma pendente',tone:'bad'},
+   {label:'Em conferência',value:c.enviada+c.em_revisao,sub:`${c.enviada} aguardando · ${c.em_revisao} em análise`,tone:'warn'},
+   {label:'Aceitas',value:c.validada,sub:`de ${c.total} do seu escopo`,tone:'ok'}]}/>
+  <div className="dash"><div className="stack">
+   <TodoList title="Para fazer" items={todos} empty={<><strong>Nada pendente com você.</strong><span>Se algo for devolvido, aparece aqui com o motivo.</span></>}/>
+   <section className="block" aria-labelledby="units-title"><div className="block-head"><h3 id="units-title">Suas unidades</h3></div><div className="cards">
+    {units.map(([id,code])=>{const u=countByStatus(data.rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);
+     return <UnitCard key={id} title={name} badge={u.devolvida>0&&<span className="v3-badge v3-st-devolvida">{plural(u.devolvida,'devolvida','devolvidas')}</span>}
+      big={<>{u.enviada+u.em_revisao+u.validada} <small>de {u.total} enviados</small></>} bar={<StackBar counts={u}/>}
+      foot={`${u.validada} aceitas · ${u.enviada+u.em_revisao} com o revisor`} action={{label:'Abrir preenchimento',ariaLabel:`Abrir preenchimento ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+   </div></section></div>
+  <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
 // "First in the queue", not "oldest": PositionSummary carries no submission date.
 function ReviewerPanel({rows,onOpenPosition}:{rows:GroupPosition[];onOpenPosition:(id:string)=>void}){

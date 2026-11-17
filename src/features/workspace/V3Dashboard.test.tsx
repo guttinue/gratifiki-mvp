@@ -16,7 +16,7 @@ const indicators = [['DEMO-V1-01', 'Registros conferidos'], ['DEMO-V1-02', 'Roti
 const units = [['beta', 'ACADEMIC-NORTE-2'], ['alfa', 'ACADEMIC-NORTE-1']];
 function unitGroup(role: Role) {
   return groupContexts(units.flatMap(([id, code]) => indicators.map((_, n): AuthorizedContext =>
-    ({ ...v3Context, role, key: `${id}-${n}`, vinculoId: `link-${id}-${n}`, indicadorId: `ind-${9 - n}`, escopoId: id, escopoCodigo: code }))))[0];
+    ({ ...v3Context, role, key: `${id}-${n}`, vinculoId: `link-${id}-${n}`, indicadorId: `ind-${9 - n}`, escopoId: id, escopoCodigo: code, competenciaEstado: 'aberta' }))))[0];
 }
 const unitCode = (id: string) => units.find(unit => unit[0] === id)![1];
 // statuses: `${unit}:${indicator index}` → status; every other position has `fallback`.
@@ -34,7 +34,7 @@ function unitClient(statuses: Record<string, string>, fallback = 'validada', rea
     if (name === 'get_unit_batch' && reason !== false) {
       const unit = body.p_unidade_id as string;
       return { unitId: unit, unitCode: unitCode(unit), mode: 'zero', items: indicators.map(([code, label], n) => ({ positionId: `${unit}-${n}`, indicatorCode: code, name: label,
-        meta: '10', direction: 'maior_melhor', weight: '25', decimals: 0, max: '100', unit: null, status: status(unit, n), version: 1, estadoDado: null, valor: null, fonte: null,
+        meta: '10', direction: 'maior_melhor', weight: '25', decimals: 0, max: '100', unit: null, status: status(unit, n), version: 1, estadoDado: null, valor: status(unit, n) === 'rascunho' ? '12.5' : null, fonte: null,
         motivo: null, periodoFonte: null, returnReason: status(unit, n) === 'devolvida' ? reason : null, revisionNumber: null })) };
     }
     return {};
@@ -44,71 +44,106 @@ const checklist = { version: 3, state: 'aberta', expected: 16, received: 10, rev
   canConsolidate: false, canClose: false, snapshotId: null, publication: 'nao_publicada', publicationId: null, ready: 9, blockers: [{ positionId: 'p', code: 'missing_submission', message: 'Envio ausente.' }] };
 
 describe('AcademicV3Dashboard', () => {
-  it('names the returned unit, indicator and reason and opens that unit', async () => {
-    const onOpenUnit = vi.fn();
-    const { client, calls } = unitClient({ 'alfa:2': 'devolvida', 'beta:0': 'ausente' });
+  // Alfa: 01 rascunho, 02 enviada, 03 devolvida, 04 em revisão; Beta: 02 não enviado, the rest accepted.
+  const flow = { 'alfa:0': 'rascunho', 'alfa:1': 'enviada', 'alfa:2': 'devolvida', 'alfa:3': 'em_revisao', 'beta:1': 'ausente' };
+  const technical = (client: ReturnType<typeof unitClient>['client'], onOpenUnit = vi.fn()) =>
     render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={onOpenUnit} />);
-    expect(await screen.findByRole('heading', { name: 'Corrigir Unidade Alfa · Tempo de resposta' })).toBeTruthy();
-    expect(screen.getByText('Devolvida pelo revisor')).toBeTruthy();
-    expect(screen.getByText('A fonte informada é de setembro.')).toBeTruthy();
-    // Every read carries one context: one list per context, and the reason read only the returned unit's contexts.
-    const lists = calls.filter(call => call.name === 'get_operational_positions');
-    expect(new Set(lists.map(call => (call.body.p_contexto as { vinculoId: string }).vinculoId)).size).toBe(8);
-    const batch = calls.filter(call => call.name === 'get_unit_batch');
-    expect(batch).toHaveLength(1);
-    expect(batch[0].body.p_unidade_id).toBe('alfa');
-    expect((batch[0].body.p_contextos as { vinculoId: string }[]).map(c => c.vinculoId).sort()).toEqual(['link-alfa-0', 'link-alfa-1', 'link-alfa-2', 'link-alfa-3']);
-    expect(calls.some(call => call.name === 'get_dashboard')).toBe(false);
-    const action = screen.getByRole('button', { name: 'Abrir correção' });
-    expect(action.className).toContain('primary');
-    fireEvent.click(action);
-    expect(onOpenUnit).toHaveBeenCalledWith('alfa');
-    expect(screen.queryByRole('heading', { name: 'Painel' })).toBeNull();
+
+  it('counts the five stages of the technical flow', async () => {
+    technical(unitClient(flow).client);
+    const stages = await screen.findByRole('region', { name: 'Etapas do fluxo' });
+    const tile = (label: string) => within(stages).getByText(label).closest('.tile')!;
+    expect(tile('Não enviados').textContent).toBe('Não enviados1ainda sem valor');
+    expect(tile('Rascunhos').textContent).toBe('Rascunhos1salvos, não enviados');
+    expect(tile('Devolvidas').textContent).toBe('Devolvidas1precisam de correção');
+    expect(tile('Em conferência').textContent).toBe('Em conferência21 aguardando · 1 em análise');
+    expect(tile('Aceitas').textContent).toBe('Aceitas3de 8 do seu escopo');
   });
 
-  it('keeps the correction step when the return reason cannot be read', async () => {
-    const { client } = unitClient({ 'beta:1': 'devolvida' }, 'validada', false);
-    render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
-    expect(await screen.findByRole('heading', { name: 'Corrigir Unidade Beta · Rotinas concluídas' })).toBeTruthy();
-    expect(screen.getByText('Abra o preenchimento para ver o motivo.')).toBeTruthy();
+  it('orders to-dos returned first, then drafts, then missing, and only the first is primary', async () => {
+    const { client, calls } = unitClient(flow);
+    technical(client);
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    const items = within(todo).getAllByRole('listitem');
+    expect(items.map(item => item.querySelector('strong')!.textContent)).toEqual([
+      'Corrigir Unidade Alfa · DEMO-V1-03 Tempo de resposta',
+      'Enviar o rascunho de Unidade Alfa · DEMO-V1-01 Registros conferidos',
+      'Preencher Unidade Beta · DEMO-V1-02 Rotinas concluídas',
+    ]);
+    expect(within(todo).getByText('Devolvida pelo revisor técnico: A fonte informada é de setembro.')).toBeTruthy();
+    expect(within(todo).getByText('Valor salvo: 12,5. Ainda não está com o revisor.')).toBeTruthy();
+    expect(within(todo).getByText('Meta: no mínimo 10')).toBeTruthy();
+    expect(within(todo).getAllByRole('button').map(button => [button.textContent, button.classList.contains('primary')]))
+      .toEqual([['Corrigir', true], ['Revisar e enviar', false], ['Preencher', false]]);
+    // One batch per unit with something to do, each read with that unit's contexts only.
+    const batches = calls.filter(call => call.name === 'get_unit_batch');
+    expect(batches.map(call => call.body.p_unidade_id).sort()).toEqual(['alfa', 'beta']);
+    for (const batch of batches) for (const context of batch.body.p_contextos as { vinculoId: string }[]) expect(context.vinculoId).toContain(`link-${batch.body.p_unidade_id as string}-`);
+  });
+
+  it('keeps the to-dos without their detail when a unit batch cannot be read', async () => {
+    technical(unitClient({ 'alfa:2': 'devolvida' }, 'validada', false).client);
+    const todo = await screen.findByRole('region', { name: 'Para fazer' });
+    expect(within(todo).getByText('Corrigir Unidade Alfa · DEMO-V1-03 Tempo de resposta')).toBeTruthy();
+    expect(within(todo).queryByText(/Devolvida pelo revisor/)).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
-  it('points at the first unit still to fill', async () => {
-    const onOpenUnit = vi.fn();
-    const { client, calls } = unitClient({ 'beta:0': 'ausente', 'beta:1': 'rascunho', 'alfa:3': 'ausente', 'alfa:0': 'enviada' });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={onOpenUnit} />);
-    expect(await screen.findByRole('heading', { name: 'Preencher Unidade Alfa' })).toBeTruthy();
-    expect(screen.getByText('Próximo passo')).toBeTruthy();
-    expect(screen.getByText('3 de 8 indicadores ainda não foram enviados.')).toBeTruthy();
-    expect(calls.some(call => call.name === 'get_unit_batch')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir preenchimento' }));
-    expect(onOpenUnit).toHaveBeenCalledWith('alfa');
+  it('says there is nothing to do when everything was sent, and lists no to-do outside the open month', async () => {
+    technical(unitClient({ 'alfa:0': 'enviada' }).client);
+    expect(await screen.findByText('Nada pendente com você.')).toBeTruthy();
+    expect(screen.getByText('Se algo for devolvido, aparece aqui com o motivo.')).toBeTruthy();
+    cleanup();
+    const closed = groupContexts(unitGroup('area_tecnica').contexts.map(context => ({ ...context, competenciaEstado: 'em_consolidacao' as const })))[0];
+    render(<AcademicV3Dashboard client={unitClient(flow).client} group={closed} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
+    expect(await screen.findByText('Nada pendente com você.')).toBeTruthy();
   });
 
-  it('shows the status of every unit and indicator', async () => {
+  it('Corrigir opens the fill screen on the correction field', async () => {
     const onOpenUnit = vi.fn();
-    const { client } = unitClient({ 'beta:0': 'ausente', 'beta:1': 'devolvida', 'beta:2': 'enviada' });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={onOpenUnit} />);
-    const table = await screen.findByRole('region', { name: 'Situação por unidade' });
-    expect(within(table).getByRole('heading', { name: 'Situação por unidade' })).toBeTruthy();
-    expect(within(table).getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Unidade', ...indicators.map(([code, label]) => `${code}${label}`), 'Aceitos', 'Ação']);
-    const rows = within(table).getAllByRole('row').slice(1);
-    expect(rows.map(row => within(row).getAllByRole('cell')[0].textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
-    const beta = rows[1];
-    expect(within(beta).getAllByRole('cell').map(cell => cell.textContent).slice(1, 6)).toEqual(['Não enviado', 'Devolvida', 'Aguardando conferência', 'Aceita', '1 de 4']);
-    expect(within(beta).getByText('Devolvida').className).toContain('v3-st-devolvida');
-    expect(within(rows[0]).getAllByRole('cell')[5].textContent).toBe('4 de 4');
-    fireEvent.click(within(table).getByRole('button', { name: 'Abrir Unidade Beta' }));
+    technical(unitClient(flow).client, onOpenUnit);
+    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir' }));
+    expect(onOpenUnit).toHaveBeenCalledWith('alfa', { positionId: 'alfa-2', field: 'explicacao' });
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e enviar' }));
+    expect(onOpenUnit).toHaveBeenLastCalledWith('alfa', { positionId: 'alfa-0', field: 'valor' });
+    fireEvent.click(screen.getByRole('button', { name: 'Preencher' }));
+    expect(onOpenUnit).toHaveBeenLastCalledWith('beta', { positionId: 'beta-1', field: 'valor' });
+  });
+
+  it('opening a to-do or a unit runs no command', async () => {
+    const { client, calls } = unitClient(flow);
+    technical(client);
+    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir preenchimento Unidade Beta' }));
+    for (const name of ['save_position_draft', 'submit_unit_batch', 'start_position_review', 'review_position']) expect(calls.map(call => call.name)).not.toContain(name);
+  });
+
+  it('shows one card per unit with progress and a stacked bar', async () => {
+    const onOpenUnit = vi.fn();
+    technical(unitClient({ 'alfa:0': 'rascunho', 'alfa:1': 'enviada', 'alfa:2': 'devolvida' }).client, onOpenUnit);
+    const units = await screen.findByRole('region', { name: 'Suas unidades' });
+    const cards = within(units).getAllByRole('article');
+    expect(cards.map(card => within(card).getByRole('heading', { level: 4 }).textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
+    const alfa = cards[0];
+    expect(alfa.textContent).toContain('2 de 4 enviados');
+    expect(within(alfa).getByText('1 devolvida')).toBeTruthy();
+    expect(within(alfa).getByRole('img', { name: /1 aceita/ }).getAttribute('aria-label')).toBe('1 aceita, 1 aguardando conferência, 1 devolvida, 1 rascunho');
+    expect(alfa.textContent).toContain('1 aceitas · 1 com o revisor');
+    expect(cards[1].textContent).toContain('4 de 4 enviados');
+    expect(within(cards[1]).queryByText(/devolvida/)).toBeNull();
+    fireEvent.click(within(units).getByRole('button', { name: 'Abrir preenchimento Unidade Beta' }));
     expect(onOpenUnit).toHaveBeenCalledWith('beta');
+    expect(screen.queryByRole('region', { name: 'Situação por unidade' })).toBeNull();
   });
 
-  it('confirms when the technical area has sent everything', async () => {
-    const { client } = unitClient({ 'alfa:0': 'enviada', 'beta:3': 'em_revisao' });
-    render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
-    expect(await screen.findByRole('heading', { name: 'Seus indicadores de outubro estão com o revisor' })).toBeTruthy();
-    expect(screen.getByText('Tudo enviado')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Abrir (correção|preenchimento)/ })).toBeNull();
+  it('shows the recent activity beside the technical painel and opens the history', async () => {
+    const onOpenHistory = vi.fn();
+    const { client } = unitClient(flow);
+    render(<AcademicV3Dashboard client={client} group={unitGroup('area_tecnica')} onNavigate={vi.fn()} onOpenUnit={vi.fn()} onOpenHistory={onOpenHistory} />);
+    const activity = await screen.findByRole('complementary', { name: 'Atividade recente' });
+    expect(activity.closest('.dash')).toBeTruthy();
+    fireEvent.click(within(activity).getByRole('button', { name: 'Ver histórico completo' }));
+    expect(onOpenHistory).toHaveBeenCalled();
   });
 
   it('tells the reviewer the first waiting entry and opens it', async () => {

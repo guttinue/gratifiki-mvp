@@ -221,7 +221,7 @@ it('mounts the V3 dashboard for the technical area and navigates to the fill scr
  openAcademicPage('painel');
  const {client,calls}=rpc(name=>name==='get_operational_positions'?{items:[{...position,escopoCodigo:'ACADEMIC-NORTE-1'}],total:1,page:1,pageSize:100}:{});
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento Unidade Alfa'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Preenchimento',level:2})).toBeTruthy();
  expect(calls).not.toContain('get_dashboard');
@@ -239,7 +239,11 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
  }}});
  const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica'),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Abrir Unidade Beta'}));
+ // The painel reads the batch of each unit with a to-do; only the fill screen's reads count below.
+ const card=await screen.findByRole('button',{name:'Abrir preenchimento Unidade Beta'});
+ await waitFor(()=>expect([...batches].sort()).toEqual(['alfa','beta']));
+ batches.length=0;
+ fireEvent.click(card);
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
  expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
@@ -249,7 +253,27 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
  fireEvent.click(within(menu).getByRole('button',{name:'Painel'}));
  fireEvent.click(await within(menu).findByRole('button',{name:'Preenchimento'}));
  expect(await screen.findByRole('heading',{name:'Unidade Alfa',level:3})).toBeTruthy();
- expect(batches).toEqual(['beta','alfa']);
+ expect(batches.at(-1)).toBe('alfa');
+});
+it('Corrigir lands on Preenchimento with that unit',async()=>{
+ openAcademicPage('painel');
+ const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+ const status:Record<string,string>={alfa:'devolvida',beta:'validada'};
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const name=String(url).split('/rpc/')[1];calls.push(name);const body=JSON.parse(String(init?.body??'{}')) as {p_contexto:{vinculoId:string};p_unidade_id:string};
+  const json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
+  if(name==='get_operational_positions'){const id=body.p_contexto.vinculoId;return json({items:[{...position,id:`pos-${id}`,escopoId:id,escopoCodigo:units[id],status:status[id],indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'}],total:1,page:1,pageSize:100});}
+  if(name==='get_unit_batch'){const id=body.p_unidade_id;return json({unitId:id,unitCode:units[id],mode:'zero',items:[{positionId:`pos-${id}`,indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:status[id],version:1,estadoDado:'valor',valor:'90',fonte:'Planilha',motivo:null,periodoFonte:null,returnReason:'A fonte informada é de setembro.',revisionNumber:1}]});}
+  return json({items:[],total:0,page:1,pageSize:100});
+ }}});
+ const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica',{competenciaEstado:'aberta'}),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
+ render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Corrigir'}));
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(await screen.findByRole('heading',{name:'Unidade Alfa',level:3})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/^Unidade Alfa/}).getAttribute('aria-pressed')).toBe('true');
+ for(const name of ['save_position_draft','submit_unit_batch','start_position_review'])expect(calls).not.toContain(name);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
  const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));

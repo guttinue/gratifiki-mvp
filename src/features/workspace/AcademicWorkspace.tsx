@@ -22,10 +22,14 @@ import { AdminSummary } from '../admin/AdminSummary';
 import { ResultsPage } from '../results/ResultsPage';
 import { BatchEntryPage } from '../batch/BatchEntryPage';
 import { loadGroupPositions } from '../batch/groupPositions';
-import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
+import { AcademicDashboard, AcademicV3Dashboard, type UnitFocus } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, academicPageHeading, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
+// The painel's unit request: the unit to open and, for a to-do, the field to focus there (used by the fill screen from Task 6).
+type UnitRequest={unitId:string}&Partial<UnitFocus>;
+// Where opening a unit from the painel leads, by role (spec §5.1).
+const unitDestinations:Partial<Record<Role,string>>={area_tecnica:'preenchimento',revisor_tecnico:'conferencia',cam:'resultados',gestor_distrital:'resultados'};
 // Menu counts (spec §5.1, SH-03): the destination that shows the count and the statuses it counts. Other roles: none.
 const menuCounts:Partial<Record<Role,{page:string;counts:(status:PositionSummary['status'])=>boolean}>>={
  area_tecnica:{page:'preenchimento',counts:status=>status==='ausente'||status==='rascunho'||status==='devolvida'},
@@ -59,7 +63,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  const [reload,setReload]=useState(0);
  const [camPositions,setCamPositions]=useState<PositionSummary[]>([]);
  const [positionRequest,setPositionRequest]=useState<{id:string;key:number}>();
- const [unitRequest,setUnitRequest]=useState<string>();
+ const [unitRequest,setUnitRequest]=useState<UnitRequest>();
  const generation=useRef(0);
  const detailGeneration=useRef(0);
  const contentRef=useRef<HTMLElement>(null);
@@ -130,8 +134,8 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   enterPage(destination);
   return true;
  }
- // The painel's "Abrir" opens the fill screen on that unit.
- function openUnit(unitId:string){if(navigate('preenchimento'))setUnitRequest(unitId);}
+ // Opening a unit only navigates: the request is applied by the destination page, never as a command.
+ function openUnit(unitId:string,focus?:UnitFocus){const target=unitDestinations[context.role];if(target&&navigate(target))setUnitRequest({unitId,...focus});}
  // Opens one position in the queue page of the role; model 2 shows the queue on every page.
  function openPosition(id:string){
   const target=context.role==='cam'?'entradas':'conferencia';
@@ -184,14 +188,14 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   {v3&&<div className="academic-page-head"><h2>{heading.title}</h2><p>{heading.subtitle}</p></div>}
   {page==='historico'?<AuditPage client={client} context={context} group={group}/>
   :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
-  :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition}/>
+  :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition} onOpenHistory={()=>navigate('historico')}/>
   :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
   :v3&&page==='painel'&&context.role==='administrador'?<AdminSummary client={client} group={group} onNavigate={navigate}/>
   :page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicDashboard client={client} context={context}/>:<>
   {manager&&!v3&&<EvaluationPage client={client} context={context}/>}
   {context.role==='lideranca'&&<LeadershipPage client={client} context={context}/>}
   {context.role==='administrador'&&<><p>Administração de metadados sintéticos, sem acesso a valores de avaliação.</p><nav aria-label="Administração">{(v3?[{id:'links',label:'Vínculos de negócio'},{id:'scopes',label:'Escopos'}] as const:[{id:'scopes',label:'Escopos'},{id:'links',label:'Vínculos de negócio'},{id:'competences',label:'Competências e atribuições'},{id:'rules',label:'Regras futuras'}] as const).map(destination=><button key={destination.id} type="button" aria-pressed={adminPage===destination.id} onClick={()=>{if(adminPage!==destination.id&&requestAcademicLeave()){setAdminPage(destination.id);contentRef.current?.focus();}}}>{destination.label}</button>)}</nav>{v3&&<p className="v3-note">A configuração do modelo 3 é feita por migração/seed.</p>}{adminPage==='scopes'?<ScopeAdminPage client={client} context={context}/>:adminPage==='links'?<AccessAdminPage client={client} context={context} actorId={context.actorId}/>:adminPage==='competences'?<CompetenceAdminPage client={client} context={context} actorId={context.actorId}/>:<RuleAdminPage client={client} context={context}/>}</>}
-  {v3&&context.role==='area_tecnica'&&page==='preenchimento'?<BatchEntryPage client={client} group={group} initialUnitId={unitRequest}/>
+  {v3&&context.role==='area_tecnica'&&page==='preenchimento'?<BatchEntryPage client={client} group={group} initialUnitId={unitRequest?.unitId}/>
   :context.role==='area_tecnica'&&<section aria-label="Posições autorizadas">
    <h2>Rascunhos do indicador</h2>
    {loading&&<p role="status">Carregando posições…</p>}
