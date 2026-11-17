@@ -2057,7 +2057,7 @@ td code,
 .academic-app .fill-main > p { margin: 0; }
 .academic-app .fill-head h3, .academic-app .fill-head p { margin: 0; }
 .academic-app .fill-tbl { min-width: 0; overflow-x: auto; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--card); }
-.academic-app .fill-tbl table { width: 100%; border-collapse: collapse; }
+.academic-app .fill-tbl table { width: 100%; min-width: 0; border-collapse: collapse; }
 .academic-app .fill-tbl th { padding: var(--s2) 12px; border-bottom: 1px solid var(--line); color: var(--muted); font: 500 12px var(--ui); text-align: left; white-space: nowrap; }
 .academic-app .fill-tbl td { padding: 10px 12px; vertical-align: middle; }
 .academic-app .fill-tbl .r { text-align: right; }
@@ -2172,7 +2172,7 @@ td code,
 .academic-app .todo-txt strong { font: 500 14px/1.4 var(--ui); letter-spacing: -0.01em; }
 .academic-app .todo-txt span { color: var(--muted); font-size: 13px; }
 .academic-app .empty { display: grid; justify-items: start; gap: var(--s1); padding: 24px 16px; color: var(--muted); }
-.academic-app .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.academic-app .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 16px; }
 .academic-app .ucard { display: grid; align-content: start; gap: var(--s2); padding: 16px; }
 .academic-app .ucard header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s2); }
 .academic-app .ucard h4 { margin: 0; }
@@ -2216,7 +2216,7 @@ td code,
 @media (max-width: 960px) { .academic-app .hero { grid-template-columns: minmax(0, 1fr); } }
 /* Dense tables (V4 .tbl). Below 760px each row becomes a stacked card; every td carries data-label. */
 .academic-app .v4-tbl { min-width: 0; overflow-x: auto; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--card); }
-.academic-app .v4-tbl table { width: 100%; border-collapse: collapse; }
+.academic-app .v4-tbl table { width: 100%; min-width: 0; border-collapse: collapse; }
 .academic-app .v4-tbl th { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 500 12px var(--ui); text-align: left; white-space: nowrap; }
 .academic-app .v4-tbl td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .academic-app .v4-tbl th:first-child, .academic-app .v4-tbl td:first-child { padding-left: 16px; }

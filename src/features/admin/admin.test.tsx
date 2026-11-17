@@ -114,7 +114,8 @@ describe('administrative metadata boundary',()=>{
  const academicCatalog=():AdminCatalog=>({...catalog,scopes:[{id:'alfa',codigo:'ACADEMIC-NORTE-1',tipo:'unidade',distritoId:'d',ativo:true,version:1}],accounts:[{actorId:'tech',label:'Conta acadêmica area_tecnica',ativo:true}],
  links:[{...catalog.links[0],actorId:'tech',escopoId:'alfa'},{...catalog.links[0],id:'off',actorId:'tech',escopoId:'alfa',role:'revisor_tecnico',ativo:false,version:4}],indicators:[{id:'indicator',codigo:'DEMO-V1-01'}]});
 const v4Page=()=>render(<GuardedAdmin><AccessAdminPage v4 client={client(vi.fn().mockResolvedValue({data:academicCatalog(),error:null}))} context={context} actorId="self"/></GuardedAdmin>);
-const editName='Editar vínculo Conta acadêmica area_tecnica · area_tecnica · ACADEMIC-NORTE-1';
+// Model 3 names the role and scope like the table does (spec §8.3: no ACADEMIC- code on screen); model 2 keeps the codes.
+const editName='Editar vínculo Conta acadêmica area_tecnica · Área técnica · Unidade Alfa';
 describe('model-3 business links',()=>{
  it('links table shows a status badge and keeps the edit name',async()=>{
   v4Page();
@@ -127,6 +128,12 @@ describe('model-3 business links',()=>{
   expect(within(row).getByText('Ativo').className).toContain('t-ok');
   expect(within(table).getByText('Inativo').className).toContain('t-neutral');
   expect(screen.getByText('1 vínculo ativo')).toBeTruthy();
+ });
+ it('shows no scope code, even with the form open',async()=>{
+  v4Page();
+  fireEvent.click(await screen.findByRole('button',{name:'Novo vínculo'}));
+  expect(within(screen.getByLabelText('Escopo do vínculo')).getByRole('option',{name:'Unidade Alfa'})).toBeTruthy();
+  expect(document.body.textContent).not.toMatch(/@|ACADEMIC-/);
  });
  it('form opens from Novo vínculo and from Editar',async()=>{
   v4Page();

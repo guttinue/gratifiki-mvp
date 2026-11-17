@@ -75,6 +75,17 @@ describe("workspace responsive stylesheet", () => {
     expect(rule(".v3-st-em_revisao")).toContain("var(--vio");
   });
 
+  // The global table rule sets min-width: 690px; a card table that keeps it overflows a 375px page.
+  it("frees the V4 and fill tables from the global table min-width", () => {
+    expect(/\.academic-app \.v4-tbl table\s*\{[^}]*min-width:\s*0/s.test(stylesheet)).toBe(true);
+    expect(/\.academic-app \.fill-tbl table\s*\{[^}]*min-width:\s*0/s.test(stylesheet)).toBe(true);
+  });
+
+  // 320px at 200% zoom leaves 160 CSS px: a fixed grid minimum would push the page sideways.
+  it("lets the unit cards shrink below their column minimum", () => {
+    expect(/\.academic-app \.cards\s*\{[^}]*minmax\(min\(240px, 100%\), 1fr\)/s.test(stylesheet)).toBe(true);
+  });
+
   it("turns V4 tables into cards below 760px", () => {
     const narrow = [...stylesheet.matchAll(/@media \(max-width: 760px\)\s*\{(.*?)\n\}/gs)].map((m) => m[1]).find((block) => block.includes(".v4-tbl")) ?? "";
     expect(/\.v4-tbl thead\s*\{[^}]*clip/s.test(narrow)).toBe(true);

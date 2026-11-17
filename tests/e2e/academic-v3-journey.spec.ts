@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Page } from '@playwright/test';
-import { loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
+import { indicatorRow, loginAcademic, logoutAcademic, openAcademicPage } from './academicFlowSupport';
 
 test.use({ trace: 'off' });
 test.skip(!process.env.ACADEMIC_CAM_EMAIL, 'Requires owned disposable academic fixture');
@@ -11,12 +11,12 @@ const MONTH = 'ACADEMIC-V3-2026-10';
 
 // Model 3 lands each role directly in the month, with every unit of the role at once.
 const login = (page: Page, identity: Parameters<typeof loginAcademic>[2]) => loginAcademic(page, identity, identity, undefined, MONTH);
-const card = (page: Page, code: string) => page.getByRole('region', { name: new RegExp(`^${code} ·`) });
 
 async function review(page: Page, tab: string, code: string, unit: string) {
-  await page.getByRole('tab', { name: new RegExp(`^${tab} \\(`) }).click();
-  await page.getByRole('row', { name: new RegExp(code) }).filter({ hasText: unit }).getByRole('button', { name: unit, exact: true }).click();
-  if (tab === 'Aguardando você') {
+  await page.getByRole('tab', { name: new RegExp(`^${tab} \\d`) }).click();
+  // Opening the row only shows the evidence; starting the review is its own click.
+  await page.getByRole('row', { name: new RegExp(code) }).filter({ hasText: unit }).getByRole('button', { name: new RegExp(`^${unit}`) }).click();
+  if (tab === 'Para conferir') {
     await page.getByRole('button', { name: 'Iniciar revisão', exact: true }).click();
     await expect(page.getByText('Conferência confirmada: em_revisao.')).toBeVisible();
   }
@@ -35,14 +35,14 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   // 1. The Norte technician fills Alfa: types 01 = 90, corrects the returned 03 = 40 and sends the batch.
   await login(page, 'area_tecnica');
   await openAcademicPage(page, 'Preenchimento');
-  await card(page, 'DEMO-V1-01').getByLabel('Valor apurado').fill('90');
-  const returned = card(page, 'DEMO-V1-03');
-  await expect(returned).toContainText('Motivo da devolução');
+  await indicatorRow(page, 'DEMO-V1-01').getByLabel('Valor apurado').fill('90');
+  const returned = indicatorRow(page, 'DEMO-V1-03');
+  await expect(returned).toContainText('Devolvida pelo revisor técnico.');
   await returned.getByLabel('Valor apurado').fill('40');
   await returned.getByLabel('Fonte do dado').fill('Relatório sintético de outubro');
   await returned.getByLabel('O que você corrigiu?').fill('Troquei o relatório de setembro pelo de outubro.');
   await expect(page.getByText('2 prontos para envio')).toBeVisible();
-  // 9. At 375 px the filling screen does not scroll sideways (cards with a pending correction are the widest).
+  // 9. At 375 px the filling screen does not scroll sideways (rows with a pending correction are the widest).
   await page.setViewportSize({ width: 375, height: 800 });
   const narrow = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, innerWidth: window.innerWidth }));
   expect(narrow.scrollWidth, '375px: page scrollWidth').toBeLessThanOrEqual(narrow.innerWidth);
@@ -54,18 +54,21 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   // 2. The reviewer accepts Alfa 01, 02 and 03 one at a time, then Beta 01, which was already in review, from the same queue.
   await login(page, 'revisor_tecnico');
   await openAcademicPage(page, 'Conferência');
-  for (const code of ['DEMO-V1-01', 'DEMO-V1-02', 'DEMO-V1-03']) await review(page, 'Aguardando você', code, 'Unidade Alfa');
+  for (const code of ['DEMO-V1-01', 'DEMO-V1-02', 'DEMO-V1-03']) await review(page, 'Para conferir', code, 'Unidade Alfa');
   // Alfa 01-04 plus Beta 03 and 04, accepted in the seed (octoberPlan).
-  await expect(page.getByRole('tab', { name: /^Aceitas \(6\)/ })).toBeVisible();
-  await review(page, 'Em conferência', 'DEMO-V1-01', 'Unidade Beta');
+  await expect(page.getByRole('tab', { name: /^Aceitas 6/ })).toBeVisible();
+  // Beta 01 is accepted straight from its row: one accept command, no detail form.
+  await page.getByRole('tab', { name: /^Em conferência \d/ }).click();
+  await page.getByRole('button', { name: 'Aceitar Unidade Beta DEMO-V1-01', exact: true }).click();
+  await expect(page.getByText('Conferência confirmada: validada.')).toBeVisible();
   await logoutAcademic(page);
 
   // 3. The technician sends Beta 02 = 20 and the reviewer accepts it.
   await login(page, 'area_tecnica');
   await openAcademicPage(page, 'Preenchimento');
   // The fill screen opens on Alfa, the first unit by code.
-  await page.getByRole('button', { name: /^Unidade Beta/ }).click();
-  const routine = card(page, 'DEMO-V1-02');
+  await page.getByRole('tab', { name: /^Unidade Beta/ }).click();
+  const routine = indicatorRow(page, 'DEMO-V1-02');
   await routine.getByLabel('Valor apurado').fill('20');
   await routine.getByLabel('Fonte do dado').fill('Painel sintético de rotinas');
   await expect(page.getByText('1 pronto para envio')).toBeVisible();
@@ -74,7 +77,7 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
   await logoutAcademic(page);
   await login(page, 'revisor_tecnico');
   await openAcademicPage(page, 'Conferência');
-  await review(page, 'Aguardando você', 'DEMO-V1-02', 'Unidade Beta');
+  await review(page, 'Para conferir', 'DEMO-V1-02', 'Unidade Beta');
   await logoutAcademic(page);
 
   // 4. The CAM sees every position ready, consolidates, closes and publishes with a reference.
@@ -119,12 +122,12 @@ test('V3 journey: batch entry, one-at-a-time review, closure, publication, resul
 
   // 7. Leadership sees both districts with their average.
   await login(page, 'lideranca');
-  const districts = page.getByRole('table', { name: 'Médias por distrito' });
+  const district = (name: string) => page.getByRole('region', { name: 'Médias por distrito' }).getByRole('article').filter({ hasText: name });
   // Norte: (93,42 + 96,67) / 2. Sul: (99,05 + 69,87) / 2, with Delta's decided "indisponível" at zero (DEMO-v1 is mode zero).
-  await expect(districts.getByRole('row', { name: /Distrito Norte/ })).toContainText('2 de 2');
-  await expect(districts.getByRole('row', { name: /Distrito Norte/ })).toContainText('95,05');
-  await expect(districts.getByRole('row', { name: /Distrito Sul/ })).toContainText('2 de 2');
-  await expect(districts.getByRole('row', { name: /Distrito Sul/ })).toContainText('84,46');
+  await expect(district('Distrito Norte')).toContainText('2 de 2');
+  await expect(district('Distrito Norte')).toContainText('95,05');
+  await expect(district('Distrito Sul')).toContainText('2 de 2');
+  await expect(district('Distrito Sul')).toContainText('84,46');
   await logoutAcademic(page);
 
   // 10. Nothing was logged as an error along the whole journey.
