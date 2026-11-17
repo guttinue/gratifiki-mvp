@@ -189,7 +189,7 @@ function V3Evidence({detail}:{detail:PositionDetail}) {
    {current&&<><dt>Período</dt><dd>{current.sourcePeriod.replace(/^(\d{4})-(\d{2})-(\d{2})$/,'$3/$2/$1')||'–'}</dd></>}
    {previous&&<><dt>{monthName(previous.competencia).replace(/^./,letter=>letter.toUpperCase())}</dt><dd className="num">{value(previous.estadoDado,previous.valor)}</dd></>}
    {/* R-25: a correction is read beside the version it replaced. */}
-   {current?.correctionExplanation&&prior&&<><dt>Revisão {prior.number}</dt><dd>{value(prior.estadoDado,prior.value)} · {prior.source}</dd></>}
+   {current?.correctionExplanation&&prior&&<><dt>Revisão {prior.number}</dt><dd>{[value(prior.estadoDado,prior.value),prior.source].filter(Boolean).join(' · ')}</dd></>}
    {current?.correctionExplanation&&<><dt>Correção</dt><dd>{current.correctionExplanation}</dd></>}
   </dl>
   <div><h4 className="mini-h">Memória de cálculo</h4><p className="memo">{memory?<>{formula&&`${formula} = `}<strong>{formatDecimal(memory.resultValue,2)}</strong> pontos</>:'Sem cálculo numérico: situação especial com motivo.'}</p></div>
@@ -210,7 +210,9 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
  const [unitId,setUnitId]=useState(initialUnitId);const [search,setSearch]=useState('');
  const [open,setOpen]=useState<{row:GroupPosition;detail:PositionDetail}&OpenRequest|null>(null);
  const listGeneration=useRef(0);const detailGeneration=useRef(0);const handledRequest=useRef<number|undefined>(undefined);
- const tabRefs=useRef(new Map<string,HTMLButtonElement>());
+ const tabRefs=useRef(new Map<string,HTMLButtonElement>());const rowLinks=useRef(new Map<string,HTMLButtonElement>());
+ // WCAG 2.4.3: the row whose detail closed or whose row accept removed the focused control.
+ const refocus=useRef<GroupPosition|null>(null);
  useEffect(()=>{
   const request=++listGeneration.current;setLoading(true);setError(null);
   void loadGroupPositions(client,group).then(loaded=>{if(listGeneration.current===request)setRows(loaded.sort(byUnitAndIndicator));})
@@ -225,7 +227,7 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
   try{const detail=await loadPositionDetail(client,toCommandContext(row.context),row.position.id);if(detailGeneration.current===generation)setOpen({row,detail,...request});}
   catch{if(detailGeneration.current===generation)setError('Não foi possível carregar a evidência autorizada.');}
  }
- function closeDetail(){if(requestAcademicLeave()){detailGeneration.current++;setOpen(null);}}
+ function closeDetail(){if(requestAcademicLeave()){detailGeneration.current++;refocus.current=open?.row??null;setOpen(null);}}
  const tabOf=(status:string)=>readOnly?'todas':tabs.find(tab=>tab.statuses?.includes(status))?.id??'todas';
  useEffect(()=>{
   if(!requestedPositionId||loading||handledRequest.current===positionRequestKey)return;
@@ -254,7 +256,14 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
  const inTab=(row:GroupPosition,tab:QueueTab)=>!tab.statuses||tab.statuses.includes(row.position.status);
  const active=tabs.find(tab=>tab.id===tabId)??tabs[0];
  const list=base.filter(row=>inTab(row,active));
+ // Back to that row's link; if a filter hid it, the next row in list order, else the last row, else the active tab.
+ useEffect(()=>{
+  const from=refocus.current;if(!from)return;refocus.current=null;
+  const target=list.find(row=>row.position.id===from.position.id)??list.find(row=>byUnitAndIndicator(row,from)>0)??list[list.length-1];
+  ((target&&rowLinks.current.get(target.position.id))||tabRefs.current.get(active.id))?.focus();
+ });
  function confirmed(receipt:CommandReceipt) {
+  if(open?.action==='accept')refocus.current=open.row;
   setRows(all=>all.map(row=>row.position.id===receipt.resourceId?{...row,position:{...row.position,status:receipt.status as PositionSummary['status'],version:receipt.version}}:row));
   // The tab follows the entry's new situation, so the open row stays in the list; Todas already holds it.
   setTabId(current=>current==='todas'?current:tabOf(receipt.status));
@@ -276,7 +285,7 @@ function GroupReviewQueue({client,group,readOnly,requestedPositionId,positionReq
      <thead><tr><th scope="col">Entrada</th><th scope="col" className="r">Valor</th><th scope="col">Situação</th>{!readOnly&&<th scope="col" className="r"><span className="sr-only">Ações</span></th>}</tr></thead>
      <tbody>{list.map(row=>{const {position}=row;const selected=open?.row.position.id===position.id;const name=scopeName(position.escopoCodigo);const code=position.indicatorCode??'';
       return <tr key={position.id} className={selected?'is-sel':undefined} aria-current={selected||undefined}>
-       <td data-label="Entrada"><button type="button" className="row-link" onClick={()=>void openRow(row)}><strong>{name}</strong>{position.indicatorCode&&<> <span>{code} · {position.indicatorName}</span></>}</button></td>
+       <td data-label="Entrada"><button type="button" className="row-link" ref={node=>{if(node)rowLinks.current.set(position.id,node);else rowLinks.current.delete(position.id);}} onClick={()=>void openRow(row)}><strong>{name}</strong>{position.indicatorCode&&<> <span>{code} · {position.indicatorName}</span></>}</button></td>
        <td className="r num" data-label="Valor">{position.inputValue!==null?formatDecimal(position.inputValue):'–'}</td>
        <td data-label="Situação"><span className={`v3-badge v3-st-${position.status}`}>{statusLabels[position.status]}</span></td>
        {!readOnly&&<td className="r" data-label="Ações">{position.status==='em_revisao'&&<span className="row-acts">

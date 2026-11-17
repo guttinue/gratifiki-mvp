@@ -1988,37 +1988,21 @@ td code,
 /* V3 screens (results, dashboards, leadership, rule catalogue). Tables scroll
    inside .table-scroll; nothing here may widen the page. */
 .v3-page { min-width: 0; }
-.v3-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; margin: 16px 0; }
-.v3-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); }
-.v3-metric-lead { border-color: var(--line-strong); background: var(--blue-soft); }
-.v3-label { color: var(--muted); font-size: 13px; font-weight: 600; }
 .v3-score { font-size: clamp(32px, 7vw, 44px); font-weight: 700; line-height: 1.1; color: var(--ink); }
-.v3-score-max { color: var(--muted); font-size: 18px; font-weight: 500; }
-.v3-score-empty, .v3-value { font-size: 22px; font-weight: 700; color: var(--ink); }
-.v3-sub, .v3-cell-sub, .v3-note { color: var(--muted); font-size: 13px; }
+.v3-cell-sub, .v3-note { color: var(--muted); font-size: 13px; }
 .v3-cell-sub { display: block; }
-.v3-delta { font-weight: 600; }
-.v3-delta.up { color: var(--success); }
-.v3-delta.down { color: var(--danger); }
 .v3-tabs { display: flex; gap: 2px; margin: 12px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
 .academic-app .v3-tabs button { flex: none; min-height: 42px; margin: 0 0 -1px; padding: 10px 14px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); white-space: nowrap; }
 .academic-app .v3-tabs button[aria-selected="true"] { border-bottom-color: var(--blue); background: none; color: var(--blue-dark); font-weight: 600; }
 .v3-panel { min-width: 0; margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
 .v3-panel > header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .v3-panel h3, .v3-explainer h4 { margin: 0; }
-.timeline { margin: 0; padding: 0; list-style: none; }
-.academic-app .timeline li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 16px; margin: 0; padding: 11px 0; border-bottom: 1px solid var(--line); }
-.academic-app .timeline li:last-child { border-bottom: 0; }
-.timeline time { color: var(--muted); font-family: var(--mono); font-size: 13px; }
-@media (max-width: 760px) { .academic-app .timeline li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
-.v3-status { color: var(--muted); font-size: 13px; }
 .v3-table { min-width: 640px; font-size: 14px; color: var(--ink); overflow-wrap: normal; }
 .v3-table th { padding: 11px 12px; border-bottom: 1px solid var(--line); background: var(--surface-muted); color: var(--muted); font-size: 13px; font-weight: 600; text-align: left; }
 .v3-table td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 .v3-table tbody tr:last-child td { border-bottom: 0; }
 .v3-table .r { text-align: right; }
 .v3-table button { margin: 0; }
-.v3-table tr.selected td { background: var(--blue-soft); }
 /* Queue table and the open entry: side by side from 1180 px, stacked below. */
 .academic-app .v3-badge { display: inline-flex; align-items: center; min-height: 20px; padding: 0 6px; border-radius: var(--r); background: var(--neutral-bg); color: var(--neutral); font: 500 12px/20px var(--ui); white-space: nowrap; }
 .academic-app .t-neutral { background: var(--neutral-bg); color: var(--neutral); }
@@ -2036,12 +2020,10 @@ td code,
 .academic-app .v3-st-validada { background: var(--ok-bg); color: var(--ok); }
 .academic-app .v3-badge-valor { background: var(--ok-bg); color: var(--ok); }
 .academic-app .v3-badge-sem_envio, .academic-app .v3-badge-decisao_pendente { background: var(--warn-bg); color: var(--warn); }
+.academic-app .v3-badge-em_conferencia { background: var(--vio-bg); color: var(--vio); }
 .v3-explainer { padding: 12px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--blue-soft); }
 .v3-explainer ul { margin: 8px 0; padding-left: 18px; }
 .v3-explainer li { margin: 2px 0; }
-.v3-bar { height: 8px; margin-top: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
-.v3-bar span { display: block; height: 100%; background: var(--blue); }
-.v3-metric progress { width: 100%; height: 10px; }
 
 /* Preenchimento (V4 index.html 201-261, 370-393, 425-434): unit tabs, dense table, sticky bar, tips. */
 .academic-app .unit-tabs { display: flex; flex-wrap: wrap; gap: var(--s2); margin: 0 0 16px; }
@@ -2070,11 +2052,14 @@ td code,
 .academic-app .fill-tbl tbody[data-invalid="true"] { outline: 2px solid var(--bad); outline-offset: -2px; }
 .academic-app .fill-tbl .ind-name { min-width: 220px; }
 .academic-app .ind { display: grid; grid-template-columns: auto 1fr; align-items: center; justify-items: start; gap: 2px var(--s2); }
-.academic-app .ind strong { font: 550 13px var(--mono); }
+.academic-app .ind strong { font: 550 13px var(--mono); white-space: nowrap; }
 .academic-app .ind .nm { grid-row: 2; grid-column: 1 / -1; }
 .academic-app .ind .v3-badge { grid-row: 1; grid-column: 2; }
 .academic-app .ind .sub { grid-column: 1 / -1; }
 .academic-app .fill-tbl td[data-label="Situação do dado"] .sub { max-width: 240px; }
+/* Points never break inside a number (Preenchimento and Resultados). */
+.academic-app td[data-label="Pontos"] { white-space: nowrap; }
+.academic-app td[data-label="Pontos"] .v3-cell-sub { display: inline; }
 .academic-app .nowrap { white-space: nowrap; }
 .academic-app .pts { display: block; font: 500 15px var(--mono); font-variant-numeric: tabular-nums; }
 /* Segmented control: styled radios (spec §5.2). The input stays focusable but invisible. */
@@ -2239,6 +2224,8 @@ td code,
   .academic-app .v4-tbl td[data-label]::before { content: attr(data-label); flex: none; margin-right: auto; color: var(--muted); font: 400 12px var(--font); letter-spacing: -0.1px; text-align: left; }
   .academic-app .v4-tbl td:first-child { display: block; text-align: left; }
   .academic-app .v4-tbl td:first-child::before { content: none; }
+  /* A row with no action keeps no orphan "Ações" label. */
+  .academic-app .v4-tbl td:empty { display: none; }
   .academic-app .v4-tbl .tbl-foot { padding: 0 var(--s1); border: 0; }
   .academic-app .v4-tbl .pts-bar { display: inline-block; margin-left: var(--s2); vertical-align: middle; }
   .academic-app .hero { padding: var(--s4); }
@@ -2299,7 +2286,7 @@ td code,
 }
 /* Histórico (V4 lines 264, 356-362, 438) and Atividade recente (V4 lines 135, 168-173). */
 .academic-app .toolbar { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; justify-content: space-between; }
-.academic-app .toolbar label { display: flex; align-items: center; gap: var(--s2); color: var(--muted); font: 500 12px var(--ui); }
+.academic-app .toolbar label { display: flex; align-items: center; gap: var(--s2); color: var(--muted); font: 500 12px var(--ui); white-space: nowrap; }
 .academic-app .toolbar select { min-height: 32px; border: 1px solid var(--field); border-radius: var(--r-chip); background: var(--surface); padding: 0 var(--s2); color: var(--ink); font: 500 13px var(--ui); }
 .academic-app .toolbar [aria-live] { color: var(--muted); font-size: 12px; }
 .academic-app .log ul, .academic-app .feed { margin: 0; padding: 0; list-style: none; }

@@ -29,7 +29,7 @@ export function AdminSummary({ client, group, onNavigate, onOpenHistory }: { cli
   const units = catalog?.scopes.filter(scope => scope.ativo && scope.tipo === 'unidade').length;
   const districts = catalog?.scopes.filter(scope => scope.ativo && scope.tipo === 'distrito').length;
   const ruleName = set && `${set.code}-v${set.version}`;
-    return <>
+  return <>
     <StageTiles label="Resumo dos cadastros" tiles={[
       { label: 'Vínculos ativos', value: catalog ? active : '–', sub: catalog ? `de ${plural(links.length, 'cadastrado', 'cadastrados')}` : error ? 'Indisponível' : 'Carregando vínculos…', tone: 'ok' },
       { label: 'Regra em uso', value: ruleName ?? '–', text: true, tone: 'info',

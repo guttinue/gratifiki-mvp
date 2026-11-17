@@ -423,6 +423,26 @@ it('V3 reviewer: return in the row focuses the reason and runs no command',async
  await settle();
  expect(commands(calls)).toHaveLength(0);
 });
+// WCAG 2.4.3: closing the detail or a row accept keeps the keyboard in the list, not on <body>.
+it('V3 reviewer: Fechar returns focus to the row, or to the next row when the row is filtered out',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Todas/));
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ fireEvent.click(within(await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'})).getByRole('button',{name:'Fechar detalhe'}));
+ expect(document.activeElement).toBe(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'});
+ fireEvent.click(within(screen.getByRole('group',{name:'Filtrar por unidade'})).getByRole('button',{name:'Unidade Beta'}));
+ fireEvent.click(within(aside).getByRole('button',{name:'Fechar detalhe'}));
+ expect(document.activeElement).toBe(await rowLink(/Unidade Beta DEMO-V1-01/));
+});
+it('V3 reviewer: a row accept returns focus to that row once its actions are gone',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Beta DEMO-V1-01'}));
+ expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
+ await waitFor(async()=>expect(document.activeElement).toBe(await rowLink(/Unidade Beta DEMO-V1-01/)));
+});
 it('V3 reviewer: row actions only on entries in review',async()=>{
  await queue('revisor_tecnico',namedRows);
  fireEvent.click(tab(/^Todas/));
