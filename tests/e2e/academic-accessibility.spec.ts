@@ -19,7 +19,8 @@ async function checkKeyboardAndReflow(page: Page, role: Role) {
     for (const zoom of ['100%', '200%']) {
       await page.evaluate(value => { document.body.style.zoom = value; }, zoom);
       // The collapsed menu slides out; measure once its transition has settled.
-      await page.evaluate(() => Promise.all(document.getAnimations().map(animation => animation.finished)));
+      // Only finite animations settle; a cancelled one rejects its promise, which is fine here.
+      await page.evaluate(() => Promise.all(document.getAnimations().filter(animation => animation.effect?.getComputedTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {}))));
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), `${role}, ${width}px, ${zoom}: no page overflow`).toBe(true);
       const inputs = page.locator('input:visible, select:visible, textarea:visible');
       for (const input of await inputs.all()) {
@@ -111,6 +112,7 @@ for (const role of roles) {
           expect(await table.evaluate(element => element.getBoundingClientRect().width <= window.innerWidth), `${where}: table wider than the viewport`).toBe(true);
           await expect(table.getByRole('table')).toBeVisible();
           await expect(table.getByRole('row').nth(1)).toBeVisible();
+          await expect(table.getByRole('row', { name: /\S/ }).first()).toBeVisible();
           if (await table.evaluate(element => element.classList.contains('fill-tbl'))) await expect(table.getByRole('rowgroup').nth(1)).toBeVisible();
         }
         // Spec §8.3: no e-mail, no ACADEMIC- code and no person on a model-3 screen; only the links table names the demo accounts.

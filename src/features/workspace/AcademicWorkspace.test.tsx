@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from './AcademicWorkspace';
 import type { AuthorizedContext } from '../pilot/types';
 import { groupContexts } from '../context/contextGroups';
+import { getAcademicDestinations } from './academicNavigation';
 import { completeUnit } from '../results/resultsFixtures';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(()=>{cleanup();vi.restoreAllMocks();window.history.replaceState({},'', '/');});
@@ -731,4 +732,49 @@ it('labels the menu group and the rule in use, and keeps the header controls nam
  expect(screen.getByLabelText('Papel').closest('.ctl')).toBeTruthy();
  expect(document.querySelector('.academic-top-row')!.classList.contains('topbar')).toBe(true);
  expect(document.querySelector('.academic-person')!.classList.contains('user')).toBe(true);
+});
+
+// ---- Spec §8.3 (preflight F16): no e-mail, no ACADEMIC- code and no person on any model-3 screen ----
+const leakUnits:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+const leakPositions=(id:string)=>['enviada','em_revisao','devolvida','validada'].map((status,i)=>({...position,id:`${id}-${i+1}`,escopoId:id,escopoCodigo:leakUnits[id],status,
+ estadoDado:'valor',inputValue:'90',revisionId:`rev-${id}-${i+1}`,indicatorCode:`DEMO-V1-0${i+1}`,indicatorName:'Registros conferidos'}));
+function leakClient(){
+ return createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const name=String(url).split('/rpc/')[1];
+  const body=JSON.parse(String(init?.body??'{}')) as {p_contexto?:{vinculoId:string};p_unidade_id?:string;p_position_id?:string};
+  const unit=leakUnits[body.p_contexto?.vinculoId??'']?body.p_contexto!.vinculoId:'alfa';
+  const all=[...leakPositions('alfa'),...leakPositions('beta')];
+  const data=name==='get_operational_positions'?{items:leakPositions(unit),total:4,page:1,pageSize:100}
+   :name==='get_unit_batch'?{unitId:body.p_unidade_id,unitCode:leakUnits[body.p_unidade_id!],mode:'zero',items:leakPositions(body.p_unidade_id!).map(p=>({positionId:p.id,indicatorCode:p.indicatorCode,name:p.indicatorName,meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',
+    status:p.status,version:1,estadoDado:'valor',valor:'90',fonte:'Planilha',motivo:null,periodoFonte:'2026-10-01',returnReason:'A fonte informada é de setembro.',revisionNumber:2}))}
+   :name==='get_position_detail'?{position:all.find(p=>p.id===body.p_position_id)??all[0],revisions:[{id:'rev',number:1,authorId:'author',estadoDado:'valor',value:'90',source:'Planilha',sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null}],decisions:[],memories:[]}
+   :name==='get_unit_results'?districtResults
+   :name==='get_scoped_audit'?{items:[{id:'r',occurredAt:'2026-10-21T12:00:00Z',action:'posicao_devolvida',resourceId:'alfa-3',version:2,reason:'fonte de setembro'},{id:'s',occurredAt:'2026-10-20T12:00:00Z',action:'posicao_enviada',resourceId:'beta-1',version:1,reason:null}],total:2,page:1,pageSize:100}
+   :name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:8,reviewed:2,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:2,
+    blockers:[{positionId:'alfa-1',code:'not_validated',message:'Entrada ainda não aceita.'}]}
+   :name==='get_leadership_aggregates'?{acceptedPercent:'50.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:2}],attention:[{unitCode:'ACADEMIC-NORTE-2',pending:2}]}
+   :name==='get_rule_catalog'?ruleCatalog:name==='get_admin_catalog'?adminCatalog:{items:[],total:0,page:1,pageSize:100};
+  return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});
+ }}});
+}
+const twoUnits=(role:AuthorizedContext['role'])=>groupContexts(Object.entries(leakUnits).map(([id,code])=>v3(role,{key:id,vinculoId:id,escopoId:id,escopoCodigo:code,competenciaEstado:'aberta'})))[0];
+const leakGroups={area_tecnica:()=>twoUnits('area_tecnica'),revisor_tecnico:()=>twoUnits('revisor_tecnico'),cam:()=>grp(v3('cam',{competenciaEstado:'aberta'})),gestor_unidade:()=>grp(v3('gestor_unidade')),
+ gestor_distrital:districtGroup,lideranca:()=>grp(v3('lideranca')),administrador:v3Admin} as const;
+it.each(Object.keys(leakGroups) as (keyof typeof leakGroups)[])('%s: no model-3 screen shows an e-mail, an ACADEMIC- code or a person',async role=>{
+ openAcademicPage('painel');
+ render(<AcademicWorkspace client={leakClient()} group={leakGroups[role]()} onSignOut={()=>{}}/>);
+ const settled=async(where:string)=>{
+  await waitFor(()=>expect(document.body.textContent).not.toMatch(/Carregando/));
+  expect(screen.queryByRole('alert'),`${where}: fixture rejected`).toBeNull();
+  expect(document.body.textContent,`${where}: e-mail or scope code`).not.toMatch(/@|ACADEMIC-/);
+  // Only Usuários e vínculos names the demo accounts (spec §5.2).
+  if(!where.endsWith('vinculos'))expect(document.body.textContent,`${where}: person`).not.toMatch(/Conta acadêmica/);
+ };
+ for(const destination of getAcademicDestinations(role)){
+  fireEvent.click(navButton(destination.label));
+  await settled(`${role} ${destination.id}`);
+  // An opened entry is a screen too: the queue and the read-only list show its detail beside the list.
+  const row=document.querySelector<HTMLButtonElement>('.row-link');
+  if(row){fireEvent.click(row);await settled(`${role} ${destination.id} detail`);}
+ }
 });
