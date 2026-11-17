@@ -177,6 +177,7 @@ function V3Evidence({detail}:{detail:PositionDetail}) {
  const {indicator,previous}=detail;
  const current=detail.revisions.find(row=>row.id===detail.position.revisionId);
  const memory=detail.memories.find(row=>row.revisionId===current?.id);
+ const prior=current&&detail.revisions.find(row=>row.number===current.number-1);
  const unit=indicator?.unit?` ${indicator.unit}`:'';
  const value=(estadoDado:string|null,valor:string|null)=>valor!==null?`${formatDecimal(valor)}${unit}`:estadoDado==='nao_aplicavel'?'Não se aplica':estadoDado==='indisponivel'?'Indisponível':'–';
  const formula=memory&&indicator&&previewPoints(memory.inputValue,indicator)?.expression;
@@ -185,8 +186,10 @@ function V3Evidence({detail}:{detail:PositionDetail}) {
    {indicator&&<><dt>Meta</dt><dd>{directionSymbol(indicator.direction)} {formatDecimal(indicator.meta)}{unit} · peso {formatDecimal(indicator.weight)}</dd></>}
    <dt>Informado</dt><dd className="num"><strong>{current?value(current.estadoDado,current.value):'–'}</strong></dd>
    {current&&(current.estadoDado==='valor'?<><dt>Fonte</dt><dd>{current.source||'–'}</dd></>:<><dt>Motivo</dt><dd>{current.reason||'–'}</dd></>)}
-   {current&&<><dt>Período</dt><dd>{current.sourcePeriod||'–'}</dd></>}
+   {current&&<><dt>Período</dt><dd>{current.sourcePeriod.replace(/^(\d{4})-(\d{2})-(\d{2})$/,'$3/$2/$1')||'–'}</dd></>}
    {previous&&<><dt>{monthName(previous.competencia).replace(/^./,letter=>letter.toUpperCase())}</dt><dd className="num">{value(previous.estadoDado,previous.valor)}</dd></>}
+   {/* R-25: a correction is read beside the version it replaced. */}
+   {current?.correctionExplanation&&prior&&<><dt>Revisão {prior.number}</dt><dd>{value(prior.estadoDado,prior.value)} · {prior.source}</dd></>}
    {current?.correctionExplanation&&<><dt>Correção</dt><dd>{current.correctionExplanation}</dd></>}
   </dl>
   <div><h4 className="mini-h">Memória de cálculo</h4><p className="memo">{memory?<>{formula&&`${formula} = `}<strong>{formatDecimal(memory.resultValue,2)}</strong> pontos</>:'Sem cálculo numérico: situação especial com motivo.'}</p></div>

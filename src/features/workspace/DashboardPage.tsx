@@ -105,7 +105,7 @@ function ReviewerPanel({rows,client,group,onOpenPosition,onOpenUnit,onOpenHistor
    action:{label:'Conferir',ariaLabel:`Conferir ${position.indicatorCode??''} · ${unit}`,onClick:()=>onOpenPosition(position.id)}};});
  return <><StageTiles label="Etapas do fluxo" tiles={[
    {label:'Com a área técnica',value:c.ausente+c.rascunho,sub:'não enviados ou rascunho',tone:'neutral'},
-   {label:'Para conferir',value:c.enviada,sub:'enviados, ainda não abertos',tone:'warn'},
+   {label:'Para conferir',value:c.enviada,sub:'aguardando início da conferência',tone:'warn'},
    {label:'Em conferência',value:c.em_revisao,sub:'conferência iniciada',tone:'vio'},
    {label:'Devolvidas',value:c.devolvida,sub:'aguardando correção',tone:'bad'},
    {label:'Aceitas',value:c.validada,sub:`de ${c.total} do seu escopo`,tone:'ok'}]}/>

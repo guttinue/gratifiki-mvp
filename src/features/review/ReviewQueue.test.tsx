@@ -2,7 +2,7 @@ import { groupContexts } from '../context/contextGroups';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import { startReview, reviewPosition } from './reviewApi';
 import type { AuthorizedContext } from '../pilot/types';
@@ -273,7 +273,7 @@ it('V3 reviewer: detail shows facts, memory and approval flow by role, never a p
  expect(fact('Meta')).toBe('≥ 95 % · peso 30');
  expect(fact('Informado')).toBe('90 %');
  expect(fact('Fonte')).toBe('Painel sintético');
- expect(fact('Período')).toBe('2026-10-01');
+ expect(fact('Período')).toBe('01/10/2026');
  expect(fact('Setembro')).toBe('88 %');
  expect(within(aside).getByText('revisão 1')).toBeTruthy();
  expect(within(aside).getByRole('heading',{name:'Memória de cálculo'}).nextElementSibling?.textContent).toBe('min(90 ÷ 95; 1) × 30 = 28,42 pontos');
@@ -296,6 +296,42 @@ it('V3 reviewer: a returned entry shows its correction, its reason and the flow 
  const steps=within(within(aside).getByRole('list')).getAllByRole('listitem');
  expect(steps.map(step=>step.querySelector('strong')?.textContent)).toEqual(['Enviado pela área técnica','Devolvido pelo revisor técnico','Correção · área técnica']);
  expect(aside.querySelector('.detail-foot')?.textContent).toBe('Aguardando a correção da área técnica.');
+});
+it('V3 reviewer: shows the previous version next to the correction explanation',async()=>{
+ await queue();fireEvent.click(tab(/^Devolvidas/));
+ fireEvent.click(await rowLink(/GAMA/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ const terms=[...aside.querySelectorAll('dt')].map(term=>term.textContent);
+ // R-25: the replaced version sits right before what the technician says they corrected.
+ expect(terms.slice(terms.indexOf('Revisão 1'),terms.indexOf('Revisão 1')+2)).toEqual(['Revisão 1','Correção']);
+ expect(within(aside).getByText('Revisão 1',{selector:'dt'}).nextElementSibling?.textContent).toBe('96 % · Sistema antigo');
+ expect(within(aside).getByText('Informado',{selector:'dt'}).nextElementSibling?.textContent).toBe('40 %');
+ cleanup();
+ // Without a correction there is no previous-version fact.
+ await queue();fireEvent.click(await rowLink(/ALFA/));
+ const first=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(within(first).queryByText(/^Revisão \d/,{selector:'dt'})).toBeNull();
+});
+it('V3 reviewer: a typed reason asks before Fechar or a row action on another row drops it',async()=>{
+ const {calls}=await queue('revisor_tecnico',named({...demoStatus,'ACADEMIC-NORTE-1:DEMO-V1-01':'em_revisao'}));
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(await rowLink(/Unidade Beta DEMO-V1-01/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ fireEvent.change(within(aside).getByLabelText('Motivo da conferência'),{target:{value:'Fonte de setembro.'}});
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ fireEvent.click(within(aside).getByRole('button',{name:'Fechar detalhe'}));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Alfa DEMO-V1-01'}));
+ expect(confirm).toHaveBeenCalledTimes(2);
+ await settle();
+ // Both were cancelled: the same detail keeps the reason, and nothing ran.
+ expect(within(screen.getByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'})).getByText('Unidade Beta')).toBeTruthy();
+ expect((screen.getByLabelText('Motivo da conferência') as HTMLTextAreaElement).value).toBe('Fonte de setembro.');
+ expect(commands(calls)).toHaveLength(0);
+ confirm.mockReturnValue(true);
+ fireEvent.click(screen.getByRole('button',{name:'Fechar detalhe'}));
+ expect(screen.queryByRole('complementary',{name:/DEMO-V1-01/})).toBeNull();
+ confirm.mockRestore();
 });
 it('V3 reviewer: without an accepted value last month the detail omits the month',async()=>{
  await queue();fireEvent.click(tab(/^Aceitas/));

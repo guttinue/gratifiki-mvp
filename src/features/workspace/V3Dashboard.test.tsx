@@ -163,6 +163,7 @@ describe('AcademicV3Dashboard', () => {
     const stages = screen.getByRole('region', { name: 'Etapas do fluxo' });
     const count = (label: string) => within(stages).getByText(label).closest('.tile')!.querySelector('.tile-n')!.textContent;
     expect(['Com a área técnica', 'Para conferir', 'Em conferência', 'Devolvidas', 'Aceitas'].map(count)).toEqual(['0', '1', '1', '0', '6']);
+    expect(within(stages).getByText('Para conferir').closest('.tile')!.querySelector('.tile-sub')!.textContent).toBe('aguardando início da conferência');
     fireEvent.click(within(todo).getByRole('button', { name: 'Conferir DEMO-V1-02 · Unidade Alfa' }));
     expect(onOpenPosition).toHaveBeenCalledWith('alfa-1');
     const units = screen.getByRole('region', { name: 'Unidades do distrito' });
