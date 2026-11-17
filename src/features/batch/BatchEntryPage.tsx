@@ -9,7 +9,7 @@ import { absenceCopy, directionSymbol } from '../results/CalculationExplainer';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
 import { BatchCommandError, loadUnitBatch, submitUnitBatch, type BatchItem, type UnitBatch, type UnitBatchItem } from './batchApi';
 import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from './groupPositions';
-import { competenceLabel, scopeName } from '../workspace/displayNames';
+import { competenceLabel, plural, scopeName } from '../workspace/displayNames';
 
 type Situation = DraftInput['estadoDado'];
 type Edit = { estado: Situation; valor: string; fonte: string; periodo: string; motivo: string; explicacao: string };
@@ -30,7 +30,6 @@ const conflictMessage = 'Os dados mudaram desde que você abriu esta unidade. Re
 const defaultPeriod = (competence: string) => { const match = /(\d{4})-(\d{2})$/.exec(competence); return match ? `${match[1]}-${match[2]}-01` : ''; };
 const validDate = (text: string) => /^\d{4}-\d{2}-\d{2}$/.test(text) && new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) === text;
 const without = <T,>(all: Record<string, T>, key: string) => Object.fromEntries(Object.entries(all).filter(([id]) => id !== key));
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const toInput = (e: Edit): DraftInput => ({ estadoDado: e.estado, valor: e.estado === 'valor' && e.valor.trim() ? e.valor : null, fonte: e.fonte,
   periodoFonte: e.periodo, motivo: e.estado === 'valor' ? '' : e.motivo });
 

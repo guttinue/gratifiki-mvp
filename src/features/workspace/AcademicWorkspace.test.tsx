@@ -159,6 +159,8 @@ it('shows the competence state next to its code in the model-2 header, with the 
  expect(screen.getByText('Perfil gestor_unidade · NORTE · 2026-10')).toBeTruthy();
  expect(within(screen.getByRole('banner')).getByLabelText('Contexto autorizado')).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Outros contextos'})).toBeNull();
+ // The V4 "Geral" menu label is model 3 only.
+ expect(document.querySelector('.nav-label')).toBeNull();
  expect(screen.getByRole('banner').textContent).toContain('Dados sintéticos · baseline do modelo 2 · sem efeito institucional');
  expect(screen.getByText('Em consolidação').textContent).toBe('· Situação da competência: Em consolidação');
  view.unmount();
@@ -572,6 +574,14 @@ it('counts the reviewer queue, and the CAM cycle only while the month is open',a
  expect(description(navButton('Ciclo e fechamento'))).toBeNull();
  expect(closed.calls).not.toContain('get_operational_positions');
 });
+it('drops the CAM count when the month stops being open without a remount',async()=>{
+ const {client}=rpc(name=>name==='get_operational_positions'?listed('enviada','ausente'):{});
+ const view=render(<AcademicWorkspace client={client} group={grp(v3('cam',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBe('2 pendentes'));
+ // Same group and context keys, so NavigationSafety keeps the subtree mounted.
+ view.rerender(<AcademicWorkspace client={client} group={grp(v3('cam',{competenciaEstado:'em_consolidacao'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBeNull());
+});
 it('shows no count when the count read fails',async()=>{
  const {client,calls}=rpc(name=>name==='get_operational_positions'?{code:'42501'}:{});
  openAcademicPage('historico');
@@ -595,7 +605,7 @@ it('reads counts again on each page change and never runs a command',async()=>{
  const {client,calls}=rpc(name=>name==='get_operational_positions'?rows:{items:[],total:0,page:1,pageSize:25});
  openAcademicPage('historico');
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
- await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('1 pendentes'));
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('1 pendente'));
  rows=listed('ausente','rascunho');
  fireEvent.click(navButton('Painel'));
  await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('2 pendentes'));

@@ -73,7 +73,8 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  // A failed read shows no count and no alert. Reading never runs a command.
  useEffect(()=>{
   const counted=menuCounts[context.role];
-  if(!v3||!counted||(context.role==='cam'&&context.competenciaEstado!=='aberta'))return;
+  // The month state can change without a remount: drop the old count before skipping the read.
+  if(!v3||!counted||(context.role==='cam'&&context.competenciaEstado!=='aberta')){setNavCounts({});return;}
   let current=true;
   void loadGroupPositions(client,group).then(rows=>{if(current)setNavCounts({[counted.page]:rows.filter(row=>counted.counts(row.position.status)).length});})
    .catch(()=>{if(current)setNavCounts({});});
@@ -156,7 +157,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  }
  return <div className="academic-app"><a className="skip-link" href="#academic-content" onClick={event=>{event.preventDefault();contentRef.current?.focus();}}>Pular para o conteúdo</a>
   <aside ref={menuRef} id="academic-menu" className="academic-side" aria-label="Menu" data-open={menuOpen} onBlur={event=>{if(menuOpen&&event.relatedTarget instanceof Node&&!event.currentTarget.contains(event.relatedTarget))setMenuOpen(false);}}><div className="academic-brand"><span className="academic-brand-mark" aria-hidden="true">G</span><span><b>Gratifiki</b><span>Avaliação por desempenho</span></span></div>
-   <div className="nav-group"><span className="nav-label" aria-hidden="true">Geral</span><AcademicNavigation role={context.role} page={page} onNavigate={navigate} counts={navCounts}/></div>
+   <div className="nav-group">{v3&&<span className="nav-label" aria-hidden="true">Geral</span>}<AcademicNavigation role={context.role} page={page} onNavigate={navigate} counts={navCounts}/></div>
    {v3&&<div className="academic-side-foot"><span className="nav-label">Regra em uso</span><p>Regra fictícia DEMO-v1 com 4 indicadores. Sem efeito institucional.</p></div>}</aside>
   <div className="academic-scrim" hidden={!menuOpen} onClick={closeMenu}/>
   <div className="academic-body"><header className="academic-top">

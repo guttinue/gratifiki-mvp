@@ -29,6 +29,8 @@ export function competenceLabel(competencia: string): string {
   return month ? `${month.replace(/^./, (letter) => letter.toUpperCase())}/${match[1]}` : competencia;
 }
 
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
 export const roleLabels: Readonly<Record<Role, string>> = {
   area_tecnica: 'Área técnica', revisor_tecnico: 'Revisor técnico', cam: 'CAM', gestor_unidade: 'Gestor de unidade',
   gestor_distrital: 'Gestor distrital', administrador: 'Administrador', lideranca: 'Liderança',
