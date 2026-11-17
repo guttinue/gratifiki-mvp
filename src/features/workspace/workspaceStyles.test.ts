@@ -17,10 +17,20 @@ describe("workspace responsive stylesheet", () => {
     expect(/\.input-row\s+button\s*\{[^}]*background:\s*var\(--blue\);/s.test(stylesheet)).toBe(true);
   });
 
-  it("hides the closed side menu below 768px and shows it when open", () => {
-    const narrow = /@media \(max-width: 767px\)\s*\{(.*?)\n\}/s.exec(stylesheet)?.[1] ?? "";
+  // V4 breakpoint: the menu collapses below 900px (was 767px), with a backdrop while open.
+  const mediaBlock = (width: number, marker: string) =>
+    [...stylesheet.matchAll(new RegExp(`@media \\(max-width: ${width}px\\)\\s*\\{(.*?)\\n\\}`, "gs"))].map((m) => m[1]).find((block) => block.includes(marker)) ?? "";
+  it("hides the closed side menu below 900px and shows it when open", () => {
+    const narrow = mediaBlock(900, ".academic-side");
     expect(/\.academic-side\s*\{[^}]*visibility:\s*hidden/s.test(narrow)).toBe(true);
     expect(/\.academic-side\[data-open="true"\]\s*\{[^}]*visibility:\s*visible/s.test(narrow)).toBe(true);
+    expect(/\.academic-scrim:not\(\[hidden\]\)\s*\{[^}]*position:\s*fixed/s.test(narrow)).toBe(true);
+    expect(stylesheet).not.toContain("@media (max-width: 767px)");
+  });
+
+  it("hides the header labels below 760px", () => {
+    const narrow = mediaBlock(760, ".academic-label");
+    expect(/\.academic-top \.academic-label[^{]*\{[^}]*clip/s.test(narrow)).toBe(true);
   });
 
   it("pads scrolling under the sticky header", () => {

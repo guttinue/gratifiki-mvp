@@ -497,7 +497,8 @@ it('renders the page heading',()=>{
  render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
  const head=within(document.querySelector('.academic-page-head') as HTMLElement);
  expect(head.getByRole('heading',{level:2,name:'Painel'})).toBeTruthy();
- expect(head.getByText('Outubro/2026 · você informa os indicadores de Unidade Alfa e Unidade Beta.')).toBeTruthy();
+ // V4 subtitle (spec §4.9).
+ expect(head.getByText('Outubro/2026 · Unidade Alfa e Unidade Beta · o que fazer agora')).toBeTruthy();
 });
 it('moves focus into the opened menu and closes it when focus leaves for the content',()=>{
  const groups=headerGroups();
@@ -536,4 +537,109 @@ it('menu toggle opens, Escape closes and returns focus',()=>{
  fireEvent.click(item);
  expect(menu.dataset.open).toBe('false');
  expect(document.activeElement).toBe(screen.getByRole('main'));
+});
+
+// ---- Telas V4, Task 3: menu counts, backdrop and V4 shell ----
+// No jest-dom here: the accessible description is the text of the element aria-describedby names.
+const description=(element:HTMLElement)=>{const id=element.getAttribute('aria-describedby');return id?document.getElementById(id)?.textContent??'':null;};
+const navButton=(name:string)=>within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name});
+const listed=(...statuses:string[])=>({items:statuses.map((status,i)=>({...position,id:`p${i}`,escopoCodigo:'ACADEMIC-NORTE-1',status})),total:statuses.length,page:1,pageSize:100});
+it('shows pending counts in the menu without renaming the item',async()=>{
+ const {client}=rpc(name=>name==='get_operational_positions'?listed('ausente','devolvida','devolvida','validada','enviada'):{});
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('3 pendentes'));
+ expect(menu.querySelector('.count')?.getAttribute('aria-hidden')).toBe('true');
+ expect(description(navButton('Painel'))).toBeNull();
+});
+it('counts the reviewer queue, and the CAM cycle only while the month is open',async()=>{
+ const rows=listed('enviada','em_revisao','validada','ausente');
+ const reviewer=rpc(name=>name==='get_operational_positions'?rows:{});
+ const view=render(<AcademicWorkspace client={reviewer.client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Conferência'))).toBe('2 pendentes'));
+ view.unmount();
+ const cam=rpc(name=>name==='get_operational_positions'?rows:{});
+ const open=render(<AcademicWorkspace client={cam.client} group={grp(v3('cam',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBe('3 pendentes'));
+ open.unmount();
+ // Preflight F3: no count read for a CAM month that is not open.
+ // Resultados reads only the unit results, so any position read would come from the shell.
+ openAcademicPage('resultados');
+ const closed=rpc(name=>name==='get_operational_positions'?rows:unitResults);
+ render(<AcademicWorkspace client={closed.client} group={grp(v3('cam',{competenciaEstado:'fechada'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ expect(description(navButton('Ciclo e fechamento'))).toBeNull();
+ expect(closed.calls).not.toContain('get_operational_positions');
+});
+it('shows no count when the count read fails',async()=>{
+ const {client,calls}=rpc(name=>name==='get_operational_positions'?{code:'42501'}:{});
+ openAcademicPage('historico');
+ render(<AcademicWorkspace client={client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(calls).toContain('get_operational_positions'));
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ expect(description(navButton('Conferência'))).toBeNull();
+});
+it('gestores get no menu count and no position read',async()=>{
+ const {client,calls}=rpc(()=>unitResults);
+ render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Resultados'}));
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ // Preflight F4: the real RPC names, so a stray read or command would fail here.
+ for(const name of ['get_operational_positions','save_position_draft','start_position_review'])expect(calls).not.toContain(name);
+ expect(document.querySelector('.academic-nav .count')).toBeNull();
+});
+it('reads counts again on each page change and never runs a command',async()=>{
+ let rows=listed('ausente');
+ const {client,calls}=rpc(name=>name==='get_operational_positions'?rows:{items:[],total:0,page:1,pageSize:25});
+ openAcademicPage('historico');
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('1 pendentes'));
+ rows=listed('ausente','rascunho');
+ fireEvent.click(navButton('Painel'));
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('2 pendentes'));
+ for(const name of ['save_position_draft','start_position_review','submit_unit_batch','review_position','transition_cycle','publish_cycle_demo'])expect(calls).not.toContain(name);
+});
+it('menu backdrop closes the menu and returns focus',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ const scrim=document.querySelector('.academic-scrim') as HTMLElement;
+ expect(scrim.hidden).toBe(true);
+ fireEvent.click(toggle);
+ expect(scrim.hidden).toBe(false);
+ fireEvent.click(scrim);
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ expect(document.getElementById('academic-menu')!.dataset.open).toBe('false');
+ expect(scrim.hidden).toBe(true);
+ expect(document.activeElement).toBe(toggle);
+});
+it('asks before leaving through the backdrop-closed menu',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ openAcademicPage('preenchimento');
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_position_detail')?{position,revisions:[],decisions:[],memories:[]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ render(<AcademicWorkspace client={client} group={grp(context)} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
+ fireEvent.change(await screen.findByLabelText('Valor'),{target:{value:'12'}});
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ fireEvent.click(toggle);
+ fireEvent.click(document.querySelector('.academic-scrim')!);
+ fireEvent.click(toggle);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Histórico'}));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(screen.getByLabelText('Valor')).toHaveProperty('value','12');
+});
+it('labels the menu group and the rule in use, and keeps the header controls named',()=>{
+ const groups=headerGroups(camMonth('10'));
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const label=document.querySelector('.academic-side .nav-label') as HTMLElement;
+ expect(label.textContent).toBe('Geral');
+ expect(label.getAttribute('aria-hidden')).toBe('true');
+ expect(document.querySelector('.academic-side-foot')!.textContent).toContain('Regra em uso');
+ expect(screen.getByLabelText('Competência').closest('.ctl')).toBeTruthy();
+ expect(screen.getByLabelText('Papel').closest('.ctl')).toBeTruthy();
+ expect(document.querySelector('.academic-top-row')!.classList.contains('topbar')).toBe(true);
+ expect(document.querySelector('.academic-person')!.classList.contains('user')).toBe(true);
 });

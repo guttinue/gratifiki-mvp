@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { countByStatus, statusTones, type Tone } from './displayNames';
 
 // V4 parts shared by several screens (index.html lines 623-666).
@@ -19,7 +19,7 @@ export function StageTiles({ label, tiles }: { label: string; tiles: { label: st
 type TodoItem = { tone: Tone; title: string; sub?: string; action?: { label: string; ariaLabel?: string; onClick: () => void } };
 
 export function TodoList({ title, items, empty }: { title: string; items: TodoItem[]; empty: ReactNode }) {
-  const id = `todo-${title.replace(/\W+/g, '-').toLowerCase()}`;
+  const id = useId();
   return (
     <section className="block" aria-labelledby={id}>
       <div className="block-head">

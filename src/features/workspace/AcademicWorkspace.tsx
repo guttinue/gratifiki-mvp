@@ -21,10 +21,17 @@ import { RuleCatalogPage } from '../admin/RuleCatalogPage';
 import { AdminSummary } from '../admin/AdminSummary';
 import { ResultsPage } from '../results/ResultsPage';
 import { BatchEntryPage } from '../batch/BatchEntryPage';
+import { loadGroupPositions } from '../batch/groupPositions';
 import { AcademicDashboard, AcademicV3Dashboard } from './DashboardPage';
 import { AcademicNavigation } from './WorkspaceShell';
 import { academicPageFromHash, academicPageHeading, getAcademicDestinations, requestAcademicLeave } from './academicNavigation';
 import { NavigationSafety } from './NavigationSafety';
+// Menu counts (spec §5.1, SH-03): the destination that shows the count and the statuses it counts. Other roles: none.
+const menuCounts:Partial<Record<Role,{page:string;counts:(status:PositionSummary['status'])=>boolean}>>={
+ area_tecnica:{page:'preenchimento',counts:status=>status==='ausente'||status==='rascunho'||status==='devolvida'},
+ revisor_tecnico:{page:'conferencia',counts:status=>status==='enviada'||status==='em_revisao'},
+ cam:{page:'ciclo',counts:status=>status!=='validada'},
+};
 // contexts: every authorized context of the actor (all groups); the model-3 CAM
 // decides each pending item with the context of that item's unit and indicator.
 // groups/onSelectGroup: every authorized group and the guarded switch to one of
@@ -61,11 +68,23 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  const [othersOpen,setOthersOpen]=useState(false);
  const menuToggle=useRef<HTMLButtonElement>(null);
  const menuRef=useRef<HTMLElement>(null);
+ const [navCounts,setNavCounts]=useState<Partial<Record<string,number>>>({});
+ // Read on mount and on each page change; the CAM count only while the month is open (preflight F3).
+ // A failed read shows no count and no alert. Reading never runs a command.
+ useEffect(()=>{
+  const counted=menuCounts[context.role];
+  if(!v3||!counted||(context.role==='cam'&&context.competenciaEstado!=='aberta'))return;
+  let current=true;
+  void loadGroupPositions(client,group).then(rows=>{if(current)setNavCounts({[counted.page]:rows.filter(row=>counted.counts(row.position.status)).length});})
+   .catch(()=>{if(current)setNavCounts({});});
+  return()=>{current=false;};
+ },[client,group,page,v3,context.role,context.competenciaEstado]);
+ function closeMenu(){setMenuOpen(false);menuToggle.current?.focus();}
  useEffect(()=>{
   if(!menuOpen)return;
   // The aside precedes the header in the DOM: start inside it so Tab does not reach the content under the overlay.
   menuRef.current?.querySelector('button')?.focus();
-  const close=(event:KeyboardEvent)=>{if(event.key==='Escape'){setMenuOpen(false);menuToggle.current?.focus();}};
+  const close=(event:KeyboardEvent)=>{if(event.key==='Escape')closeMenu();};
   document.addEventListener('keydown',close);
   return()=>document.removeEventListener('keydown',close);
  },[menuOpen]);
@@ -137,20 +156,21 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
  }
  return <div className="academic-app"><a className="skip-link" href="#academic-content" onClick={event=>{event.preventDefault();contentRef.current?.focus();}}>Pular para o conteúdo</a>
   <aside ref={menuRef} id="academic-menu" className="academic-side" aria-label="Menu" data-open={menuOpen} onBlur={event=>{if(menuOpen&&event.relatedTarget instanceof Node&&!event.currentTarget.contains(event.relatedTarget))setMenuOpen(false);}}><div className="academic-brand"><span className="academic-brand-mark" aria-hidden="true">G</span><span><b>Gratifiki</b><span>Avaliação por desempenho</span></span></div>
-   <AcademicNavigation role={context.role} page={page} onNavigate={navigate}/>
-   {v3&&<p className="academic-side-foot">Regra fictícia DEMO-v1 com 4 indicadores. Sem efeito institucional.</p>}</aside>
+   <div className="nav-group"><span className="nav-label" aria-hidden="true">Geral</span><AcademicNavigation role={context.role} page={page} onNavigate={navigate} counts={navCounts}/></div>
+   {v3&&<div className="academic-side-foot"><span className="nav-label">Regra em uso</span><p>Regra fictícia DEMO-v1 com 4 indicadores. Sem efeito institucional.</p></div>}</aside>
+  <div className="academic-scrim" hidden={!menuOpen} onClick={closeMenu}/>
   <div className="academic-body"><header className="academic-top">
   <p className="academic-demo-strip">{v3?'Regra fictícia DEMO-v1 · dados sintéticos · sem efeito institucional':'Dados sintéticos · baseline do modelo 2 · sem efeito institucional'}</p>
-  <div className="academic-top-row">
+  <div className={v3?'academic-top-row topbar':'academic-top-row'}>
   <button ref={menuToggle} type="button" className="academic-menu-toggle" aria-controls="academic-menu" aria-expanded={menuOpen} onClick={()=>setMenuOpen(open=>!open)}>Menu</button>
   {v3?<>
    <h1 className="sr-only">Contexto acadêmico autorizado</h1>
-   <label><span className="academic-label">Competência</span><select value={group.key} onChange={event=>onSelectGroup?.(event.target.value)}>{months.map(g=><option key={g.key} value={g.key}>{competenceLabel(g.competenciaCodigo)}</option>)}</select></label>
+   <label className="ctl ctl-month"><span className="academic-label">Competência</span><select value={group.key} onChange={event=>onSelectGroup?.(event.target.value)}>{months.map(g=><option key={g.key} value={g.key}>{competenceLabel(g.competenciaCodigo)}</option>)}</select></label>
    {context.competenciaEstado&&<p className={`academic-competence-state v3-badge v3-st-${context.competenciaEstado}`}><span className="sr-only">Situação da competência: </span>{competenceStateLabels[context.competenciaEstado]}</p>}
    <span className="academic-spacer" aria-hidden="true"/>
-   {roles.length>1&&<label>Papel<select value={group.role} onChange={event=>selectRole(event.target.value as Role)}>{roles.map(role=><option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>}
-   <div className="academic-person"><span className="academic-avatar" aria-hidden="true">{roleLabels[context.role][0]}</span><span><strong>{roleLabels[context.role]}</strong><span>{scopeSummary(scopes)}</span></span></div>
-   {groups?.some(g=>g.modelo!==3||g.role!==group.role)&&<button type="button" aria-expanded={othersOpen} aria-controls="academic-other-contexts" onClick={()=>setOthersOpen(open=>!open)}>Outros contextos</button>}
+   {roles.length>1&&<label className="ctl ctl-role"><span className="academic-label">Papel</span><select value={group.role} onChange={event=>selectRole(event.target.value as Role)}>{roles.map(role=><option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>}
+   <div className="academic-person user"><span className="academic-avatar" aria-hidden="true">{roleLabels[context.role][0]}</span><span><strong>{roleLabels[context.role]}</strong><span>{scopeSummary(scopes)}</span></span></div>
+   {groups?.some(g=>g.modelo!==3||g.role!==group.role)&&<button type="button" className="academic-others" aria-expanded={othersOpen} aria-controls="academic-other-contexts" onClick={()=>setOthersOpen(open=>!open)}>Outros contextos</button>}
   </>:<>
    <h1>Contexto acadêmico autorizado</h1>
    <p className="academic-profile">Perfil {context.role} · {context.escopoCodigo} · {context.competenciaCodigo}</p>
