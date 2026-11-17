@@ -187,7 +187,10 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
   </header><main id="academic-content" ref={contentRef} tabIndex={-1} className="academic-content">
   {v3&&<div className="academic-page-head"><h2>{heading.title}</h2><p>{heading.subtitle}</p></div>}
   {page==='historico'?<AuditPage client={client} context={context} group={group}/>
-  :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))?<ResultsPage client={client} group={group}/>
+  :v3&&((page==='painel'&&manager)||(page==='resultados'&&(manager||context.role==='cam')))
+   // key: the painel and Resultados are separate visits, so Resultados starts on the unit requested from the painel.
+   ?<ResultsPage key={page} client={client} group={group} initialUnitId={unitRequest?.unitId} onOpenHistory={()=>navigate('historico')} onOpenUnit={openUnit}
+     panel={page!=='painel'?undefined:context.role==='gestor_distrital'?'district':'unit'}/>
   :v3&&page==='painel'&&['area_tecnica','revisor_tecnico','cam'].includes(context.role)?<AcademicV3Dashboard client={client} group={group} onNavigate={navigate} onOpenUnit={openUnit} onOpenPosition={openPosition} onOpenHistory={()=>navigate('historico')}/>
   :v3&&page==='regras'&&context.role==='administrador'?<RuleCatalogPage client={client} group={group}/>
   :v3&&page==='painel'&&context.role==='administrador'?<AdminSummary client={client} group={group} onNavigate={navigate}/>

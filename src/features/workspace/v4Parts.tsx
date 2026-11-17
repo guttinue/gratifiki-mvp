@@ -62,7 +62,7 @@ export function StackBar({ counts }: { counts: ReturnType<typeof countByStatus> 
 
 export function UnitCard({ title, sub, badge, big, bar, foot, action }: {
   title: string; sub?: string; badge?: ReactNode; big: ReactNode; bar?: ReactNode; foot?: ReactNode;
-  action: { label: string; ariaLabel?: string; onClick: () => void };
+  action?: { label: string; ariaLabel?: string; onClick: () => void };
 }) {
   return (
     <article className="box ucard">
@@ -70,7 +70,7 @@ export function UnitCard({ title, sub, badge, big, bar, foot, action }: {
       <div className="big">{big}</div>
       {bar}
       {foot && <span className="sub">{foot}</span>}
-      <button type="button" aria-label={action.ariaLabel} onClick={action.onClick}>{action.label}</button>
+      {action && <button type="button" aria-label={action.ariaLabel} onClick={action.onClick}>{action.label}</button>}
     </article>
   );
 }

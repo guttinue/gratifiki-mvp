@@ -194,14 +194,40 @@ const rpc=(handler:(name:string)=>unknown)=>{
  return {client,calls};
 };
 const unitResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[completeUnit]};
-it.each(['painel','resultados'])('mounts the unit results for a model-3 manager on %s instead of the model-2 evaluations',async page=>{
- openAcademicPage(page);
+it('mounts the unit results for a model-3 manager on resultados instead of the model-2 evaluations',async()=>{
+ openAcademicPage('resultados');
  const {client,calls}=rpc(()=>unitResults);
  render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade'))} onSignOut={()=>{}}/>);
  expect(await screen.findByText('93,42')).toBeTruthy();
  expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
  expect(calls).toEqual(['get_unit_results']);
  expect(screen.queryByRole('heading',{name:'Avaliações autorizadas'})).toBeNull();
+});
+const emptyAudit={items:[],total:0,page:1,pageSize:100};
+it('unit manager painel shows result and activity',async()=>{
+ openAcademicPage('painel');
+ const {client,calls}=rpc(name=>name==='get_unit_results'?unitResults:emptyAudit);
+ render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade'))} onSignOut={()=>{}}/>);
+ expect((await screen.findByText('93,42')).closest('.hero')).toBeTruthy();
+ expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
+ expect(await screen.findByRole('complementary',{name:'Atividade recente'})).toBeTruthy();
+ await screen.findByText('Sem eventos.');
+ expect([...new Set(calls)].sort()).toEqual(['get_scoped_audit','get_unit_results']);
+});
+const districtGroup=()=>groupContexts(['i1','i2','i3','i4'].map(i=>v3('gestor_distrital',{key:i,vinculoId:i,indicadorId:i,escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})))[0];
+const districtResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[
+ {...completeUnit,unitId:'alfa',unitCode:'ACADEMIC-NORTE-1'},{...completeUnit,unitId:'beta',unitCode:'ACADEMIC-NORTE-2'}]};
+it('district manager painel is the district panel, and Ver detalhe opens Resultados on that unit',async()=>{
+ openAcademicPage('painel');
+ const {client,calls}=rpc(name=>name==='get_unit_results'?districtResults:emptyAudit);
+ render(<AcademicWorkspace client={client} group={districtGroup()} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('region',{name:'Unidades do distrito'})).toBeTruthy();
+ expect(screen.queryByRole('tablist')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Ver detalhe Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/resultados');
+ // Preflight F8: Resultados opens with the unit chosen in the painel.
+ expect((await screen.findByRole('tab',{name:'Unidade Beta'})).getAttribute('aria-selected')).toBe('true');
+ for(const name of ['submit_unit_batch','review_position','transition_cycle','publish_cycle_demo'])expect(calls).not.toContain(name);
 });
 it('mounts the unit results on resultados for the CAM of a model-3 group, and the cycle dashboard on painel',async()=>{
  openAcademicPage('resultados');
@@ -304,15 +330,15 @@ it('keeps both districts visible when one model-3 leadership view holds Norte an
  const group=groupContexts([v3('lideranca',{key:'sul',vinculoId:'sul',escopoId:'sul',escopoCodigo:'ACADEMIC-SUL'}),v3('lideranca',{key:'norte',vinculoId:'norte',escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})])[0];
  expect(group.contexts).toHaveLength(2);
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
- const rows=within(await screen.findByRole('table',{name:'Médias por distrito'})).getAllByRole('row');
- expect(rows.slice(1).map(row=>within(row).getAllByRole('cell')[0].textContent)).toEqual(['Distrito Norte','Distrito Sul']);
+ // LI-03: the district table became cards in the "Médias por distrito" region.
+ const region=await screen.findByRole('region',{name:'Médias por distrito'});
+ expect(within(region).getAllByRole('heading',{level:4}).map(heading=>heading.textContent)).toEqual(['Distrito Norte','Distrito Sul']);
  expect(bodies.map(body=>body.p_contexto.vinculoId)).toEqual(['norte']);
 });
-it('shows every unit of the district to a model-3 district manager',async()=>{
- const {client,calls}=rpc(()=>({competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[
-  {...completeUnit,unitId:'alfa',unitCode:'ACADEMIC-NORTE-1'},{...completeUnit,unitId:'beta',unitCode:'ACADEMIC-NORTE-2'}]}));
- const group=groupContexts(['i1','i2','i3','i4'].map(i=>v3('gestor_distrital',{key:i,vinculoId:i,indicadorId:i,escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})))[0];
- render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+it('shows every unit of the district to a model-3 district manager on resultados',async()=>{
+ openAcademicPage('resultados');
+ const {client,calls}=rpc(()=>districtResults);
+ render(<AcademicWorkspace client={client} group={districtGroup()} onSignOut={()=>{}}/>);
  const tabs=within(await screen.findByRole('tablist',{name:'Unidade'})).getAllByRole('tab');
  expect(tabs.map(tab=>tab.textContent)).toEqual(['Unidade Alfa','Unidade Beta']);
  expect(calls).toEqual(['get_unit_results']);

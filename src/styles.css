@@ -2196,6 +2196,24 @@ td code,
 .academic-app .v3-tabs button[aria-selected="true"] { border-bottom-color: var(--ink); color: var(--ink); }
 .academic-app .v3-tabs .n { min-width: 18px; padding: 0 5px; border-radius: 5px; background: var(--chip); color: var(--neutral); font: 500 11px/18px var(--mono); text-align: center; }
 .academic-app .v3-tabs [aria-selected="true"] .n { background: var(--ink); color: #fff; }
+/* Results hero (V4 index.html 341-353, 186-187). */
+.academic-app .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s4); align-items: end; padding: var(--s5); }
+.academic-app .hero-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.academic-app .hero-top h3 { margin: 0; }
+.academic-app .score-label { margin: var(--s3) 0 0; color: var(--muted); font: 500 12px var(--ui); }
+.academic-app .score { margin: var(--s2) 0 0; line-height: 1; }
+.academic-app .score-n { font: 550 56px/1 var(--ui); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.academic-app .score-of { color: var(--muted); font: 500 18px var(--ui); }
+.academic-app .score-empty { font: 550 22px var(--ui); }
+.academic-app .delta-line { margin: var(--s2) 0 0; font-size: 14px; }
+.academic-app .delta { font: 600 14px var(--mono); }
+.academic-app .delta.up { color: var(--ok); } .academic-app .delta.down { color: var(--bad); }
+.academic-app .hero-stats { display: grid; grid-template-columns: repeat(2, auto); gap: var(--s2) var(--s5); margin: 0; }
+.academic-app .hero-stats dt { color: var(--muted); font: 500 12px var(--ui); }
+.academic-app .hero-stats dd { margin: 0; font: 550 20px var(--ui); font-variant-numeric: tabular-nums; }
+.academic-app .pts-bar { display: block; width: 64px; height: 4px; margin: 4px 0 0 auto; overflow: hidden; border-radius: 2px; background: var(--active); }
+.academic-app .pts-bar span { display: block; height: 100%; background: var(--green); }
+@media (max-width: 960px) { .academic-app .hero { grid-template-columns: minmax(0, 1fr); } }
 /* Dense tables (V4 .tbl). Below 760px each row becomes a stacked card; every td carries data-label. */
 .academic-app .v4-tbl { min-width: 0; overflow-x: auto; border-radius: var(--r-lg); background: var(--surface); box-shadow: var(--card); }
 .academic-app .v4-tbl table { width: 100%; border-collapse: collapse; }
@@ -2222,6 +2240,9 @@ td code,
   .academic-app .v4-tbl td:first-child { display: block; text-align: left; }
   .academic-app .v4-tbl td:first-child::before { content: none; }
   .academic-app .v4-tbl .tbl-foot { padding: 0 var(--s1); border: 0; }
+  .academic-app .v4-tbl .pts-bar { display: inline-block; margin-left: var(--s2); vertical-align: middle; }
+  .academic-app .hero { padding: var(--s4); }
+  .academic-app .score-n { font-size: 44px; }
 }
 /* Conferência (V4 lines 277-309, 371): list with the detail beside it from 1280 px. */
 .academic-app .v3-tabs + .toolbar { margin-bottom: 16px; }
