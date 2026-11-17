@@ -1,11 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthorizedContext, ContextGroup } from '../pilot/types';
 import type { AuditItem } from '../pilot/types';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { toCommandContext } from '../context/contextApi';
-import { loadGroupPositions } from '../batch/groupPositions';
-import { auditActions, roleLabels, scopeName } from '../workspace/displayNames';
-import { loadAudit, loadNewestAudit, mergeAuditPages } from './auditApi';
+import { auditActions, auditCategories, plural, roleLabels } from '../workspace/displayNames';
+import { auditDay, auditHour, loadAudit, loadGroupAudit } from './auditApi';
 type Props = {
     client: SupabaseClient;
     context: AuthorizedContext;
@@ -20,71 +20,68 @@ export function AuditPage(props: Props) {
     return props.group?.modelo === 3 ? <GroupAudit key={props.group.key} client={props.client} group={props.group}/>
         : <ContextAudit key={props.context.key} {...props}/>;
 }
-// Only these roles have operational_read; for the others a position read would be refused (42501).
-const namesTargets = new Set(['area_tecnica', 'revisor_tecnico', 'cam']);
 const pageSize = 25;
-// §4.7: get_scoped_audit answers per context, so the view reads each one's newest 100, merges and pages locally.
+// The sentence of one history line (HI-02): "Verbo **alvo**: motivo · Papel". Unknown actions show their code alone.
+export function auditLine(row: AuditItem, targets: Map<string, string>) {
+    const known = Object.hasOwn(auditActions, row.action) ? auditActions[row.action] : null;
+    return known ? { verb: known.verb, target: targets.get(row.resourceId), reason: row.reason, role: known.role }
+        : { verb: row.action, target: undefined, reason: null, role: null };
+}
 function GroupAudit({ client, group }: { client: SupabaseClient; group: ContextGroup }) {
-    const [page, setPage] = useState(1);
-    const [search, setSearch] = useState('');
-    const [query, setQuery] = useState('');
-    const [action, setAction] = useState('');
-    const [filterAction, setFilterAction] = useState('');
-    const [data, setData] = useState<{ items: AuditItem[]; truncated: boolean; targets: Map<string, string> } | null>(null);
+    const [category, setCategory] = useState('todos');
+    const [shown, setShown] = useState(pageSize);
+    const [data, setData] = useState<Awaited<ReturnType<typeof loadGroupAudit>> | null>(null);
     const [error, setError] = useState(false);
     const [retry, setRetry] = useState(0);
+    const list = useRef<HTMLElement>(null);
     useEffect(() => {
         let current = true;
         setData(null);
         setError(false);
-        const filters = { ...(query ? { search: query } : {}), ...(filterAction ? { status: filterAction } : {}) };
-        void Promise.all([
-            Promise.all(group.contexts.map(c => loadNewestAudit(client, toCommandContext(c), filters))),
-            namesTargets.has(group.role) ? loadGroupPositions(client, group) : [],
-        ]).then(([pages, positions]) => {
-            const targets = new Map(positions.map(({ position: p }) => [p.id, [scopeName(p.escopoCodigo), p.indicatorCode].filter(Boolean).join(' · ')]));
-            const merged = mergeAuditPages(pages);
-            // A cut context lacks events before its oldest shown one; drop the others' older ones so no gap stays hidden.
-            const cutoff = Math.max(...pages.filter(p => p.items.length && p.total > p.items.length).map(p => Math.min(...p.items.map(i => Date.parse(i.occurredAt)))));
-            if (current) setData({ ...merged, items: merged.items.filter(i => Date.parse(i.occurredAt) >= cutoff), targets });
+        void loadGroupAudit(client, group).then(value => {
+            if (current) setData(value);
         }).catch(() => {
             if (current) setError(true);
         });
         return () => { current = false; };
-    }, [client, group, query, filterAction, retry]);
-    const line = (row: AuditItem) => {
-        const known = Object.hasOwn(auditActions, row.action) ? auditActions[row.action] : null;
-        const target = data?.targets.get(row.resourceId);
-        return { text: known ? `${known.verb}${target ? ` ${target}` : ''}${row.reason ? `: ${row.reason}` : ''}` : row.action, role: known && roleLabels[known.role] };
+    }, [client, group, retry]);
+    const actions = auditCategories.find(c => c.id === category)?.actions;
+    const events = data ? data.items.filter(i => !actions || actions.includes(i.action)) : [];
+    const now = new Date();
+    const days: { day: string; items: AuditItem[] }[] = [];
+    for (const row of events.slice(0, shown)) {
+        const day = auditDay(row.occurredAt, now);
+        if (days.at(-1)?.day === day) days.at(-1)?.items.push(row);
+        else days.push({ day, items: [row] });
+    }
+    const more = () => {
+        flushSync(() => setShown(n => n + pageSize));
+        list.current?.querySelectorAll('li')[shown]?.focus();
     };
     return <section aria-label="Histórico autorizado">
-        <form onSubmit={e => {
-            e.preventDefault();
-            setQuery(search);
-            setFilterAction(action);
-            setPage(1);
-        }}>
-            <label>{group.role === 'administrador' ? 'Buscar ação' : 'Buscar ação ou alvo'}
-                <input value={search} onChange={e => setSearch(e.target.value)}/>
-            </label>
-            <label>Ação exata<input value={action} onChange={e => setAction(e.target.value)}/></label>
-            <button type="submit">Filtrar histórico</button>
-        </form>
-        {error ? <p role="alert">Não foi possível confirmar o histórico autorizado. Verifique os filtros e o acesso.</p>
-            : !data ? <p role="status">Carregando histórico…</p> : <div className="v3-panel">
-                {data.truncated && <p className="v3-note">Há eventos mais antigos; use o filtro de ação.</p>}
-                {!data.items.length && <p>Nenhum evento autorizado neste filtro.</p>}
-                <ol className="timeline">{data.items.slice((page - 1) * pageSize, page * pageSize).map(row => {
-                    const { text, role } = line(row);
-                    return <li key={row.id}>
-                        <time dateTime={row.occurredAt}>{formatAuditTime(row.occurredAt)}</time>
-                        <div><strong>{text}</strong>{role && <span className="v3-cell-sub">{role}</span>}</div>
-                    </li>;
-                })}</ol>
-                <button type="button" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Eventos anteriores</button>
-                <span> Página {page} </span>
-                <button type="button" disabled={page * pageSize >= data.items.length} onClick={() => setPage(p => p + 1)}>Próximos eventos</button>
-            </div>}
+        <div className="toolbar">
+            <label>Mostrar <select value={category} onChange={e => { setCategory(e.target.value); setShown(pageSize); }}>
+                {auditCategories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select></label>
+            {data && <span aria-live="polite">{Math.min(shown, events.length)} de {plural(events.length, 'evento', 'eventos')}</span>}
+        </div>
+        {error ? <p role="alert">Não foi possível confirmar o histórico autorizado. Tente atualizar.</p>
+            : !data ? <p role="status">Carregando histórico…</p> : <>
+                {data.truncated && <p className="v3-note">Há eventos mais antigos que não foram carregados.</p>}
+                {!events.length ? <p>Nenhum evento autorizado neste filtro.</p> : <section className="box log" aria-label="Eventos" ref={list}>
+                    {days.map(({ day, items }) => <Fragment key={day}>
+                        <h3 className="log-day">{day}</h3>
+                        <ul>{items.map(row => {
+                            const { verb, target, reason, role } = auditLine(row, data.targets);
+                            return <li key={row.id} tabIndex={-1}>
+                                <time dateTime={row.occurredAt}>{auditHour(row.occurredAt)}</time>
+                                <p>{verb}{target && <> <strong className="target">{target}</strong></>}{reason && `: ${reason}`}{role && <> <span className="role">· {roleLabels[role]}</span></>}</p>
+                            </li>;
+                        })}</ul>
+                    </Fragment>)}
+                    {events.length > shown && <div className="log-more"><button type="button" onClick={more}>Carregar mais</button></div>}
+                </section>}
+            </>}
         <button type="button" onClick={() => setRetry(n => n + 1)}>Atualizar histórico</button>
     </section>;
 }

@@ -30,3 +30,8 @@ export const unitContexts = (rows: GroupPosition[], unitId: string): AuthorizedC
 
 export const statusLabels: Record<EntryStatus | 'ausente', string> = { ausente: 'Não enviado', rascunho: 'Rascunho', devolvida: 'Devolvida',
   enviada: 'Aguardando conferência', em_revisao: 'Em conferência', validada: 'Aceita', invalidada: 'Invalidada' };
+
+const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+// "Ordem: unidade e indicador" (V4): unit code, then indicator code.
+export const byUnitAndIndicator = (a: GroupPosition, b: GroupPosition) =>
+  compare(a.position.escopoCodigo, b.position.escopoCodigo) || compare(a.position.indicatorCode ?? '', b.position.indicatorCode ?? '');

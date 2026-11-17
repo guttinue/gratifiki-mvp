@@ -1,15 +1,16 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ContextGroup, DraftInput } from '../pilot/types';
 import { DomainCommandError } from '../pilot/commandApi';
-import { formatDecimal, parseInputDecimal, previewPoints } from '../pilot/decimal';
+import { formatDecimal, parseInputDecimal, previewPoints, sumDecimals } from '../pilot/decimal';
 import { validateRuleValue } from '../entry/valueValidation';
 import { saveDraft } from '../submission/positionApi';
-import { absenceCopy, directionSymbol } from '../results/CalculationExplainer';
+import { absenceCopy } from '../results/CalculationExplainer';
 import { useNavigationDraft } from '../workspace/NavigationSafety';
+import { requestAcademicLeave } from '../workspace/academicNavigation';
 import { BatchCommandError, loadUnitBatch, submitUnitBatch, type BatchItem, type UnitBatch, type UnitBatchItem } from './batchApi';
 import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from './groupPositions';
-import { competenceLabel, scopeName } from '../workspace/displayNames';
+import { competenceLabel, plural, scopeName } from '../workspace/displayNames';
 
 type Situation = DraftInput['estadoDado'];
 type Edit = { estado: Situation; valor: string; fonte: string; periodo: string; motivo: string; explicacao: string };
@@ -17,20 +18,28 @@ type Field = 'valor' | 'fonte' | 'periodo' | 'motivo' | 'explicacao';
 type Errors = Partial<Record<Field, string>>;
 type Problem = { positionId: string | null; message: string; code: string };
 
-const situations: readonly (readonly [Situation, string])[] = [['valor', 'Tenho o valor'], ['nao_aplicavel', 'Não se aplica'], ['indisponivel', 'Indisponível']];
+const situations: readonly (readonly [Situation, string])[] = [['valor', 'Valor'], ['nao_aplicavel', 'Não se aplica'], ['indisponivel', 'Indisponível']];
 const motivoLabels: Record<Exclude<Situation, 'valor'>, string> = { nao_aplicavel: 'Por que este indicador não se aplica?', indisponivel: 'Por que o dado está indisponível?' };
 const itemMessages: Record<string, string> = {
   invalid_input: 'O servidor recusou este item. Confira o valor, a fonte e o motivo e envie de novo.',
   invalid_state: 'Este item já foi enviado ou não pode mais ser editado. Recarregue a unidade.',
   rule_unavailable: 'A regra fixada para este indicador não está disponível.',
 };
+// V4 index.html lines 758-765.
+const tips: readonly (readonly [string, string])[] = [
+  ['Zero é um valor', '0 entra no cálculo como qualquer número. Não é o mesmo que não enviado.'],
+  ['Indisponível vai para a CAM', 'Explique o motivo. A CAM decide o tratamento; não vira zero.'],
+  ['Não se aplica não é ausência', 'Use quando o indicador não vale para a unidade neste mês.'],
+  ['Até 2 casas decimais', 'Use vírgula, como 92,5. Com 3 casas o envio é bloqueado.'],
+  ['Devolvida pede explicação', 'Diga o que corrigiu. O revisor vê junto da versão anterior.'],
+  ['Só aceitas contam', 'A prévia soma o que está na tela; o resultado usa só o que o revisor aceitou.'],
+];
 const conflictMessage = 'Os dados mudaram desde que você abriu esta unidade. Recarregue a unidade; o que você digitou foi mantido.';
 
 // R-29: the source period is the month of the competence only when none was saved.
 const defaultPeriod = (competence: string) => { const match = /(\d{4})-(\d{2})$/.exec(competence); return match ? `${match[1]}-${match[2]}-01` : ''; };
 const validDate = (text: string) => /^\d{4}-\d{2}-\d{2}$/.test(text) && new Date(`${text}T00:00:00Z`).toISOString().slice(0, 10) === text;
 const without = <T,>(all: Record<string, T>, key: string) => Object.fromEntries(Object.entries(all).filter(([id]) => id !== key));
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const toInput = (e: Edit): DraftInput => ({ estadoDado: e.estado, valor: e.estado === 'valor' && e.valor.trim() ? e.valor : null, fonte: e.fonte,
   periodoFonte: e.periodo, motivo: e.estado === 'valor' ? '' : e.motivo });
 
@@ -44,9 +53,11 @@ function check(item: UnitBatchItem, e: Edit): Errors {
   return errors;
 }
 
-export function BatchEntryPage({ client, group, initialUnitId }: { client: SupabaseClient; group: ContextGroup; initialUnitId?: string }) {
+export function BatchEntryPage({ client, group, initialUnitId, initialFocus }: { client: SupabaseClient; group: ContextGroup; initialUnitId?: string;
+  initialFocus?: { positionId?: string; field?: 'valor' | 'explicacao' } }) {
   const period = defaultPeriod(group.competenciaCodigo);
-  const open = !group.contexts[0].competenciaEstado || group.contexts[0].competenciaEstado === 'aberta';
+  const state = group.contexts[0].competenciaEstado;
+  const open = !state || state === 'aberta';
   const [rows, setRows] = useState<GroupPosition[] | null>(null);
   const [unitId, setUnitId] = useState(initialUnitId ?? '');
   const [batch, setBatch] = useState<UnitBatch | null>(null);
@@ -106,6 +117,15 @@ export function BatchEntryPage({ client, group, initialUnitId }: { client: Supab
     (problem.positionId ? cards.current.get(problem.positionId) : alertRef.current)?.focus();
   }, [problem]);
 
+  // The painel's request (Corrigir, Revisar e enviar, Preencher) focuses its field once, after the unit loads.
+  const focused = useRef<object | null>(null);
+  useEffect(() => {
+    if (!batch || !initialFocus?.positionId || !initialFocus.field || focused.current === initialFocus) return;
+    if (!batch.items.some(item => item.positionId === initialFocus.positionId)) return;
+    focused.current = initialFocus;
+    document.getElementById(`batch-${initialFocus.positionId}-${initialFocus.field}`)?.focus();
+  }, [batch, initialFocus]);
+
   const initial = (item: UnitBatchItem): Edit => ({ estado: item.estadoDado ?? 'valor', valor: item.valor ? formatDecimal(item.valor) : '',
     fonte: item.fonte ?? '', periodo: item.periodoFonte ?? period, motivo: item.motivo ?? '', explicacao: '' });
   const current = (item: UnitBatchItem) => edits[item.positionId] ?? initial(item);
@@ -115,11 +135,17 @@ export function BatchEntryPage({ client, group, initialUnitId }: { client: Supab
     const e = current(item);
     const errors = editable(item) ? check(item, e) : {};
     const visible = (Object.keys(errors) as Field[]).filter(field => touched[`${item.positionId}:${field}`] || (field === 'valor' && e.valor.trim()));
-    return { item, e, errors, visible, ready: editable(item) && !Object.keys(errors).length };
+    const rule = { meta: item.meta, direction: item.direction, weight: item.weight };
+    // Locked rows preview the saved value; the official points stay the server's.
+    const points = editable(item) ? (e.estado === 'valor' && !errors.valor ? previewPoints(e.valor, rule) : null)
+      : byPosition.get(item.positionId)?.position.aplicavel !== false && item.estadoDado === 'valor' && item.valor ? previewPoints(item.valor, rule) : null;
+    return { item, e, errors, visible, points, ready: editable(item) && !Object.keys(errors).length };
   });
   const ready = evaluated.filter(card => card.ready);
   const blocked = evaluated.some(card => card.visible.length > 0);
   const waiting = evaluated.filter(card => editable(card.item) && !card.ready).length;
+  const errorCount = evaluated.reduce((n, card) => n + card.visible.length, 0);
+  const scored = evaluated.flatMap(card => card.points ? [card.points.points] : []);
   useNavigationDraft(busy || Object.keys(edits).length > 0);
 
   function change(item: UnitBatchItem, patch: Partial<Edit>) {
@@ -178,81 +204,125 @@ export function BatchEntryPage({ client, group, initialUnitId }: { client: Supab
     } finally { inFlight.current = false; if (active.current) setBusy(false); }
   }
 
+
+  // Switching tabs keeps every edit in `edits`, but asks first when the shown unit has one.
+  function selectUnit(id: string): boolean {
+    if (id === activeUnit) return true;
+    if (items.some(item => edits[item.positionId]) && !requestAcademicLeave()) return false;
+    setUnitId(id);
+    return true;
+  }
+  function tabKey(event: KeyboardEvent<HTMLDivElement>) {
+    const at = units.findIndex(unit => unit.id === activeUnit);
+    const moves: Record<string, number> = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: units.length - 1 };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    const unit = units[(moves[event.key] + units.length) % units.length];
+    if (selectUnit(unit.id)) document.getElementById(`batch-tab-${unit.id}`)?.focus();
+  }
+
   const retry = () => { setProblem(null); setReload(n => n + 1); };
-  return <section className="v3-page batch-page" aria-label="Preenchimento em lote">
-    {!open && <p className="v3-note">A competência não está aberta: somente consulta.</p>}
-    <div className="batch-fill">
-    <nav aria-label="Unidades" className="batch-units">{units.map(unit => <button key={unit.id} type="button" aria-pressed={unit.id === activeUnit} onClick={() => setUnitId(unit.id)}>
-      <b>{scopeName(unit.code)}</b>{' '}<span className="v3-sub">{`${unit.sent} de ${unit.total} enviados`}{unit.returned ? ` · ${unit.returned} ${unit.returned > 1 ? 'devolvidas' : 'devolvida'}` : ''}</span>
-      <progress aria-hidden="true" value={unit.sent} max={unit.total} /></button>)}</nav>
-    <div className="batch-main">
+  const month = competenceLabel(group.competenciaCodigo);
+  return <section className="v3-page fill-page" aria-label="Preenchimento em lote">
+    {units.length > 0 && <div role="tablist" aria-label="Unidades do seu escopo" className="unit-tabs" onKeyDown={tabKey}>{units.map(unit =>
+      <button key={unit.id} id={`batch-tab-${unit.id}`} type="button" role="tab" aria-selected={unit.id === activeUnit} aria-controls="batch-panel"
+        tabIndex={unit.id === activeUnit ? 0 : -1} onClick={() => selectUnit(unit.id)}>
+        <span className="ut-name">{scopeName(unit.code)}</span>{' '}
+        <span className="ut-meta"><span>{`${unit.sent} de ${unit.total} enviados`}</span>{unit.returned
+          ? <>{' '}<span className="sr-only">·</span>{' '}<span className="v3-badge t-bad">{plural(unit.returned, 'devolvida', 'devolvidas')}</span></> : null}</span>
+        <span className="meter" aria-hidden="true"><span style={{ width: `${(unit.sent / unit.total) * 100}%` }} /></span>
+      </button>)}</div>}
+    <div className="fill">
+    <div className="fill-main" id="batch-panel" role={units.length ? 'tabpanel' : undefined} aria-labelledby={activeUnit ? `batch-tab-${activeUnit}` : undefined}>
+    {batch && <div className="fill-head"><h3>{scopeName(batch.unitCode)}</h3>
+      <p className="sub">{open ? plural(items.filter(editable).length, 'item editável', 'itens editáveis') : 'somente consulta'}</p></div>}
+    {!open && <p className="notice info" role="status"><strong>Somente consulta.</strong>{' '}{state === 'em_consolidacao'
+      ? `A CAM está consolidando ${month.split('/')[0].toLowerCase()}. Para corrigir algo, a CAM precisa retornar a competência para aberta.`
+      : 'Esta competência está fechada; os valores estão congelados.'}</p>}
     {loadError && <p role="alert">{loadError}</p>}
     {rows && !units.length && !loadError && <p>Nenhuma posição para preencher neste mês.</p>}
     {!loadError && !batch && (!rows || units.length > 0) && <p role="status">Carregando indicadores…</p>}
     {notice && <p role="status">{notice}</p>}
-    {batch && <header className="batch-head"><h3>{scopeName(batch.unitCode)}</h3><p className="v3-sub">{competenceLabel(group.competenciaCodigo)} · regra fictícia DEMO-v1</p></header>}
-    <ul className="batch-cards">{evaluated.map(({ item, e, errors, visible, ready: isReady }) => {
-      const k = `batch-${item.positionId}`;
-      const isEditable = editable(item);
-      const cardProblem = problem?.positionId === item.positionId ? problem : null;
-      const error = (field: Field): ReactNode => visible.includes(field) && errors[field] ? <span id={`${k}-${field}-error`} className="batch-error">{errors[field]}</span> : null;
-      const describedBy = (field: Field, hint?: boolean) => [hint ? `${k}-${field}-hint` : '', error(field) ? `${k}-${field}-error` : ''].filter(Boolean).join(' ') || undefined;
-      const preview = isEditable && e.estado === 'valor' && !errors.valor ? previewPoints(e.valor, { meta: item.meta, direction: item.direction, weight: item.weight }) : null;
-      const unit = item.unit ? ` ${item.unit}` : '';
-      return <li key={item.positionId}><section ref={node => { if (node) cards.current.set(item.positionId, node); else cards.current.delete(item.positionId); }}
-        className="batch-card" tabIndex={-1} aria-labelledby={`${k}-title`} aria-describedby={cardProblem ? `${k}-problem` : undefined} data-invalid={cardProblem ? 'true' : undefined}>
-        <header><h4 id={`${k}-title`}>{item.indicatorCode} · {item.name}</h4><span className={`v3-badge v3-st-${item.status}`}>{statusLabels[item.status]}</span></header>
-        <p className="v3-sub">Meta: {directionSymbol(item.direction)} {formatDecimal(item.meta)}{unit} · peso {formatDecimal(item.weight)} pontos{item.revisionNumber && item.revisionNumber > 1 ? ` · revisão ${item.revisionNumber}` : ''}</p>
-        {cardProblem && <p id={`${k}-problem`} role="alert" className="batch-error">{cardProblem.message}</p>}
-        {item.status === 'devolvida' && item.returnReason && <p className="batch-return"><strong>Motivo da devolução</strong> {item.returnReason}</p>}
-        {isEditable ? <div className="batch-body">
-          <div role="radiogroup" aria-labelledby={`${k}-situation`} className="batch-situation">
-            <span id={`${k}-situation`} className="v3-label">Situação do dado</span>
-            {situations.map(([value, label]) => <label key={value} className="batch-radio"><input type="radio" name={`${k}-situation`} value={value} checked={e.estado === value}
-              onChange={() => change(item, { estado: value })} />{label}</label>)}
-          </div>
-          {e.estado === 'valor' ? <div className="batch-field"><label htmlFor={`${k}-valor`}>Valor apurado</label>
-            <input id={`${k}-valor`} inputMode="decimal" autoComplete="off" value={e.valor} aria-invalid={visible.includes('valor') ? 'true' : undefined} aria-describedby={describedBy('valor', true)}
-              onChange={event => change(item, { valor: event.target.value })} onBlur={() => touch(item, 'valor')} />
-            <span id={`${k}-valor-hint`} className="v3-sub">{item.decimals ? `Até ${item.decimals} casas decimais` : 'Número inteiro'} · máximo {formatDecimal(item.max)}{unit}.</span>{error('valor')}</div>
-            : <div className="batch-field"><label htmlFor={`${k}-motivo`}>{motivoLabels[e.estado]}</label>
-              <textarea id={`${k}-motivo`} maxLength={1000} value={e.motivo} aria-invalid={visible.includes('motivo') ? 'true' : undefined} aria-describedby={describedBy('motivo')}
-                onChange={event => change(item, { motivo: event.target.value })} onBlur={() => touch(item, 'motivo')} />{error('motivo')}</div>}
-          <div className="batch-field"><label htmlFor={`${k}-fonte`}>Fonte do dado</label>
-            <input id={`${k}-fonte`} maxLength={500} value={e.fonte} aria-invalid={visible.includes('fonte') ? 'true' : undefined} aria-describedby={describedBy('fonte', true)}
-              onChange={event => change(item, { fonte: event.target.value })} onBlur={() => touch(item, 'fonte')} />
-            <span id={`${k}-fonte-hint`} className="v3-sub">Sistema ou relatório de onde o valor saiu.</span>{error('fonte')}</div>
-          <div className="batch-field"><label htmlFor={`${k}-periodo`}>Período da fonte</label>
-            <input id={`${k}-periodo`} type="date" value={e.periodo} aria-invalid={visible.includes('periodo') ? 'true' : undefined} aria-describedby={describedBy('periodo')}
-              onChange={event => change(item, { periodo: event.target.value })} onBlur={() => touch(item, 'periodo')} />{error('periodo')}</div>
-          {item.status === 'devolvida' && <div className="batch-field"><label htmlFor={`${k}-explicacao`}>O que você corrigiu?</label>
-            <textarea id={`${k}-explicacao`} maxLength={1000} value={e.explicacao} aria-invalid={visible.includes('explicacao') ? 'true' : undefined} aria-describedby={describedBy('explicacao', true)}
-              onChange={event => change(item, { explicacao: event.target.value })} onBlur={() => touch(item, 'explicacao')} />
-            <span id={`${k}-explicacao-hint`} className="v3-sub">O revisor vê esta explicação junto da versão anterior.</span>{error('explicacao')}</div>}
-          <div className="batch-score" aria-live="polite">
-            <span className="v3-label">Pontos (prévia)</span>
-            <output className="batch-points">{preview ? formatDecimal(preview.points, 2) : '–'}</output>
-            <span className="v3-sub">de {formatDecimal(item.weight)} possíveis · o cálculo oficial é o do servidor</span>
-            <span className="batch-formula">{preview ? preview.expression : e.estado === 'valor' ? 'Informe o valor para ver o cálculo.' : batch && absenceCopy[batch.mode]}</span>
-          </div>
-          <div className="batch-actions">
-            {item.status !== 'devolvida' && <button type="button" disabled={busy || visible.includes('valor')} onClick={() => void saveCard(item, e)}>Salvar rascunho</button>}
-            {cardNotes[item.positionId] && <span role="status">{cardNotes[item.positionId]}</span>}
-            {isReady && <span className="v3-sub">Pronto para envio</span>}
-          </div>
-        </div> : <dl className="batch-locked">
-          {byPosition.get(item.positionId)?.position.aplicavel === false ? <><dt>Situação</dt><dd>Não se aplica a esta unidade neste mês.</dd></>
-            : item.estadoDado ? <><dt>Informado</dt><dd>{item.estadoDado === 'valor' ? `${formatDecimal(item.valor ?? '0')}${unit}` : item.estadoDado === 'nao_aplicavel' ? 'Não se aplica' : 'Indisponível'}</dd>
-              {item.fonte && <><dt>Fonte</dt><dd>{item.fonte}</dd></>}{item.motivo && <><dt>Motivo</dt><dd>{item.motivo}</dd></>}</> : <><dt>Informado</dt><dd>Nada ainda</dd></>}
-        </dl>}
-      </section></li>;
-    })}</ul>
+    {blocked && <p className="notice danger" role="alert"><strong>{errorCount === 1 ? '1 campo precisa' : `${errorCount} campos precisam`} de correção.</strong>{' '}Nada foi enviado.</p>}
+    {batch && <div className="fill-tbl"><table>
+      <caption className="sr-only">{`Indicadores de ${scopeName(batch.unitCode)} em ${month}`}</caption>
+      <thead><tr><th scope="col">Indicador</th><th scope="col">Meta</th><th scope="col">Situação do dado</th><th scope="col" className="r">Valor</th><th scope="col" className="r">Pontos</th></tr></thead>
+      {evaluated.map(({ item, e, errors, visible, points, ready: isReady }) => {
+        const k = `batch-${item.positionId}`;
+        const isEditable = editable(item);
+        const returned = isEditable && item.status === 'devolvida';
+        const applicable = byPosition.get(item.positionId)?.position.aplicavel !== false;
+        const cardProblem = problem?.positionId === item.positionId ? problem : null;
+        const error = (field: Field): ReactNode => visible.includes(field) && errors[field] ? <span id={`${k}-${field}-error`} className="fill-error">{errors[field]}</span> : null;
+        const describedBy = (field: Field, hint?: boolean) => [hint ? `${k}-${field}-hint` : '', error(field) ? `${k}-${field}-error` : ''].filter(Boolean).join(' ') || undefined;
+        const unit = item.unit ? ` ${item.unit}` : '';
+        return <tbody key={item.positionId} ref={node => { if (node) cards.current.set(item.positionId, node); else cards.current.delete(item.positionId); }}
+          className={returned ? 'is-ret' : isEditable ? undefined : 'is-locked'} tabIndex={-1} aria-labelledby={`${k}-title`}
+          aria-describedby={cardProblem ? `${k}-problem` : undefined} data-invalid={cardProblem ? 'true' : undefined}>
+          <tr className="main">
+            <td id={`${k}-title`} className="ind-name" data-label="Indicador"><div className="ind">
+              <strong>{item.indicatorCode}</strong>{' '}<span className="sr-only">·</span>{' '}<span className="nm">{item.name}</span>{' '}
+              <span className={`v3-badge v3-st-${item.status}`}>{statusLabels[item.status]}</span>
+              {item.revisionNumber && item.revisionNumber > 1 ? <>{' '}<span className="sub">{`revisão ${item.revisionNumber}`}</span></> : null}
+            </div></td>
+            <td data-label="Meta"><span className="nowrap">{`${item.direction === 'maior_melhor' ? 'mín.' : 'máx.'} ${formatDecimal(item.meta)}${unit}`}</span>
+              <span className="sub">{`peso ${formatDecimal(item.weight)}`}</span></td>
+            <td data-label="Situação do dado">{isEditable
+              ? <div role="radiogroup" aria-label="Situação do dado" className="seg">{situations.map(([value, label]) => <label key={value}>
+                <input type="radio" name={`${k}-situation`} value={value} checked={e.estado === value} onChange={() => change(item, { estado: value })} />{label}</label>)}</div>
+              : !applicable ? 'Não se aplica a esta unidade neste mês.'
+                : item.estadoDado ? <>{situations.find(([value]) => value === item.estadoDado)![1]}
+                  {item.estadoDado === 'valor' ? item.fonte && <span className="sub">{`Fonte: ${item.fonte}`}</span> : item.motivo && <span className="sub">{`Motivo: ${item.motivo}`}</span>}</>
+                  : 'Nada ainda'}</td>
+            <td className="r" data-label="Valor">{!isEditable ? (applicable && item.estadoDado === 'valor' && item.valor ? `${formatDecimal(item.valor)}${unit}` : '–')
+              : e.estado === 'valor' ? <><label className="sr-only" htmlFor={`${k}-valor`}>Valor apurado</label>
+                <span className={visible.includes('valor') ? 'vin is-bad' : 'vin'}>
+                  <input id={`${k}-valor`} type="text" inputMode="decimal" autoComplete="off" value={e.valor} aria-invalid={visible.includes('valor') ? 'true' : undefined}
+                    aria-describedby={describedBy('valor', true)} onChange={event => change(item, { valor: event.target.value })} onBlur={() => touch(item, 'valor')} />
+                  {item.unit && <span aria-hidden="true">{item.unit}</span>}</span>{error('valor')}</> : '–'}</td>
+            <td className="r" data-label="Pontos"><output className="pts" aria-live="polite">{points ? formatDecimal(points.points, 2) : '–'}</output><span className="sub">{`de ${formatDecimal(item.weight)}`}</span></td>
+          </tr>
+          {(isEditable || cardProblem) && <tr className="sub-row"><td colSpan={5}><div className="sub-grid">
+            {cardProblem && <p id={`${k}-problem`} role="alert" className="fill-error wide">{cardProblem.message}</p>}
+            {returned && <p className="returned"><strong>Devolvida pelo revisor técnico.</strong>{item.returnReason && <>{' '}{item.returnReason}</>}</p>}
+            {isEditable && <>
+              <div className="field"><label htmlFor={`${k}-fonte`}>Fonte do dado</label>
+                <input id={`${k}-fonte`} maxLength={500} value={e.fonte} aria-invalid={visible.includes('fonte') ? 'true' : undefined} aria-describedby={describedBy('fonte', true)}
+                  onChange={event => change(item, { fonte: event.target.value })} onBlur={() => touch(item, 'fonte')} />
+                <span id={`${k}-fonte-hint`} className="sub">Sistema ou relatório de onde o valor saiu.</span>{error('fonte')}</div>
+              <div className="field"><label htmlFor={`${k}-periodo`}>Período da fonte</label>
+                <input id={`${k}-periodo`} type="date" value={e.periodo} aria-invalid={visible.includes('periodo') ? 'true' : undefined} aria-describedby={describedBy('periodo')}
+                  onChange={event => change(item, { periodo: event.target.value })} onBlur={() => touch(item, 'periodo')} />{error('periodo')}</div>
+              {e.estado !== 'valor' && <div className="field"><label htmlFor={`${k}-motivo`}>{motivoLabels[e.estado]}</label>
+                <textarea id={`${k}-motivo`} rows={2} maxLength={1000} value={e.motivo} aria-invalid={visible.includes('motivo') ? 'true' : undefined} aria-describedby={describedBy('motivo')}
+                  onChange={event => change(item, { motivo: event.target.value })} onBlur={() => touch(item, 'motivo')} />{error('motivo')}</div>}
+              {item.status === 'devolvida' && <div className="field"><span className="field-head"><label htmlFor={`${k}-explicacao`}>O que você corrigiu?</label> <span className="sub">obrigatório</span></span>
+                <textarea id={`${k}-explicacao`} rows={2} maxLength={1000} value={e.explicacao} aria-required="true" aria-invalid={visible.includes('explicacao') ? 'true' : undefined}
+                  aria-describedby={describedBy('explicacao', true)} onChange={event => change(item, { explicacao: event.target.value })} onBlur={() => touch(item, 'explicacao')} />
+                <span id={`${k}-explicacao-hint`} className="sub">O revisor vê esta explicação junto da versão anterior.</span>{error('explicacao')}</div>}
+              <div className="calc-wrap"><span className="sub">Cálculo</span>
+                {points ? <span className="mono">{points.expression}</span> : <span>{e.estado === 'valor' ? 'Informe o valor para ver o cálculo.' : absenceCopy[batch.mode]}</span>}
+                {e.estado === 'valor' && <span id={`${k}-valor-hint`} className="sub">{item.decimals ? `Até ${item.decimals} casas decimais` : 'Número inteiro'} · máximo {formatDecimal(item.max)}{unit}.</span>}</div>
+              <div className="fill-actions">
+                {item.status !== 'devolvida' && <button type="button" disabled={busy || visible.includes('valor')} onClick={() => void saveCard(item, e)}>Salvar rascunho</button>}
+                {cardNotes[item.positionId] && <span role="status">{cardNotes[item.positionId]}</span>}
+                {isReady && <span className="sub">Pronto para envio</span>}
+              </div>
+            </>}
+          </div></td></tr>}
+        </tbody>;
+      })}
+    </table></div>}
     {problem && !problem.positionId && <><p ref={alertRef} role="alert" tabIndex={-1}>{problem.message}</p>
       {problem.code === 'version_conflict' && <button type="button" onClick={retry}>Recarregar unidade</button>}</>}
-    {batch && open && <div className="batch-footer">
-      <p className="batch-count" aria-live="polite"><strong>{plural(ready.length, 'pronto', 'prontos')} para envio</strong>{waiting ? <span> · {plural(waiting, 'pendente', 'pendentes')}</span> : null}</p>
-      <button type="button" className="batch-send primary" disabled={busy || !ready.length || blocked} onClick={() => void send()}>{busy ? 'Enviando…' : `Enviar ${plural(ready.length, 'item', 'itens')}`}</button>
+    {batch && open && <div className="fill-bar">
+      <p className="fill-total"><span className="sub">Prévia da unidade</span>{' '}<strong>{scored.length ? formatDecimal(sumDecimals(scored), 2) : '–'} / 100</strong></p>
+      <p className="fill-count" aria-live="polite"><strong>{plural(ready.length, 'pronto', 'prontos')} para envio</strong>{waiting ? <span> · {plural(waiting, 'pendente', 'pendentes')}</span> : null}</p>
+      <button type="button" className="primary" disabled={busy || !ready.length || blocked} onClick={() => void send()}>{busy ? 'Enviando…' : `Enviar ${plural(ready.length, 'item', 'itens')}`}</button>
     </div>}
-    </div></div>
+    </div>
+    <aside className="tips box" aria-labelledby="batch-tips-title"><h3 id="batch-tips-title">Dicas rápidas</h3>
+      <ul>{tips.map(([title, text]) => <li key={title}><strong>{title}</strong><span>{text}</span></li>)}</ul></aside>
+    </div>
   </section>;
 }

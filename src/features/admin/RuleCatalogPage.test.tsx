@@ -18,7 +18,7 @@ describe('RuleCatalogPage', () => {
   it('shows the rule in use as locked, read only, with the calculation of each indicator', async () => {
     const { client, calls } = rpcClient(() => catalog);
     render(<RuleCatalogPage client={client} group={group} />);
-    expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+    expect(await screen.findByText('Em uso · bloqueada')).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'DEMO-v1' })).toBeTruthy();
     // The model-3 shell already renders the page heading; a second h2 would repeat it.
     expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
@@ -32,7 +32,8 @@ describe('RuleCatalogPage', () => {
     expect(within(rows[1]).getByText('min(valor ÷ meta; 1) × peso')).toBeTruthy();
     expect(within(rows[3]).getByText('≤ 48 h')).toBeTruthy();
     expect(within(rows[3]).getByText('min(meta ÷ valor; 1) × peso')).toBeTruthy();
-    expect(screen.getByText('Pesos somam 100')).toBeTruthy();
+    expect(screen.getByText('Pesos somam 100 · Arredondamento: centésimos, metade para cima')).toBeTruthy();
+    expect(rows[1].querySelector('td')?.getAttribute('data-label')).toBe('Indicador');
     expect(screen.getByText(/ausências valem zero/i)).toBeTruthy();
     expect(calls).toEqual([{ name: 'get_rule_catalog', body: { p_contexto: { vinculoId: 'link', competenciaId: 'month', indicadorId: 'indicator' } } }]);
   });
@@ -40,8 +41,9 @@ describe('RuleCatalogPage', () => {
   it('has no control to edit, create or save a rule', async () => {
     const { client } = rpcClient(() => catalog);
     render(<RuleCatalogPage client={client} group={group} />);
-    await screen.findByText('Regra em uso · bloqueada');
+    await screen.findByText('Em uso · bloqueada');
     expect(screen.queryByRole('button', { name: /editar|criar|salvar/i })).toBeNull();
+    expect(screen.getByText('Em uso · bloqueada').className).toContain('t-ok');
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByRole('form')).toBeNull();
   });
@@ -50,7 +52,7 @@ describe('RuleCatalogPage', () => {
     const { client } = rpcClient(() => ({ ruleSets: [{ ...catalog.ruleSets[0], inUse: false, mode: 'redistribuir' as const }] }));
     render(<RuleCatalogPage client={client} group={group} />);
     expect(await screen.findByText('Disponível · ainda não usada')).toBeTruthy();
-    expect(screen.queryByText('Regra em uso · bloqueada')).toBeNull();
+    expect(screen.queryByText('Em uso · bloqueada')).toBeNull();
     expect(screen.getByText(/redistribuídos/i)).toBeTruthy();
   });
 

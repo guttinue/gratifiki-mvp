@@ -1,7 +1,8 @@
 import { groupContexts } from '../context/contextGroups';
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from '../workspace/AcademicWorkspace';
 import { startReview, reviewPosition } from './reviewApi';
 import type { AuthorizedContext } from '../pilot/types';
@@ -135,170 +136,356 @@ it('opens a model-3 position whose memory has no factor',async()=>{
  expect(screen.queryByRole('alert')).toBeNull();
 });
 
-// ---- Task 11: model-3 queue with tabs, local search, no bulk action, previous version and explanation ----
+// ---- Model-3 queue (V4 Conferência, RV-05 to RV-09, CAM-08): tabs, unit chips, live search, side detail, row actions ----
 const v3Reviewer=(n:number):AuthorizedContext=>({...context,key:`rev-${n}`,vinculoId:`link-${n}`,indicadorId:`indicator-${n}`,modelo:3,escopoCodigo:'ACADEMIC-NORTE',competenciaCodigo:'ACADEMIC-V3-2026-10'});
 const v3Group=(role:'revisor_tecnico'|'cam'='revisor_tecnico',count=2)=>groupContexts(Array.from({length:count},(_,n)=>({...v3Reviewer(n+1),role})))[0];
-const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoCodigo:code,status,revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos',...extra});
+const row=(id:string,code:string,status:string,extra:object={})=>({...position,id,escopoId:code,escopoCodigo:code,status,revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos',...extra});
 const v3Rows:Record<string,ReturnType<typeof row>[]>={'indicator-1':[row('p1','ALFA','enviada'),row('p2','BETA','em_revisao'),row('p5','EPSILON','ausente',{revisionId:null,estadoDado:null,inputValue:null,resultValue:null})],
  'indicator-2':[row('p3','GAMA','devolvida'),row('p4','DELTA','validada',{resultValue:'28.42'})]};
-const v3Revision=(id:string,number:number,value:string,source:string,extra:object={})=>({id,number,authorId:'author',estadoDado:'valor',value,source,sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null,...extra});
-function v3Api(rows=v3Rows){
- const calls:{name:string;body:{p_position_id:string;p_contexto:{indicadorId:string}}}[]=[];
+const v3Revision=(id:string,number:number,value:string,source:string,extra:object={})=>({id,number,authorId:'author@example.test',estadoDado:'valor',value,source,sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null,...extra});
+// The decisions carry an actor id that looks like an e-mail: the detail must never show it.
+const v3Decisions=(found:{id:string;status:string})=>{
+ const decision=(type:string,reason:string,occurredAt:string)=>({id:`${type}-${found.id}`,revisionId:`rev-${found.id}`,actorId:'reviewer@example.test',type,reason,reference:null,occurredAt});
+ const started=decision('iniciar_revisao','','2026-10-21T13:00:00Z');
+ return found.status==='em_revisao'?[started]:found.status==='devolvida'?[started,decision('devolver','Confirme a fonte.','2026-10-22T13:00:00Z')]:found.status==='validada'?[started,decision('validar','','2026-10-22T13:00:00Z')]:[];
+};
+// loseReview: the first review_position fails at the network, so its outcome is unknown.
+function v3Api(rows=v3Rows,{loseReview=false}={}){
+ const calls:{name:string;body:{p_position_id:string;p_contexto:{indicadorId:string};p_decision?:string;p_operation_id?:string}}[]=[];
+ let lose=loseReview;
  const api=client(async(url,options)=>{
   const name=String(url).split('/rpc/')[1];const body=JSON.parse(String(options?.body??'{}'));calls.push({name,body});
   if(name==='get_operational_positions')return response({items:rows[body.p_contexto.indicadorId],total:rows[body.p_contexto.indicadorId].length,page:1,pageSize:100});
   if(name==='get_position_detail'){
    const found=Object.values(rows).flat().find(p=>p.id===body.p_position_id)!;
    const returned=found.id==='p3';
-   return response({indicator:{code:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',unit:'%'},previous:found.id==='p4'?null:{competencia:'ACADEMIC-V3-2026-09',valor:'88',estadoDado:'valor'},position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
-    decisions:[],memories:[{revisionId:`rev-${found.id}`,ruleVersion:1,method:'meta_peso',factor:null,inputValue:returned?'40':'90',resultValue:returned?'25':'28.42'}]});
+   return response({indicator:{code:found.indicatorCode,name:found.indicatorName,meta:'95',direction:'maior_melhor',weight:'30',unit:'%'},previous:found.id==='p4'?null:{competencia:'ACADEMIC-V3-2026-09',valor:'88',estadoDado:'valor'},position:found,revisions:returned?[v3Revision('old',1,'96','Sistema antigo'),v3Revision(`rev-${found.id}`,2,'40','Sistema de chamados',{correctionExplanation:'Usei o mês de outubro.'})]:[v3Revision(`rev-${found.id}`,1,'90','Painel sintético')],
+    decisions:v3Decisions(found),memories:[{revisionId:`rev-${found.id}`,ruleVersion:1,method:'meta_peso',factor:null,inputValue:returned?'40':'90',resultValue:returned?'25':'28.42'}]});
   }
+  if(name==='review_position'&&lose){lose=false;throw new TypeError('Failed to fetch');}
   return response({resourceId:body.p_position_id,version:4,revisionId:`rev-${body.p_position_id}`,status:name==='start_position_review'?'em_revisao':body.p_decision==='return'?'devolvida':'validada',resultValue:'28.42'});
  });
  return {api,calls};
 }
-const queue=async(role:'revisor_tecnico'|'cam'='revisor_tecnico',rows=v3Rows)=>{
- const view=v3Api(rows);openAcademicPage(role==='cam'?'entradas':'conferencia');
- render(<AcademicWorkspace client={view.api} group={v3Group(role,Object.keys(rows).length)} onSignOut={()=>{}}/>);
+const queue=async(role:'revisor_tecnico'|'cam'='revisor_tecnico',rows=v3Rows,options={})=>{
+ const view=v3Api(rows,options);openAcademicPage(role==='cam'?'entradas':'conferencia');
+ // StrictMode replays mount effects, so a command fired from one would run twice (preflight F9).
+ render(<StrictMode><AcademicWorkspace client={view.api} group={v3Group(role,Object.keys(rows).length)} onSignOut={()=>{}}/></StrictMode>);
  await screen.findByRole('tablist',{name:'Filtrar entradas'});
+ await screen.findByRole('group',{name:'Filtrar por unidade'});
  return view;
 };
 const tab=(name:RegExp)=>screen.getByRole('tab',{name});
 const tabTexts=()=>screen.getAllByRole('tab').map(t=>t.textContent?.replace(/\s+/g,' ').trim());
+const entries=()=>screen.getAllByRole('row').slice(1).map(line=>line.querySelector('.row-link')!.textContent);
+const openDetail=()=>screen.getByRole('complementary',{name:/ · /});
+const commands=<T extends {name:string}>(calls:T[])=>calls.filter(c=>['save_position_draft','submit_unit_batch','start_position_review','review_position'].includes(c.name));
+// The row's own link (chips and row actions also carry the unit name).
+const rowLink=async(name:RegExp)=>(await screen.findByRole('row',{name})).querySelector<HTMLButtonElement>('.row-link')!;
+const settle=()=>act(async()=>{await new Promise(resolve=>setTimeout(resolve,30));});
 // The named fixture: the 4 DEMO units × the 4 DEMO indicators, one context per indicator.
 // Alfa · DEMO-V1-02 waits, Beta · DEMO-V1-01 is being reviewed, the other 14 are accepted.
 const demoIndicators=[['DEMO-V1-01','Registros conferidos'],['DEMO-V1-02','Rotinas concluídas'],['DEMO-V1-03','Tempo de resposta'],['DEMO-V1-04','Verificações realizadas']];
 const demoUnits=['ACADEMIC-NORTE-1','ACADEMIC-NORTE-2','ACADEMIC-SUL-1','ACADEMIC-SUL-2'];
 const demoStatus:Record<string,string>={'ACADEMIC-NORTE-1:DEMO-V1-02':'enviada','ACADEMIC-NORTE-2:DEMO-V1-01':'em_revisao'};
-const namedRows=Object.fromEntries(demoIndicators.map(([code,name],n)=>[`indicator-${n+1}`,demoUnits.map((unit,u)=>
- row(`d${n}${u}`,unit,demoStatus[`${unit}:${code}`]??'validada',{indicatorCode:code,indicatorName:name,inputValue:'90',resultValue:'28.4'}))]));
-it('V3 reviewer: tabs in the V3 order, waiting first and selected',async()=>{
+const named=(statuses=demoStatus)=>Object.fromEntries(demoIndicators.map(([code,name],n)=>[`indicator-${n+1}`,demoUnits.map((unit,u)=>
+ row(`d${n}${u}`,unit,statuses[`${unit}:${code}`]??'validada',{indicatorCode:code,indicatorName:name,inputValue:'90',resultValue:'28.4'}))]));
+const namedRows=named();
+it('V3: tabs follow the V4 order with counts',async()=>{
  await queue('revisor_tecnico',namedRows);
- expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (0)','Aceitas (14)','Todas (16)']);
- expect(tab(/Aguardando você/).getAttribute('aria-selected')).toBe('true');
- expect(screen.queryByRole('heading',{name:'Conferência técnica'})).toBeNull();
+ expect(tabTexts()).toEqual(['Para conferir 1','Em conferência 1','Devolvidas 0','Aceitas 14','Todas 16']);
+ expect(tab(/^Para conferir/).getAttribute('aria-selected')).toBe('true');
+ expect(screen.getByRole('tab',{name:'Para conferir 1'})).toBeTruthy();
+ cleanup();
+ // CAM-08 (preflight F10: a variant with one absent and one draft entry).
+ await queue('cam',named({...demoStatus,'ACADEMIC-SUL-1:DEMO-V1-03':'ausente','ACADEMIC-SUL-2:DEMO-V1-04':'rascunho'}));
+ expect(tabTexts()).toEqual(['Todas 16','Não enviadas 2','Para conferir 1','Em conferência 1','Devolvidas 0','Aceitas 12']);
+ expect(tab(/^Todas/).getAttribute('aria-selected')).toBe('true');
 });
-it('V3 reviewer: lists entries in a table with names and opens one',async()=>{
+it('V3 reviewer: lists entries in the V4 columns, in unit and indicator order',async()=>{
  await queue('revisor_tecnico',namedRows);
- const table=screen.getByRole('table');
- expect(within(table).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['Unidade','Indicador','Valor','Pontos','Situação']);
- const line=screen.getByRole('row',{name:/DEMO-V1-02/});
- expect(within(line).getAllByRole('cell').map(cell=>cell.textContent)).toEqual(['Unidade Alfa','DEMO-V1-02Rotinas concluídas','90','28,40','Aguardando conferência']);
+ fireEvent.click(tab(/^Todas/));
+ const table=screen.getByRole('table',{name:'Entradas: Todas'});
+ expect(within(table).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['Entrada','Valor','Situação','Ações']);
+ expect(entries().slice(0,5)).toEqual(['Unidade Alfa DEMO-V1-01 · Registros conferidos','Unidade Alfa DEMO-V1-02 · Rotinas concluídas','Unidade Alfa DEMO-V1-03 · Tempo de resposta','Unidade Alfa DEMO-V1-04 · Verificações realizadas','Unidade Beta DEMO-V1-01 · Registros conferidos']);
+ const line=screen.getByRole('row',{name:/Unidade Alfa DEMO-V1-02/});
+ expect(within(line).getAllByRole('cell').map(cell=>[cell.getAttribute('data-label'),cell.textContent])).toEqual([['Entrada','Unidade Alfa DEMO-V1-02 · Rotinas concluídas'],['Valor','90'],['Situação','Aguardando conferência'],['Ações','']]);
  expect(within(line).getByText('Aguardando conferência').className).toContain('v3-st-enviada');
- expect(screen.getByText('1 de 16 entradas')).toBeTruthy();
- fireEvent.click(within(line).getByRole('button',{name:'Unidade Alfa'}));
- const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
- expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
- expect(within(evidence).getByText('DEMO-V1-02 · Rotinas concluídas')).toBeTruthy();
- // A plain table announces the open row as current; aria-selected is only read inside a grid.
- expect(screen.getByRole('row',{name:/DEMO-V1-02/}).getAttribute('aria-current')).toBe('true');
- expect(screen.getAllByRole('row').filter(line=>line.hasAttribute('aria-current')||line.hasAttribute('aria-selected'))).toHaveLength(1);
- expect(table.closest('.v3-split')).toBeTruthy();
+ expect(screen.getByText('16 entradas')).toBeTruthy();expect(screen.getByText('Ordem: unidade e indicador')).toBeTruthy();
+ expect(screen.queryByRole('button',{name:'Buscar'})).toBeNull();
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'});
+ expect(within(aside).getByText('Unidade Alfa').className).toContain('eyebrow');
+ expect(within(aside).getByRole('heading',{level:3}).getAttribute('tabindex')).toBe('-1');
+ expect(screen.getByRole('row',{name:/Unidade Alfa DEMO-V1-02/}).getAttribute('aria-current')).toBe('true');
+ expect(screen.getAllByRole('row').filter(line=>line.hasAttribute('aria-current'))).toHaveLength(1);
+ expect(table.closest('.review')).toBeTruthy();
+ fireEvent.click(within(aside).getByRole('button',{name:'Fechar detalhe'}));
+ expect(screen.queryByRole('complementary',{name:/DEMO-V1-02/})).toBeNull();
+});
+it('V3 reviewer: unit chips and live search filter without closing the detail',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Todas/));
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'});
+ const chips=screen.getByRole('group',{name:'Filtrar por unidade'});
+ expect(within(chips).getAllByRole('button').map(chip=>chip.textContent)).toEqual(['Todas as unidades','Unidade Alfa','Unidade Beta','Unidade Gama','Unidade Delta']);
+ expect(within(chips).getByRole('button',{name:'Todas as unidades'}).getAttribute('aria-pressed')).toBe('true');
+ fireEvent.click(within(chips).getByRole('button',{name:'Unidade Beta'}));
+ expect(within(chips).getByRole('button',{name:'Unidade Beta'}).getAttribute('aria-pressed')).toBe('true');
+ expect(new Set(entries().map(text=>text?.split(' DEMO')[0]))).toEqual(new Set(['Unidade Beta']));
+ expect(tabTexts()).toEqual(['Para conferir 0','Em conferência 1','Devolvidas 0','Aceitas 3','Todas 4']);
+ expect(screen.getByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'})).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'rotinas'}});
+ expect(entries()).toEqual(['Unidade Beta DEMO-V1-02 · Rotinas concluídas']);
+ expect(screen.getByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'})).toBeTruthy();
+ fireEvent.click(within(chips).getByRole('button',{name:'Todas as unidades'}));
+ expect(entries()).toHaveLength(4);
 });
 it('V3 reviewer: searches by unit name, unit code and indicator, ignoring case',async()=>{
  await queue('revisor_tecnico',namedRows);
- fireEvent.click(tab(/Todas/));
- const search=(text:string)=>{fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:text}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));};
- const units=()=>screen.getAllByRole('row').slice(1).map(line=>within(line).getAllByRole('cell')[0].textContent);
+ fireEvent.click(tab(/^Todas/));
+ const search=(text:string)=>fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:text}});
+ const units=()=>entries().map(text=>text?.split(' DEMO')[0]);
  search('beta');expect(units()).toEqual(['Unidade Beta','Unidade Beta','Unidade Beta','Unidade Beta']);
  search('academic-sul-2');expect(new Set(units())).toEqual(new Set(['Unidade Delta']));
  search('TEMPO');expect(units()).toHaveLength(4);
- search('demo-v1-04');expect(screen.getByText('4 de 16 entradas')).toBeTruthy();
+ search('demo-v1-04');expect(screen.getByText('4 entradas')).toBeTruthy();
 });
-it('V3 CAM reads every entry read-only',async()=>{
- await queue('cam',namedRows);
- expect(tab(/Todas/).getAttribute('aria-selected')).toBe('true');
- expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (0)','Aceitas (14)','Todas (16)']);
- expect(screen.getByText('16 de 16 entradas')).toBeTruthy();
- expect(screen.getAllByRole('heading',{name:'Todas as entradas'})).toHaveLength(1);
- fireEvent.click(within(screen.getByRole('row',{name:/Unidade Beta.*DEMO-V1-01/})).getByRole('button',{name:'Unidade Beta'}));
- await screen.findByRole('region',{name:'Evidência da posição'});
- expect(screen.queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
+it('V3 reviewer: opening an entry is a read',async()=>{
+ const {calls}=await queue('revisor_tecnico',namedRows);
+ const before=calls.length;
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'});
+ await settle();
+ expect(calls.slice(before).map(c=>c.name)).toEqual(['get_position_detail']);
+ expect(within(aside).getAllByText('Aguardando conferência').length).toBeGreaterThan(0);
+ expect(screen.getByRole('row',{name:/Unidade Alfa DEMO-V1-02/}).textContent).toContain('Aguardando conferência');
+ expect(within(aside).getByRole('button',{name:'Iniciar revisão'})).toBeTruthy();
+ expect(within(aside).queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
 });
-it('V3 reviewer: tabs with counts over every indicator context; Aguardando você is the default',async()=>{
+it('V3 reviewer: detail shows facts, memory and approval flow by role, never a person',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(await rowLink(/Unidade Beta DEMO-V1-01/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ const fact=(term:string)=>within(aside).getByText(term,{selector:'dt'}).nextElementSibling?.textContent;
+ expect(fact('Meta')).toBe('≥ 95 % · peso 30');
+ expect(fact('Informado')).toBe('90 %');
+ expect(fact('Fonte')).toBe('Painel sintético');
+ expect(fact('Período')).toBe('01/10/2026');
+ expect(fact('Setembro')).toBe('88 %');
+ expect(within(aside).getByText('revisão 1')).toBeTruthy();
+ expect(within(aside).getByRole('heading',{name:'Memória de cálculo'}).nextElementSibling?.textContent).toBe('min(90 ÷ 95; 1) × 30 = 28,42 pontos');
+ const flow=within(aside).getByRole('heading',{name:'Fluxo de aprovação'}).nextElementSibling!;
+ expect(within(flow as HTMLElement).getAllByRole('listitem').map(step=>step.textContent)).toEqual(['Enviado pela área técnicarevisão 1 · 20/10/2026','Em conferência · revisor técnico21/10/2026']);
+ expect(aside.textContent).not.toContain('@');expect(aside.textContent).not.toContain('validar:');expect(aside.textContent).not.toContain('Estado:');
+ // Footer: the reason (required only to return), return and accept.
+ expect(screen.getByLabelText('Motivo da conferência').getAttribute('aria-describedby')).toBeTruthy();
+ expect(within(aside).getByText('obrigatório para devolver')).toBeTruthy();
+ expect(within(aside).getByRole('button',{name:'Devolver com motivo'}).className).toContain('danger');
+ expect(within(aside).getByRole('button',{name:'Aceitar evidência'}).className).toContain('primary');
+});
+it('V3 reviewer: a returned entry shows its correction, its reason and the flow back to the technical area',async()=>{
+ await queue();fireEvent.click(tab(/^Devolvidas/));
+ fireEvent.click(await rowLink(/GAMA/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(within(aside).getByText('Correção',{selector:'dt'}).nextElementSibling?.textContent).toBe('Usei o mês de outubro.');
+ expect(within(aside).getByRole('heading',{name:'Memória de cálculo'}).nextElementSibling?.textContent).toBe('min(40 ÷ 95; 1) × 30 = 25,00 pontos');
+ expect(aside.querySelector('.notice.danger')?.textContent).toBe('Motivo da devolução. Confirme a fonte.');
+ const steps=within(within(aside).getByRole('list')).getAllByRole('listitem');
+ expect(steps.map(step=>step.querySelector('strong')?.textContent)).toEqual(['Enviado pela área técnica','Devolvido pelo revisor técnico','Correção · área técnica']);
+ expect(aside.querySelector('.detail-foot')?.textContent).toBe('Aguardando a correção da área técnica.');
+});
+it('V3 reviewer: shows the previous version next to the correction explanation',async()=>{
+ await queue();fireEvent.click(tab(/^Devolvidas/));
+ fireEvent.click(await rowLink(/GAMA/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ const terms=[...aside.querySelectorAll('dt')].map(term=>term.textContent);
+ // R-25: the replaced version sits right before what the technician says they corrected.
+ expect(terms.slice(terms.indexOf('Revisão 1'),terms.indexOf('Revisão 1')+2)).toEqual(['Revisão 1','Correção']);
+ expect(within(aside).getByText('Revisão 1',{selector:'dt'}).nextElementSibling?.textContent).toBe('96 % · Sistema antigo');
+ expect(within(aside).getByText('Informado',{selector:'dt'}).nextElementSibling?.textContent).toBe('40 %');
+ cleanup();
+ // Without a correction there is no previous-version fact.
+ await queue();fireEvent.click(await rowLink(/ALFA/));
+ const first=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(within(first).queryByText(/^Revisão \d/,{selector:'dt'})).toBeNull();
+});
+it('V3 reviewer: a typed reason asks before Fechar or a row action on another row drops it',async()=>{
+ const {calls}=await queue('revisor_tecnico',named({...demoStatus,'ACADEMIC-NORTE-1:DEMO-V1-01':'em_revisao'}));
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(await rowLink(/Unidade Beta DEMO-V1-01/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ fireEvent.change(within(aside).getByLabelText('Motivo da conferência'),{target:{value:'Fonte de setembro.'}});
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ fireEvent.click(within(aside).getByRole('button',{name:'Fechar detalhe'}));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Alfa DEMO-V1-01'}));
+ expect(confirm).toHaveBeenCalledTimes(2);
+ await settle();
+ // Both were cancelled: the same detail keeps the reason, and nothing ran.
+ expect(within(screen.getByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'})).getByText('Unidade Beta')).toBeTruthy();
+ expect((screen.getByLabelText('Motivo da conferência') as HTMLTextAreaElement).value).toBe('Fonte de setembro.');
+ expect(commands(calls)).toHaveLength(0);
+ confirm.mockReturnValue(true);
+ fireEvent.click(screen.getByRole('button',{name:'Fechar detalhe'}));
+ expect(screen.queryByRole('complementary',{name:/DEMO-V1-01/})).toBeNull();
+ confirm.mockRestore();
+});
+it('V3 reviewer: without an accepted value last month the detail omits the month',async()=>{
+ await queue();fireEvent.click(tab(/^Aceitas/));
+ fireEvent.click(await rowLink(/DELTA/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(within(aside).queryByText('Setembro')).toBeNull();
+ expect(within(aside).getAllByRole('listitem').at(-1)?.querySelector('strong')?.textContent).toBe('Aceito pelo revisor técnico · conta no resultado');
+});
+it('V3 reviewer: tabs with counts over every indicator context; Para conferir is the default',async()=>{
  await queue();
- expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)','Todas (5)']);
- expect(tab(/Aguardando você/).getAttribute('aria-selected')).toBe('true');
+ expect(tabTexts()).toEqual(['Para conferir 1','Em conferência 1','Devolvidas 1','Aceitas 1','Todas 5']);
  expect((await screen.findByRole('row',{name:/ALFA/})).textContent).toContain('Aguardando conferência');
- expect(screen.queryByRole('button',{name:/BETA/})).toBeNull();
- fireEvent.click(tab(/Em conferência/));expect(screen.getByRole('row',{name:/BETA/}).textContent).toContain('Em conferência');
- fireEvent.click(tab(/Devolvidas/));expect(screen.getByRole('row',{name:/GAMA/}).textContent).toContain('Devolvida');
- fireEvent.click(tab(/Aceitas/));expect(screen.getByRole('row',{name:/DELTA/}).textContent).toContain('Aceita');
+ expect(screen.queryByRole('row',{name:/BETA/})).toBeNull();
+ fireEvent.click(tab(/^Em conferência/));expect(screen.getByRole('row',{name:/BETA/}).textContent).toContain('Em conferência');
+ fireEvent.click(tab(/^Devolvidas/));expect(screen.getByRole('row',{name:/GAMA/}).textContent).toContain('Devolvida');
+ fireEvent.click(tab(/^Aceitas/));expect(screen.getByRole('row',{name:/DELTA/}).textContent).toContain('Aceita');
 });
 it('V3 reviewer: search narrows the list by unit and keeps no bulk action anywhere',async()=>{
  await queue();
- fireEvent.click(tab(/Devolvidas/));
- fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'zzz'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
- expect(screen.queryByRole('button',{name:/GAMA/})).toBeNull();
- fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'gam'}});fireEvent.click(screen.getByRole('button',{name:'Buscar'}));
- fireEvent.click(await screen.findByRole('button',{name:/GAMA/}));
- expect(await screen.findByRole('heading',{name:'GAMA'})).toBeTruthy();
+ fireEvent.click(tab(/^Devolvidas/));
+ fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'zzz'}});
+ expect(screen.queryByRole('row',{name:/GAMA/})).toBeNull();
+ expect(screen.getByText('Nenhuma entrada aqui')).toBeTruthy();
+ fireEvent.change(screen.getByLabelText('Buscar unidade ou indicador'),{target:{value:'gam'}});
+ fireEvent.click(await rowLink(/GAMA/));
+ expect(within(await screen.findByRole('complementary',{name:/DEMO-V1-01/})).getByText('GAMA')).toBeTruthy();
  expect(screen.queryByRole('button',{name:/aceitar todos|em massa/i})).toBeNull();
  expect(screen.queryByRole('checkbox')).toBeNull();
 });
-it('V3 reviewer: shows the previous version next to the correction explanation and the calculation memory',async()=>{
- await queue();fireEvent.click(tab(/Devolvidas/));
- fireEvent.click(await screen.findByRole('button',{name:/GAMA/}));
- expect(await screen.findByText('Usei o mês de outubro.')).toBeTruthy();
- const previous=screen.getByRole('group',{name:'Versão anterior'});
- expect(previous.textContent).toContain('96');expect(previous.textContent).toContain('Sistema antigo');
- const memory=screen.getByRole('group',{name:'Memória de cálculo'});
- expect(memory.textContent).toContain('40');expect(memory.textContent).toContain('25,00');
-});
-it('V3 reviewer: starts and accepts one item with the context of its own indicator',async()=>{
+it('V3 reviewer: starts and accepts one item with the context of its own indicator; the tab follows the situation',async()=>{
  const {calls}=await queue();
- fireEvent.click(await screen.findByRole('button',{name:/ALFA/}));
+ fireEvent.click(await rowLink(/ALFA/));
  fireEvent.click(await screen.findByRole('button',{name:'Iniciar revisão'}));
+ expect(await screen.findByText('Conferência confirmada: em_revisao.')).toBeTruthy();
+ expect(tab(/^Em conferência/).getAttribute('aria-selected')).toBe('true');
  fireEvent.click(await screen.findByRole('button',{name:'Aceitar evidência'}));
  expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
- const commands=calls.filter(c=>['start_position_review','review_position'].includes(c.name));
- expect(commands.map(c=>c.name)).toEqual(['start_position_review','review_position']);
- expect(commands.every(c=>c.body.p_position_id==='p1'&&c.body.p_contexto.indicadorId==='indicator-1')).toBe(true);
- // The accepted item leaves Aguardando você and the counts follow.
- expect(tabTexts()).toEqual(['Aguardando você (0)','Em conferência (1)','Devolvidas (1)','Aceitas (2)','Todas (5)']);
+ expect(commands(calls).map(c=>c.name)).toEqual(['start_position_review','review_position']);
+ expect(commands(calls).every(c=>c.body.p_position_id==='p1'&&c.body.p_contexto.indicadorId==='indicator-1')).toBe(true);
+ expect(tabTexts()).toEqual(['Para conferir 0','Em conferência 1','Devolvidas 1','Aceitas 2','Todas 5']);
+ expect(tab(/^Aceitas/).getAttribute('aria-selected')).toBe('true');
+ expect(openDetail().textContent).toContain('Entrada aceita. Ela já conta no resultado.');
 });
 it('V3 reviewer: a return without a reason is refused before any command',async()=>{
- const {calls}=await queue();fireEvent.click(tab(/Em conferência/));
- fireEvent.click(await screen.findByRole('button',{name:/BETA/}));
+ const {calls}=await queue();fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(await rowLink(/BETA/));
  fireEvent.click(await screen.findByRole('button',{name:'Devolver com motivo'}));
  expect((await screen.findByRole('alert')).textContent).toContain('Informe o motivo');
  expect(calls.some(c=>c.name==='review_position')).toBe(false);
 });
+it('V3 reviewer: accept in the row runs the same accept once',async()=>{
+ const {calls}=await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Em conferência/));
+ const before=calls.length;
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Beta DEMO-V1-01'}));
+ expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
+ await settle();
+ const after=calls.slice(before);
+ expect(after.filter(c=>c.name==='get_position_detail')).toHaveLength(1);
+ const reviews=after.filter(c=>c.name==='review_position');
+ expect(reviews).toHaveLength(1);
+ expect(reviews[0].body).toMatchObject({p_decision:'accept',p_position_id:'d01'});
+ expect(commands(after)).toHaveLength(1);
+ expect(tabTexts()).toEqual(['Para conferir 1','Em conferência 0','Devolvidas 0','Aceitas 15','Todas 16']);
+});
+it('V3 reviewer: an ambiguous row accept keeps the pending key and does not retry by itself',async()=>{
+ const {calls}=await queue('revisor_tecnico',namedRows,{loseReview:true});
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Beta DEMO-V1-01'}));
+ const retry=await screen.findByRole('button',{name:'Repetir operação pendente'});
+ await settle();
+ const reviews=()=>calls.filter(c=>c.name==='review_position');
+ expect(reviews()).toHaveLength(1);
+ expect(screen.getByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'})).toBeTruthy();
+ expect((screen.getByRole('button',{name:'Aceitar evidência'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.click(retry);
+ expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
+ expect(reviews()).toHaveLength(2);
+ expect(reviews()[1].body).toEqual(reviews()[0].body);
+ expect(reviews()[0].body).toMatchObject({p_decision:'accept'});
+ expect(reviews()[0].body.p_operation_id).toBeTruthy();
+});
+it('V3 reviewer: return in the row focuses the reason and runs no command',async()=>{
+ const {calls}=await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(screen.getByRole('button',{name:'Devolver Unidade Beta DEMO-V1-01'}));
+ await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ await waitFor(()=>expect(document.activeElement).toBe(screen.getByLabelText('Motivo da conferência')));
+ await settle();
+ expect(commands(calls)).toHaveLength(0);
+});
+// WCAG 2.4.3: closing the detail or a row accept keeps the keyboard in the list, not on <body>.
+it('V3 reviewer: Fechar returns focus to the row, or to the next row when the row is filtered out',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Todas/));
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ fireEvent.click(within(await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'})).getByRole('button',{name:'Fechar detalhe'}));
+ expect(document.activeElement).toBe(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ fireEvent.click(await rowLink(/Unidade Alfa DEMO-V1-02/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-02 · Rotinas concluídas'});
+ fireEvent.click(within(screen.getByRole('group',{name:'Filtrar por unidade'})).getByRole('button',{name:'Unidade Beta'}));
+ fireEvent.click(within(aside).getByRole('button',{name:'Fechar detalhe'}));
+ expect(document.activeElement).toBe(await rowLink(/Unidade Beta DEMO-V1-01/));
+});
+it('V3 reviewer: a row accept returns focus to that row once its actions are gone',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Em conferência/));
+ fireEvent.click(screen.getByRole('button',{name:'Aceitar Unidade Beta DEMO-V1-01'}));
+ expect(await screen.findByText('Conferência confirmada: validada.')).toBeTruthy();
+ await waitFor(async()=>expect(document.activeElement).toBe(await rowLink(/Unidade Beta DEMO-V1-01/)));
+});
+it('V3 reviewer: row actions only on entries in review',async()=>{
+ await queue('revisor_tecnico',namedRows);
+ fireEvent.click(tab(/^Todas/));
+ expect(screen.getAllByRole('button',{name:/^Aceitar /}).map(button=>button.getAttribute('aria-label'))).toEqual(['Aceitar Unidade Beta DEMO-V1-01']);
+ expect(screen.getAllByRole('button',{name:/^Devolver /}).map(button=>button.getAttribute('aria-label'))).toEqual(['Devolver Unidade Beta DEMO-V1-01']);
+});
+it('V3 CAM reads every entry read-only',async()=>{
+ const {calls}=await queue('cam',namedRows);
+ expect(tab(/^Todas/).getAttribute('aria-selected')).toBe('true');
+ expect(screen.getByText('16 entradas')).toBeTruthy();
+ expect(screen.getAllByRole('heading',{name:'Todas as entradas'})).toHaveLength(1);
+ expect(within(screen.getByRole('table')).getAllByRole('columnheader').map(cell=>cell.textContent)).toEqual(['Entrada','Valor','Situação']);
+ expect(screen.queryByRole('button',{name:/^(Aceitar|Devolver) /})).toBeNull();
+ fireEvent.click(await rowLink(/Unidade Beta DEMO-V1-01/));
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(screen.queryByRole('button',{name:'Aceitar evidência'})).toBeNull();
+ expect(screen.queryByLabelText('Motivo da conferência')).toBeNull();
+ expect(aside.querySelector('.detail-foot')?.textContent).toBe('Somente leitura. A conferência é do revisor técnico de cada distrito.');
+ await settle();
+ expect(commands(calls)).toHaveLength(0);
+});
 it('V3 CAM entries: read-only list of every entry, including the ones still absent, with no action',async()=>{
  await queue('cam');
- expect(tabTexts()).toEqual(['Aguardando você (1)','Em conferência (1)','Devolvidas (1)','Aceitas (1)','Todas (5)']);
- expect(tab(/Todas/).getAttribute('aria-selected')).toBe('true');
- fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
+ expect(tabTexts()).toEqual(['Todas 5','Não enviadas 1','Para conferir 1','Em conferência 1','Devolvidas 1','Aceitas 1']);
+ expect(tab(/^Todas/).getAttribute('aria-selected')).toBe('true');
+ fireEvent.click(await rowLink(/ALFA/));
  expect(await screen.findByText('Painel sintético')).toBeTruthy();
  expect(screen.queryByRole('button',{name:/Iniciar revisão|Aceitar evidência|Devolver com motivo|Autorizar retificação|Decidir/})).toBeNull();
  expect(screen.queryByLabelText('Motivo da conferência')).toBeNull();
  expect(screen.getByRole('row',{name:/EPSILON/}).textContent).toContain('Não enviado');
+ fireEvent.click(tab(/^Não enviadas/));
+ expect(entries()).toEqual(['EPSILON DEMO-V1-01 · Registros conferidos']);
 });
-
-it('V3 reviewer: queue rows name the indicator and the detail shows its target and last month\'s value',async()=>{
- await queue();
- expect((await screen.findByRole('row',{name:/ALFA/})).textContent).toContain('DEMO-V1-01Registros conferidos');
- fireEvent.click(screen.getByRole('button',{name:/ALFA/}));
- const facts=await screen.findByRole('group',{name:'Indicador e meta'});
- expect(facts.textContent).toContain('DEMO-V1-01 · Registros conferidos');
- expect(facts.textContent).toContain('≥ 95 %');
- expect(facts.textContent).toContain('peso 30');
- expect(within(facts).getByText('Mês anterior').nextElementSibling?.textContent).toBe('88 (ACADEMIC-V3-2026-09)');
-});
-it('V3 reviewer: says so when there is no accepted value last month',async()=>{
- await queue();fireEvent.click(tab(/Aceitas/));
- fireEvent.click(await screen.findByRole('button',{name:/DELTA/}));
- const facts=await screen.findByRole('group',{name:'Indicador e meta'});
- expect(within(facts).getByText('Mês anterior').nextElementSibling?.textContent).toBe('Sem valor aceito no mês anterior');
-});
-it('V3 reviewer: "Conferir agora" on the painel opens the first entry in the tab of its status',async()=>{
+it('V3 reviewer: a "Conferir" to-do on the painel opens that entry in the tab of its status',async()=>{
  const rows={'indicator-1':[row('q1','ACADEMIC-NORTE-1','em_revisao'),row('q2','ACADEMIC-NORTE-2','enviada')]};
  const view=v3Api(rows);openAcademicPage('painel');
  render(<AcademicWorkspace client={view.api} group={v3Group('revisor_tecnico',1)} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Conferir agora'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Conferir DEMO-V1-01 · Unidade Alfa'}));
  expect(window.location.hash).toBe('#academico/conferencia');
- const evidence=await screen.findByRole('region',{name:'Evidência da posição'});
- expect(within(evidence).getByRole('heading',{name:'Unidade Alfa'})).toBeTruthy();
- expect(tab(/Em conferência/).getAttribute('aria-selected')).toBe('true');
+ const aside=await screen.findByRole('complementary',{name:'DEMO-V1-01 · Registros conferidos'});
+ expect(within(aside).getByText('Unidade Alfa')).toBeTruthy();
+ expect(tab(/^Em conferência/).getAttribute('aria-selected')).toBe('true');
  expect(screen.getByRole('row',{name:/Unidade Alfa/}).getAttribute('aria-current')).toBe('true');
+ expect(document.activeElement).toBe(within(aside).getByRole('heading',{level:3}));
+ expect(commands(view.calls)).toHaveLength(0);
 });

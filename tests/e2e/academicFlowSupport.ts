@@ -45,9 +45,15 @@ export async function logoutAcademic(page: Page) {
 }
 
 // The V3 menu lands every role on Painel; work screens are reached through it.
-// Below 768 px the menu is collapsed behind the "Menu" button.
+// Below 900 px the menu is collapsed behind the "Menu" button.
 export async function openAcademicPage(page: Page, label: string) {
   const menu = page.getByRole('button', { name: 'Menu', exact: true });
-  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') === 'false') await menu.click();
+  if (await menu.isVisible() && await menu.getAttribute('aria-expanded') === 'false') {
+    await menu.click();
+    await expect(page.locator('#academic-menu[data-open="true"]')).toBeVisible();
+  }
   await page.getByRole('navigation', { name: 'Navegação acadêmica' }).getByRole('button', { name: label, exact: true }).click();
 }
+
+// Fill-screen indicator: each tbody is a rowgroup named by its "CODE · name" cell.
+export const indicatorRow = (page: Page, code: string) => page.getByRole('rowgroup', { name: new RegExp(`^${code} ·`) });

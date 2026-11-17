@@ -18,8 +18,9 @@ describe('ResultsPage', () => {
     // The shell renders the page title; the page does not repeat it.
     expect(screen.queryByRole('heading', { name: 'Resultados' })).toBeNull();
     expect(screen.queryByRole('heading', { level: 2 })).toBeNull();
-    expect(screen.queryByText('Pontuação parcial')).toBeNull();
-    expect(screen.getByText('Unidade Alfa', { selector: 'h3' })).toBeTruthy();
+    expect(screen.queryByText('Pontuação parcial fictícia')).toBeNull();
+    expect(screen.getByText('Pontuação fictícia')).toBeTruthy();
+    expect(screen.getByText('Unidade Alfa · Outubro/2026', { selector: 'h3' })).toBeTruthy();
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ name: 'get_unit_results', body: { p_contexto: { vinculoId: 'link', competenciaId: 'month', indicadorId: 'indicator' } } });
   });
@@ -27,7 +28,7 @@ describe('ResultsPage', () => {
   it('labels a partial score and shows no previous-month comparison at all, even if the server sent the previous score', async () => {
     const { client } = rpcClient(() => results(partialUnit));
     const { container } = render(<ResultsPage client={client} group={group} />);
-    expect(await screen.findByText('Pontuação parcial')).toBeTruthy();
+    expect(await screen.findByText('Pontuação parcial fictícia')).toBeTruthy();
     expect(screen.getByText('70,00')).toBeTruthy();
     expect(container.textContent).not.toMatch(/vs\./);
     expect(container.textContent).not.toContain('92,51');
@@ -99,7 +100,7 @@ describe('ResultsPage', () => {
     expect(screen.getByText('93,42')).toBeTruthy();
     fireEvent.click(tabs[1]);
     expect(tabs[1].getAttribute('aria-selected')).toBe('true');
-    expect(screen.getByText('Pontuação parcial')).toBeTruthy();
+    expect(screen.getByText('Pontuação parcial fictícia')).toBeTruthy();
     expect(screen.queryByText('93,42')).toBeNull();
     expect(calls).toHaveLength(1);
   });
@@ -134,6 +135,77 @@ describe('ResultsPage', () => {
     const { client } = rpcClient(() => ({ ...results(noBase), state: 'em_consolidacao' }));
     render(<ResultsPage client={client} group={group} />);
     expect(await screen.findByText('Sem base de cálculo')).toBeTruthy();
-    expect(screen.getByText(/Em consolidação/)).toBeTruthy();
+    // Spec §5.1: the hero shows the phase; the shell header keeps the competence state.
+    expect(screen.getByText('Preliminar')).toBeTruthy();
+  });
+
+  it('hero shows the score, the phase and the comparison only when complete', async () => {
+    const { client } = rpcClient(() => ({ ...results(completeUnit), state: 'fechada', publication: 'publicada_demo' }));
+    const view = render(<ResultsPage client={client} group={group} />);
+    const hero = (await screen.findByText('93,42')).closest('.hero') as HTMLElement;
+    expect(within(hero).getByText('/ 100')).toBeTruthy();
+    expect(within(hero).getByText('Publicado na demonstração')).toBeTruthy();
+    expect(within(hero).getByText('+4,80 vs. setembro')).toBeTruthy();
+    expect(within(hero).getByText('Indicadores aceitos').nextElementSibling?.textContent).toBe('4 de 4');
+    expect(within(hero).getByText('Setembro').nextElementSibling?.textContent).toBe('88,62');
+    view.unmount();
+    const partial = rpcClient(() => results(partialUnit));
+    render(<ResultsPage client={partial.client} group={group} />);
+    const partialHero = (await screen.findByText('Pontuação parcial fictícia')).closest('.hero') as HTMLElement;
+    expect(within(partialHero).getByText('Preliminar')).toBeTruthy();
+    expect(partialHero.textContent).not.toMatch(/vs\.|Setembro/);
+  });
+
+  it('warns when an accepted item has no number', async () => {
+    const unavailable = { ...completeUnit, items: [{ ...completeUnit.items[0], state: 'indisponivel' as const, reviewStatus: 'indisponivel' as const, inputValue: null, expression: null, points: '0' }, ...completeUnit.items.slice(1)] };
+    const { client } = rpcClient(() => results(unavailable));
+    render(<ResultsPage client={client} group={group} />);
+    expect((await screen.findByText(/^1 indicador aceito como indisponível ou não aplicável não gera pontos numéricos\./)).className).toBe('notice warning');
+  });
+
+  it('draws an empty points bar for a zero weight instead of NaN', async () => {
+    const zero = { ...completeUnit, items: completeUnit.items.map((item, index) => index === 0 ? { ...item, weight: '0', effectiveWeight: '0', points: '0' } : item) };
+    const { client } = rpcClient(() => results(zero));
+    const { container } = render(<ResultsPage client={client} group={group} />);
+    await screen.findByText('93,42');
+    expect((container.querySelector('.pts-bar span') as HTMLElement).style.width).toBe('0%');
+  });
+
+  it('units are chips that keep arrow-key selection', async () => {
+    const { client } = rpcClient(() => results(completeUnit, partialUnit));
+    render(<ResultsPage client={client} group={groupContexts([{ ...v3Context, role: 'gestor_distrital', escopoCodigo: 'ACADEMIC-NORTE' }])[0]} />);
+    const alfa = await screen.findByRole('tab', { name: 'Unidade Alfa' });
+    expect(screen.getByRole('tablist', { name: 'Unidade' }).className).toBe('chip-tabs');
+    fireEvent.keyDown(alfa, { key: 'ArrowRight' });
+    const beta = screen.getByRole('tab', { name: 'Unidade Beta' });
+    expect(beta.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(beta);
+  });
+
+  it('opens on the requested unit', async () => {
+    const { client } = rpcClient(() => results(completeUnit, partialUnit));
+    render(<ResultsPage client={client} group={group} initialUnitId="beta" />);
+    expect((await screen.findByRole('tab', { name: 'Unidade Beta' })).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('district panel shows one card per unit without a client-side average', async () => {
+    const opened: string[] = [];
+    const { client } = rpcClient((name) => name === 'get_unit_results' ? results(completeUnit, partialUnit) : { items: [], total: 0, page: 1, pageSize: 100 });
+    const { container } = render(<ResultsPage client={client} group={group} panel="district" onOpenUnit={(id) => opened.push(id)} />);
+    const units = await screen.findByRole('region', { name: 'Unidades do distrito' });
+    const cards = within(units).getAllByRole('article');
+    expect(cards.map((card) => within(card).getByRole('heading', { level: 4 }).textContent)).toEqual(['Unidade Alfa', 'Unidade Beta']);
+    expect(within(cards[0]).getByText('4 de 4 indicadores aceitos')).toBeTruthy();
+    expect(within(cards[0]).getByText('+4,80 vs. setembro')).toBeTruthy();
+    expect(within(cards[1]).getByText('Pontuação parcial; comparação quando todos forem aceitos')).toBeTruthy();
+    expect(cards[1].textContent).not.toMatch(/vs\./);
+    const summary = screen.getByRole('region', { name: 'Resumo do distrito' });
+    expect(within(summary).getByText('Unidades completas').parentElement?.textContent).toContain('1 de 2');
+    expect(within(summary).getByText('Etapa do ciclo').parentElement?.textContent).toContain('Aberta');
+    expect(container.textContent).not.toContain('Média das completas');
+    expect(screen.queryByRole('tablist')).toBeNull();
+    expect(await screen.findByRole('complementary', { name: 'Atividade recente' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Ver detalhe Unidade Beta' }));
+    expect(opened).toEqual(['beta']);
   });
 });

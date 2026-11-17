@@ -30,19 +30,19 @@ export function RuleCatalogPage({ client, group }: { client: SupabaseClient; gro
       : !catalog.ruleSets.length ? <p>Nenhuma regra cadastrada.</p>
       : catalog.ruleSets.map(set => {
         const name = `${set.code}-v${set.version}`;
-        return <section key={set.id} className="v3-panel" aria-label={`Regra ${name}`}>
+        return <section key={set.id} className="block" aria-label={`Regra ${name}`}>
           <header><div><h3>{name}</h3><p className="v3-cell-sub">{`Vigência a partir de ${date(set.validFrom)} · ${set.reference}`}</p></div>
-            <span className={`v3-badge ${set.inUse ? 'v3-badge-valor' : 'v3-badge-sem_envio'}`}>{set.inUse ? 'Regra em uso · bloqueada' : 'Disponível · ainda não usada'}</span></header>
-          <div className="table-scroll"><table className="v3-table" aria-label={`Indicadores da regra ${name}`}>
+            <span className={`v3-badge ${set.inUse ? 't-ok' : 't-neutral'}`}>{set.inUse ? 'Em uso · bloqueada' : 'Disponível · ainda não usada'}</span></header>
+          <div className="v4-tbl"><table aria-label={`Indicadores da regra ${name}`}>
             <thead><tr><th scope="col">Indicador</th><th scope="col">Unidade de medida</th><th scope="col">Meta</th><th scope="col" className="r">Peso</th><th scope="col">Cálculo</th></tr></thead>
             <tbody>{set.items.map(item => <tr key={item.indicatorCode}>
-              <td><strong>{item.indicatorCode}</strong><span className="v3-cell-sub">{item.name}</span></td>
-              <td>{measure(item.unit)}</td>
-              <td>{`${directionSymbol(item.direction)} ${formatDecimal(item.meta)}${item.unit ? ` ${item.unit}` : ''}`}</td>
-              <td className="r">{formatDecimal(item.weight)}</td>
-              <td>{formula(item.direction)}</td></tr>)}</tbody></table></div>
-          <p className="v3-note">{`Pesos somam ${formatDecimal(sumDecimals(set.items.map(item => item.weight)))}`}</p>
-          <p className="v3-note">{`${set.mode === 'zero' ? 'Modo de ausência: ausências valem zero.' : 'Modo de ausência: pesos redistribuídos entre os indicadores aceitos.'} Arredondamento: centésimos, metade para cima.${set.synthetic ? ' Dados e regra sintéticos.' : ''}`}</p>
+              <td data-label="Indicador"><strong>{item.indicatorCode}</strong><span className="v3-cell-sub">{item.name}</span></td>
+              <td data-label="Unidade de medida">{measure(item.unit)}</td>
+              <td data-label="Meta">{`${directionSymbol(item.direction)} ${formatDecimal(item.meta)}${item.unit ? ` ${item.unit}` : ''}`}</td>
+              <td className="r" data-label="Peso">{formatDecimal(item.weight)}</td>
+              <td data-label="Cálculo">{formula(item.direction)}</td></tr>)}</tbody></table>
+            <p className="tbl-foot"><span>{`Pesos somam ${formatDecimal(sumDecimals(set.items.map(item => item.weight)))} · Arredondamento: centésimos, metade para cima`}</span></p></div>
+          <p className="v3-note">{`${set.mode === 'zero' ? 'Modo de ausência: ausências valem zero.' : 'Modo de ausência: pesos redistribuídos entre os indicadores aceitos.'}${set.synthetic ? ' Dados e regra sintéticos.' : ''}`}</p>
         </section>;
       })}
     <button type="button" onClick={() => setRetry(n => n + 1)}>Atualizar catálogo</button>

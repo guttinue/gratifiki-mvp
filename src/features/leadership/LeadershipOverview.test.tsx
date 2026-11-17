@@ -10,25 +10,37 @@ const overview = { acceptedPercent: '68.75', mode: 'zero', districts: [
   { districtCode: 'ACADEMIC-SUL', average: null, completeUnits: 0, totalUnits: 2 }],
   attention: [{ unitCode: 'ACADEMIC-NORTE-1', pending: 3 }, { unitCode: 'ACADEMIC-NORTE-2', pending: 1 }] };
 
-it('shows the model-3 aggregate overview: accepted share, where to act and the district averages, with no person', async () => {
+// LI-01 to LI-03. Numbers come from the fixture above (preflight F10): Norte 1 of 2 complete, Sul 0 of 2.
+const tile=(label:string)=>within(screen.getByRole('region',{name:'Resumo agregado'})).getByText(label).parentElement?.querySelector('.tile-n')?.textContent;
+it('summary strip and where to act', async () => {
   const { client, calls } = rpcClient(() => overview);
-  render(<LeadershipPage client={client} context={{ ...context, competenciaEstado: 'aberta' }} />);
+  const { container } = render(<LeadershipPage client={client} context={{ ...context, competenciaEstado: 'aberta' }} />);
   expect(await screen.findByText('68 %')).toBeTruthy();
-  const bar = screen.getByRole('progressbar', { name: 'Entradas aceitas' });
-  expect(bar.getAttribute('aria-valuenow')).toBe('68.75');
-  expect(bar.getAttribute('aria-valuetext')).toBe('68 %');
-  expect(screen.getByText('Etapa do ciclo: Aberta')).toBeTruthy();
+  expect(tile('Entradas aceitas')).toBe('68 %');
+  expect(tile('Etapa do ciclo')).toBe('Aberta');
+  expect(tile('Unidades com pendência')).toBe('2');
+  expect(tile('Unidades completas')).toBe('1 de 4');
   // The shell renders the page title and subtitle.
   expect(screen.queryByRole('heading', { name: 'Visão agregada' })).toBeNull();
   const attention = screen.getByRole('region', { name: 'Onde agir' });
   expect(within(attention).getByText('Unidade Alfa: 3 entradas pendentes.')).toBeTruthy();
   expect(within(attention).getByText('Unidade Beta: 1 entrada pendente.')).toBeTruthy();
-  const rows = within(screen.getByRole('table', { name: 'Médias por distrito' })).getAllByRole('row');
-  expect(within(rows[1]).getByText('Distrito Norte')).toBeTruthy();
-  expect(within(rows[1]).getByText('1 de 2')).toBeTruthy();
-  expect(within(rows[1]).getByText('93,42')).toBeTruthy();
-  expect(within(rows[2]).getByText('Distrito Sul')).toBeTruthy();
-  expect(within(rows[2]).getByText('Aguardando unidades completas')).toBeTruthy();
+  expect(within(attention).queryByRole('button')).toBeNull();
+  expect(screen.getAllByText('Converse com a gestão distrital antes do fechamento.')).toHaveLength(1);
+  expect(screen.getByText('Unidades com pendência').querySelector('.dot')?.className).toContain('t-warn');
+  // LI-03: the district table becomes cards in a region with the same name.
+  const districts = screen.getByRole('region', { name: 'Médias por distrito' });
+  const cards = within(districts).getAllByRole('article');
+  expect(within(cards[0]).getByRole('heading', { level: 4 }).textContent).toBe('Distrito Norte');
+  expect(within(cards[0]).getByText('93,42')).toBeTruthy();
+  expect(within(cards[0]).getByText('1 de 2 unidades completas')).toBeTruthy();
+  expect(within(cards[1]).getByRole('heading', { level: 4 }).textContent).toBe('Distrito Sul');
+  expect(within(cards[1]).getByText('–')).toBeTruthy();
+  expect(cards[1].textContent).not.toContain('/ 100');
+  expect(within(cards[1]).getByText('Aguardando unidades completas')).toBeTruthy();
+  expect(screen.queryByRole('table')).toBeNull();
+  expect(container.textContent).not.toMatch(/vs\./);
+  expect(screen.queryByRole('complementary', { name: 'Atividade recente' })).toBeNull();
   expect(screen.queryByRole('heading', { name: 'Agregados de unidades publicadas' })).toBeNull();
   expect(screen.getByText(/Indisponível ou não se aplica entra com 0 pontos neste conjunto \(modo zero\), após decisão da CAM\./)).toBeTruthy();
   expect(screen.queryByText(/vira zero/)).toBeNull();
@@ -43,7 +55,10 @@ it('says nothing needs action when no entry is pending', async () => {
   const { client } = rpcClient(() => ({ ...overview, acceptedPercent: '100.00', attention: [] }));
   render(<LeadershipPage client={client} context={context} />);
   expect(await screen.findByText('100 %')).toBeTruthy();
-  expect(screen.getByText('Nenhuma pendência nas unidades.')).toBeTruthy();
+  expect(within(screen.getByRole('region', { name: 'Onde agir' })).getByText('Nenhuma pendência.')).toBeTruthy();
+  expect(tile('Unidades com pendência')).toBe('0');
+  expect(screen.getByText('Unidades com pendência').querySelector('.dot')?.className).toContain('t-ok');
+  expect(screen.queryByText('Converse com a gestão distrital antes do fechamento.')).toBeNull();
   expect(screen.queryByText(/Etapa do ciclo/)).toBeNull();
 });
 
@@ -63,5 +78,5 @@ it.each([['93.75', '93 %'], ['99.38', '99 %'], ['99.99', '99 %']])('rounds the a
   const { client } = rpcClient(() => ({ ...overview, acceptedPercent: percent }));
   render(<LeadershipPage client={client} context={context} />);
   expect(await screen.findByText(shown)).toBeTruthy();
-  expect(screen.getByRole('progressbar', { name: 'Entradas aceitas' }).getAttribute('aria-valuetext')).toBe(shown);
+  expect(tile('Entradas aceitas')).toBe(shown);
 });

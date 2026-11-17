@@ -1,10 +1,18 @@
-import { useRef, type ReactNode } from "react";
+import { Fragment, useRef, type ReactNode } from "react";
 import type { PilotContext } from "../../lib/types";
 import { PAGE_LABELS, pageHash, WORKSPACE_PAGES, type WorkspacePage } from "./workspaceModel";
 import type { Role } from '../pilot/types';
 import { getAcademicDestinations } from './academicNavigation';
-export function AcademicNavigation({role,page,onNavigate}:{role:Role;page:string;onNavigate:(page:string)=>void}){
- return <nav className="academic-nav" aria-label="Navegação acadêmica">{getAcademicDestinations(role).map(destination=><button key={destination.id} type="button" aria-current={page===destination.id?'page':undefined} aria-pressed={page===destination.id} onClick={()=>onNavigate(destination.id)}>{destination.label}</button>)}</nav>;
+import { plural } from './displayNames';
+// counts: pending items per destination id. The visible count is aria-hidden and described, so the button keeps its name.
+export function AcademicNavigation({role,page,onNavigate,counts={}}:{role:Role;page:string;onNavigate:(page:string)=>void;counts?:Partial<Record<string,number>>}){
+ return <nav className="academic-nav" aria-label="Navegação acadêmica">{getAcademicDestinations(role).map(destination=>{
+  const count=counts[destination.id]??0;
+  return <Fragment key={destination.id}>
+   <button type="button" aria-current={page===destination.id?'page':undefined} aria-pressed={page===destination.id} aria-describedby={count>0?`nav-count-${destination.id}`:undefined} onClick={()=>onNavigate(destination.id)}>{destination.label}{count>0&&<span className="count" aria-hidden="true">{count}</span>}</button>
+   {count>0&&<span id={`nav-count-${destination.id}`} className="sr-only">{plural(count,'pendente','pendentes')}</span>}
+  </Fragment>;
+ })}</nav>;
 }
 
 interface WorkspaceShellProps {

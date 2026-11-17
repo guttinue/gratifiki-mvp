@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AcademicWorkspace } from './AcademicWorkspace';
 import type { AuthorizedContext } from '../pilot/types';
 import { groupContexts } from '../context/contextGroups';
+import { getAcademicDestinations } from './academicNavigation';
 import { completeUnit } from '../results/resultsFixtures';
 const openAcademicPage=(page:string)=>window.history.replaceState({},'',`/#academico/${page}`);
 afterEach(()=>{cleanup();vi.restoreAllMocks();window.history.replaceState({},'', '/');});
@@ -159,6 +160,8 @@ it('shows the competence state next to its code in the model-2 header, with the 
  expect(screen.getByText('Perfil gestor_unidade · NORTE · 2026-10')).toBeTruthy();
  expect(within(screen.getByRole('banner')).getByLabelText('Contexto autorizado')).toBeTruthy();
  expect(screen.queryByRole('button',{name:'Outros contextos'})).toBeNull();
+ // The V4 "Geral" menu label is model 3 only.
+ expect(document.querySelector('.nav-label')).toBeNull();
  expect(screen.getByRole('banner').textContent).toContain('Dados sintéticos · baseline do modelo 2 · sem efeito institucional');
  expect(screen.getByText('Em consolidação').textContent).toBe('· Situação da competência: Em consolidação');
  view.unmount();
@@ -192,14 +195,40 @@ const rpc=(handler:(name:string)=>unknown)=>{
  return {client,calls};
 };
 const unitResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[completeUnit]};
-it.each(['painel','resultados'])('mounts the unit results for a model-3 manager on %s instead of the model-2 evaluations',async page=>{
- openAcademicPage(page);
+it('mounts the unit results for a model-3 manager on resultados instead of the model-2 evaluations',async()=>{
+ openAcademicPage('resultados');
  const {client,calls}=rpc(()=>unitResults);
  render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade'))} onSignOut={()=>{}}/>);
  expect(await screen.findByText('93,42')).toBeTruthy();
  expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
  expect(calls).toEqual(['get_unit_results']);
  expect(screen.queryByRole('heading',{name:'Avaliações autorizadas'})).toBeNull();
+});
+const emptyAudit={items:[],total:0,page:1,pageSize:100};
+it('unit manager painel shows result and activity',async()=>{
+ openAcademicPage('painel');
+ const {client,calls}=rpc(name=>name==='get_unit_results'?unitResults:emptyAudit);
+ render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade'))} onSignOut={()=>{}}/>);
+ expect((await screen.findByText('93,42')).closest('.hero')).toBeTruthy();
+ expect(screen.getByText('+4,80 vs. setembro')).toBeTruthy();
+ expect(await screen.findByRole('complementary',{name:'Atividade recente'})).toBeTruthy();
+ await screen.findByText('Sem eventos.');
+ expect([...new Set(calls)].sort()).toEqual(['get_scoped_audit','get_unit_results']);
+});
+const districtGroup=()=>groupContexts(['i1','i2','i3','i4'].map(i=>v3('gestor_distrital',{key:i,vinculoId:i,indicadorId:i,escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})))[0];
+const districtResults={competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[
+ {...completeUnit,unitId:'alfa',unitCode:'ACADEMIC-NORTE-1'},{...completeUnit,unitId:'beta',unitCode:'ACADEMIC-NORTE-2'}]};
+it('district manager painel is the district panel, and Ver detalhe opens Resultados on that unit',async()=>{
+ openAcademicPage('painel');
+ const {client,calls}=rpc(name=>name==='get_unit_results'?districtResults:emptyAudit);
+ render(<AcademicWorkspace client={client} group={districtGroup()} onSignOut={()=>{}}/>);
+ expect(await screen.findByRole('region',{name:'Unidades do distrito'})).toBeTruthy();
+ expect(screen.queryByRole('tablist')).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Ver detalhe Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/resultados');
+ // Preflight F8: Resultados opens with the unit chosen in the painel.
+ expect((await screen.findByRole('tab',{name:'Unidade Beta'})).getAttribute('aria-selected')).toBe('true');
+ for(const name of ['submit_unit_batch','review_position','transition_cycle','publish_cycle_demo'])expect(calls).not.toContain(name);
 });
 it('mounts the unit results on resultados for the CAM of a model-3 group, and the cycle dashboard on painel',async()=>{
  openAcademicPage('resultados');
@@ -211,15 +240,15 @@ it('mounts the unit results on resultados for the CAM of a model-3 group, and th
  openAcademicPage('painel');
  const second=rpc(name=>name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:0,reviewed:0,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:5,blockers:[]}:name==='get_operational_positions'?{items:[],total:0,page:1,pageSize:100}:{});
  render(<AcademicWorkspace client={second.client} group={grp(v3('cam'))} onSignOut={()=>{}}/>);
- expect(await screen.findByText('5 de 16 prontas')).toBeTruthy();
- // The CAM painel names its blockers from the group positions.
- expect([...new Set(second.calls)].sort()).toEqual(['get_cycle_checklist','get_operational_positions']);
+ expect(await screen.findByText('11 entradas impedem a consolidação')).toBeTruthy();
+ // CAM-01: the painel reads the checklist, the group positions, the unit scores and the activity; never a command.
+ expect([...new Set(second.calls)].sort()).toEqual(['get_cycle_checklist','get_operational_positions','get_scoped_audit','get_unit_results']);
 });
 it('mounts the V3 dashboard for the technical area and navigates to the fill screen from it',async()=>{
  openAcademicPage('painel');
  const {client,calls}=rpc(name=>name==='get_operational_positions'?{items:[{...position,escopoCodigo:'ACADEMIC-NORTE-1'}],total:1,page:1,pageSize:100}:{});
  render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica'))} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Abrir preenchimento Unidade Alfa'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Preenchimento',level:2})).toBeTruthy();
  expect(calls).not.toContain('get_dashboard');
@@ -235,19 +264,46 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
   if(name==='get_unit_batch'){batches.push(body.p_unidade_id);return json({unitId:body.p_unidade_id,unitCode:units[body.p_unidade_id],mode:'zero',items:[{positionId:`pos-${body.p_unidade_id}`,indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,periodoFonte:null,returnReason:null,revisionNumber:null}]});}
   return json({});
  }}});
- const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica'),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
+ const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica',{competenciaEstado:'aberta'}),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Abrir Unidade Beta'}));
+ // The painel reads the batch of each unit with a to-do; only the fill screen's reads count below.
+ const card=await screen.findByRole('button',{name:'Abrir preenchimento Unidade Beta'});
+ await waitFor(()=>expect([...batches].sort()).toEqual(['alfa','beta']));
+ batches.length=0;
+ fireEvent.click(card);
  expect(window.location.hash).toBe('#academico/preenchimento');
  expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
- expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
+ expect(screen.getByRole('tab',{name:/^Unidade Beta/}).getAttribute('aria-selected')).toBe('true');
  expect(batches).toEqual(['beta']);
  // The painel's unit applies to that visit only: a later menu visit opens the first unit.
  const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
  fireEvent.click(within(menu).getByRole('button',{name:'Painel'}));
  fireEvent.click(await within(menu).findByRole('button',{name:'Preenchimento'}));
  expect(await screen.findByRole('heading',{name:'Unidade Alfa',level:3})).toBeTruthy();
- expect(batches).toEqual(['beta','alfa']);
+ expect(batches.at(-1)).toBe('alfa');
+});
+it('Corrigir lands on Preenchimento with that unit',async()=>{
+ openAcademicPage('painel');
+ const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+ // Beta is the returned unit, not the default first one: the test fails if the request is dropped.
+ const status:Record<string,string>={alfa:'validada',beta:'devolvida'};
+ const calls:string[]=[];
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const name=String(url).split('/rpc/')[1];calls.push(name);const body=JSON.parse(String(init?.body??'{}')) as {p_contexto:{vinculoId:string};p_unidade_id:string};
+  const json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
+  if(name==='get_operational_positions'){const id=body.p_contexto.vinculoId;return json({items:[{...position,id:`pos-${id}`,escopoId:id,escopoCodigo:units[id],status:status[id],indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'}],total:1,page:1,pageSize:100});}
+  if(name==='get_unit_batch'){const id=body.p_unidade_id;return json({unitId:id,unitCode:units[id],mode:'zero',items:[{positionId:`pos-${id}`,indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:status[id],version:1,estadoDado:'valor',valor:'90',fonte:'Planilha',motivo:null,periodoFonte:null,returnReason:'A fonte informada é de setembro.',revisionNumber:1}]});}
+  return json({items:[],total:0,page:1,pageSize:100});
+ }}});
+ const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica',{competenciaEstado:'aberta'}),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
+ render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Corrigir DEMO-V1-01 · Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
+ expect(screen.getByRole('tab',{name:/^Unidade Beta/}).getAttribute('aria-selected')).toBe('true');
+ // Corrigir focuses the correction field of the returned item.
+ await waitFor(()=>expect(document.activeElement).toBe(screen.getByLabelText('O que você corrigiu?')));
+ for(const name of ['save_position_draft','submit_unit_batch','start_position_review'])expect(calls).not.toContain(name);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{
  const {client,calls}=rpc(()=>({acceptedPercent:'100.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:1}],attention:[]}));
@@ -275,15 +331,15 @@ it('keeps both districts visible when one model-3 leadership view holds Norte an
  const group=groupContexts([v3('lideranca',{key:'sul',vinculoId:'sul',escopoId:'sul',escopoCodigo:'ACADEMIC-SUL'}),v3('lideranca',{key:'norte',vinculoId:'norte',escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})])[0];
  expect(group.contexts).toHaveLength(2);
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
- const rows=within(await screen.findByRole('table',{name:'Médias por distrito'})).getAllByRole('row');
- expect(rows.slice(1).map(row=>within(row).getAllByRole('cell')[0].textContent)).toEqual(['Distrito Norte','Distrito Sul']);
+ // LI-03: the district table became cards in the "Médias por distrito" region.
+ const region=await screen.findByRole('region',{name:'Médias por distrito'});
+ expect(within(region).getAllByRole('heading',{level:4}).map(heading=>heading.textContent)).toEqual(['Distrito Norte','Distrito Sul']);
  expect(bodies.map(body=>body.p_contexto.vinculoId)).toEqual(['norte']);
 });
-it('shows every unit of the district to a model-3 district manager',async()=>{
- const {client,calls}=rpc(()=>({competencia:'ACADEMIC-V3-2026-10',state:'aberta',publication:'nao_publicada',mode:'zero',units:[
-  {...completeUnit,unitId:'alfa',unitCode:'ACADEMIC-NORTE-1'},{...completeUnit,unitId:'beta',unitCode:'ACADEMIC-NORTE-2'}]}));
- const group=groupContexts(['i1','i2','i3','i4'].map(i=>v3('gestor_distrital',{key:i,vinculoId:i,indicadorId:i,escopoId:'norte',escopoCodigo:'ACADEMIC-NORTE'})))[0];
- render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
+it('shows every unit of the district to a model-3 district manager on resultados',async()=>{
+ openAcademicPage('resultados');
+ const {client,calls}=rpc(()=>districtResults);
+ render(<AcademicWorkspace client={client} group={districtGroup()} onSignOut={()=>{}}/>);
  const tabs=within(await screen.findByRole('tablist',{name:'Unidade'})).getAllByRole('tab');
  expect(tabs.map(tab=>tab.textContent)).toEqual(['Unidade Alfa','Unidade Beta']);
  expect(calls).toEqual(['get_unit_results']);
@@ -292,35 +348,40 @@ it('opens the read-only rule catalogue for a model-3 administrator on regras, wi
  openAcademicPage('regras');
  const {client,calls}=rpc(()=>ruleCatalog);
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
- expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+ expect(await screen.findByText('Em uso · bloqueada')).toBeTruthy();
  expect(calls).toEqual(['get_rule_catalog']);
  expect(screen.queryByRole('button',{name:/Agendar|Regras futuras|Salvar|Criar|Editar/})).toBeNull();
 });
 it('shows the registry summary on the painel of a model-3 administrator, with shortcuts and without the admin tabs',async()=>{
  const {client,calls}=adminRpc();
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
- expect(await screen.findByText('DEMO-v1')).toBeTruthy();
+ expect((await screen.findAllByText('DEMO-v1')).length).toBeGreaterThan(0);
  const summary=screen.getByRole('region',{name:'Resumo dos cadastros'});
  expect(within(summary).getByText('Vínculos ativos')).toBeTruthy();
  expect(within(summary).getByText('2')).toBeTruthy();
  expect(within(summary).getByText('de 3 cadastrados')).toBeTruthy();
- expect(within(summary).getByText('1 indicador')).toBeTruthy();
+ expect(within(summary).getByText('DEMO-v1')).toBeTruthy();
+ expect(within(summary).getByText('1 indicador · pesos somam 100')).toBeTruthy();
+ expect(within(summary).getByText('Unidades')).toBeTruthy();
+ expect(within(summary).getByText('em 0 distritos')).toBeTruthy();
  expect(within(summary).getByText('Aberta')).toBeTruthy();
  expect(within(summary).getByText('Outubro/2026')).toBeTruthy();
- expect([...new Set(calls)].sort()).toEqual(['get_admin_catalog','get_rule_catalog']);
+ expect([...new Set(calls)].sort()).toEqual(expect.arrayContaining(['get_admin_catalog','get_rule_catalog']));
+ expect(await screen.findByRole('button',{name:'Ver vínculos inativos'})).toBeTruthy();
+ expect(screen.getByText('Revisar 1 vínculo inativo')).toBeTruthy();
  expect(screen.queryByRole('navigation',{name:'Administração'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Salvar escopo'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Abrir indicadores e regras'}));
  expect(window.location.hash).toBe('#academico/regras');
- expect(await screen.findByText('Regra em uso · bloqueada')).toBeTruthy();
+ expect(await screen.findByText('Em uso · bloqueada')).toBeTruthy();
 });
 it('uses the plural for several rule indicators and the singular for one registered link',async()=>{
  const item=ruleCatalog.ruleSets[0].items[0];
  const {client}=rpc(name=>name==='get_rule_catalog'?{ruleSets:[{...ruleCatalog.ruleSets[0],items:['01','02','03','04'].map(code=>({...item,indicatorCode:`DEMO-V1-${code}`,weight:'25'}))}]}:{...adminCatalog,links:[adminLink]});
  render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
  const summary=await screen.findByRole('region',{name:'Resumo dos cadastros'});
- expect(await within(summary).findByText('4 indicadores')).toBeTruthy();
+ expect(await within(summary).findByText('4 indicadores · pesos somam 100')).toBeTruthy();
  expect(await within(summary).findByText('de 1 cadastrado')).toBeTruthy();
 });
 it('reports a failed registry read on the model-3 administrator painel with each reader message',async()=>{
@@ -338,7 +399,7 @@ it('opens business links first for a model-3 administrator',async()=>{
  const tabs=within(screen.getByRole('navigation',{name:'Administração'})).getAllByRole('button');
  expect(tabs.map(tab=>tab.textContent)).toEqual(['Vínculos de negócio','Escopos']);
  expect(tabs[0].getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
  // I-5: the model-2 competence/assignment commands refuse model-3 contexts; the tab is replaced by a read-only notice.
  expect(screen.queryByRole('button',{name:'Competências e atribuições'})).toBeNull();
  expect(screen.queryByRole('button',{name:'Regras futuras'})).toBeNull();
@@ -349,7 +410,15 @@ it('opens business links first for a model-3 administrator',async()=>{
  fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Painel'}));
  fireEvent.click(await screen.findByRole('button',{name:'Abrir usuários e vínculos'}));
  expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
+});
+it('Para fazer lists inactive links and Ver vínculos opens Usuários e vínculos',async()=>{
+ const {client}=adminRpc();
+ render(<AcademicWorkspace client={client} group={v3Admin()} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('Revisar 1 vínculo inativo')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Ver vínculos inativos'}));
+ expect(window.location.hash).toBe('#academico/vinculos');
+ expect(await screen.findByRole('table',{name:'Vínculos cadastrados'})).toBeTruthy();
 });
 it('opens business links first when a model-3 administrator comes back to vinculos through browser history',async()=>{
  openAcademicPage('vinculos');
@@ -359,7 +428,7 @@ it('opens business links first when a model-3 administrator comes back to vincul
  expect(await screen.findByRole('button',{name:'Salvar escopo'})).toBeTruthy();
  for(const page of ['painel','vinculos'])act(()=>{window.location.hash=`#academico/${page}`;window.dispatchEvent(new HashChangeEvent('hashchange'));});
  expect(screen.getByRole('button',{name:'Vínculos de negócio'}).getAttribute('aria-pressed')).toBe('true');
- expect(await screen.findByRole('button',{name:'Salvar vínculo'})).toBeTruthy();
+ expect(await screen.findByRole('button',{name:'Novo vínculo'})).toBeTruthy();
 });
 it('keeps a model-2 CAM and a model-2 administrator on their existing screens',async()=>{
  openAcademicPage('regras');
@@ -408,7 +477,7 @@ it('model-3 CAM: a position opened from Ciclo is not reopened by a later menu vi
  fireEvent.click(within(menu).getByRole('button',{name:'Ciclo e fechamento'}));
  expect(await screen.findByRole('heading',{name:'Decisões pendentes da CAM'})).toBeTruthy();
  fireEvent.click(within(menu).getByRole('button',{name:'Todas as entradas'}));
- expect(await screen.findByText('1 de 1 entradas')).toBeTruthy();
+ expect(await screen.findByText('1 entrada')).toBeTruthy();
  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,50));});
  expect(screen.queryByText('Unidade sem este serviço.')).toBeNull();
  expect(calls.filter(name=>name==='get_position_detail')).toHaveLength(1);
@@ -421,6 +490,19 @@ it('model-3 technical area: the fill screen is the batch page, so no single-posi
  expect(screen.queryByRole('region',{name:'Correção versionada'})).toBeNull();
  expect(screen.queryByLabelText('Justificativa da correção')).toBeNull();
  expect((screen.getByRole('button',{name:'Enviar 0 itens'}) as HTMLButtonElement).disabled).toBe(true);
+});
+it('Conferir unidade opens the queue with that chip',async()=>{
+ openAcademicPage('painel');
+ const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+ const {client,calls}=rpc(()=>({items:Object.entries(units).map(([id,code])=>({...position,id:`pos-${id}`,escopoId:id,escopoCodigo:code,status:'enviada',revisionId:`rev-${id}`,indicatorCode:'DEMO-V1-01',indicatorName:'Registros conferidos'})),total:2,page:1,pageSize:100}));
+ render(<AcademicWorkspace client={client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Conferir unidade Unidade Beta'}));
+ expect(window.location.hash).toBe('#academico/conferencia');
+ const chips=await screen.findByRole('group',{name:'Filtrar por unidade'});
+ expect(within(chips).getByRole('button',{name:'Unidade Beta'}).getAttribute('aria-pressed')).toBe('true');
+ expect(within(chips).getByRole('button',{name:'Todas as unidades'}).getAttribute('aria-pressed')).toBe('false');
+ expect(screen.getAllByRole('row').slice(1).map(line=>line.querySelector('.row-link strong')?.textContent)).toEqual(['Unidade Beta']);
+ for(const name of ['start_position_review','review_position'])expect(calls).not.toContain(name);
 });
 it('model-3 reviewer: the Conferência page mounts the tabbed queue; a model-2 reviewer keeps the paged queue',async()=>{
  openAcademicPage('conferencia');
@@ -497,7 +579,8 @@ it('renders the page heading',()=>{
  render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
  const head=within(document.querySelector('.academic-page-head') as HTMLElement);
  expect(head.getByRole('heading',{level:2,name:'Painel'})).toBeTruthy();
- expect(head.getByText('Outubro/2026 · você informa os indicadores de Unidade Alfa e Unidade Beta.')).toBeTruthy();
+ // V4 subtitle (spec §4.9).
+ expect(head.getByText('Outubro/2026 · Unidade Alfa e Unidade Beta · o que fazer agora')).toBeTruthy();
 });
 it('moves focus into the opened menu and closes it when focus leaves for the content',()=>{
  const groups=headerGroups();
@@ -536,4 +619,162 @@ it('menu toggle opens, Escape closes and returns focus',()=>{
  fireEvent.click(item);
  expect(menu.dataset.open).toBe('false');
  expect(document.activeElement).toBe(screen.getByRole('main'));
+});
+
+// ---- Telas V4, Task 3: menu counts, backdrop and V4 shell ----
+// No jest-dom here: the accessible description is the text of the element aria-describedby names.
+const description=(element:HTMLElement)=>{const id=element.getAttribute('aria-describedby');return id?document.getElementById(id)?.textContent??'':null;};
+const navButton=(name:string)=>within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name});
+const listed=(...statuses:string[])=>({items:statuses.map((status,i)=>({...position,id:`p${i}`,escopoCodigo:'ACADEMIC-NORTE-1',status})),total:statuses.length,page:1,pageSize:100});
+it('shows pending counts in the menu without renaming the item',async()=>{
+ const {client}=rpc(name=>name==='get_operational_positions'?listed('ausente','devolvida','devolvida','validada','enviada'):{});
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ const menu=screen.getByRole('navigation',{name:'Navegação acadêmica'});
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('3 pendentes'));
+ expect(menu.querySelector('.count')?.getAttribute('aria-hidden')).toBe('true');
+ expect(description(navButton('Painel'))).toBeNull();
+});
+it('counts the reviewer queue, and the CAM cycle only while the month is open',async()=>{
+ const rows=listed('enviada','em_revisao','validada','ausente');
+ const reviewer=rpc(name=>name==='get_operational_positions'?rows:{});
+ const view=render(<AcademicWorkspace client={reviewer.client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Conferência'))).toBe('2 pendentes'));
+ view.unmount();
+ const cam=rpc(name=>name==='get_operational_positions'?rows:{});
+ const open=render(<AcademicWorkspace client={cam.client} group={grp(v3('cam',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBe('3 pendentes'));
+ open.unmount();
+ // Preflight F3: no count read for a CAM month that is not open.
+ // Resultados reads only the unit results, so any position read would come from the shell.
+ openAcademicPage('resultados');
+ const closed=rpc(name=>name==='get_operational_positions'?rows:unitResults);
+ render(<AcademicWorkspace client={closed.client} group={grp(v3('cam',{competenciaEstado:'fechada'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ expect(description(navButton('Ciclo e fechamento'))).toBeNull();
+ expect(closed.calls).not.toContain('get_operational_positions');
+});
+it('drops the CAM count when the month stops being open without a remount',async()=>{
+ const {client}=rpc(name=>name==='get_operational_positions'?listed('enviada','ausente'):{});
+ const view=render(<AcademicWorkspace client={client} group={grp(v3('cam',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBe('2 pendentes'));
+ // Same group and context keys, so NavigationSafety keeps the subtree mounted.
+ view.rerender(<AcademicWorkspace client={client} group={grp(v3('cam',{competenciaEstado:'em_consolidacao'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Ciclo e fechamento'))).toBeNull());
+});
+it('shows no count when the count read fails',async()=>{
+ const {client,calls}=rpc(name=>name==='get_operational_positions'?{code:'42501'}:{});
+ openAcademicPage('historico');
+ render(<AcademicWorkspace client={client} group={grp(v3('revisor_tecnico',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(calls).toContain('get_operational_positions'));
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ expect(description(navButton('Conferência'))).toBeNull();
+});
+it('gestores get no menu count and no position read',async()=>{
+ const {client,calls}=rpc(()=>unitResults);
+ render(<AcademicWorkspace client={client} group={grp(v3('gestor_unidade',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ expect(await screen.findByText('93,42')).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Resultados'}));
+ await act(async()=>{await new Promise(resolve=>setTimeout(resolve,20));});
+ // Preflight F4: the real RPC names, so a stray read or command would fail here.
+ for(const name of ['get_operational_positions','save_position_draft','start_position_review'])expect(calls).not.toContain(name);
+ expect(document.querySelector('.academic-nav .count')).toBeNull();
+});
+it('reads counts again on each page change and never runs a command',async()=>{
+ let rows=listed('ausente');
+ const {client,calls}=rpc(name=>name==='get_operational_positions'?rows:{items:[],total:0,page:1,pageSize:25});
+ openAcademicPage('historico');
+ render(<AcademicWorkspace client={client} group={grp(v3('area_tecnica',{competenciaEstado:'aberta'}))} onSignOut={()=>{}}/>);
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('1 pendente'));
+ rows=listed('ausente','rascunho');
+ fireEvent.click(navButton('Painel'));
+ await waitFor(()=>expect(description(navButton('Preenchimento'))).toBe('2 pendentes'));
+ for(const name of ['save_position_draft','start_position_review','submit_unit_batch','review_position','transition_cycle','publish_cycle_demo'])expect(calls).not.toContain(name);
+});
+it('menu backdrop closes the menu and returns focus',()=>{
+ const groups=headerGroups();
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ const scrim=document.querySelector('.academic-scrim') as HTMLElement;
+ expect(scrim.hidden).toBe(true);
+ fireEvent.click(toggle);
+ expect(scrim.hidden).toBe(false);
+ fireEvent.click(scrim);
+ expect(toggle.getAttribute('aria-expanded')).toBe('false');
+ expect(document.getElementById('academic-menu')!.dataset.open).toBe('false');
+ expect(scrim.hidden).toBe(true);
+ expect(document.activeElement).toBe(toggle);
+});
+it('asks before leaving through the backdrop-closed menu',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+ openAcademicPage('preenchimento');
+ const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url)=>new Response(JSON.stringify(String(url).includes('get_position_detail')?{position,revisions:[],decisions:[],memories:[]}:{items:[position],total:1,page:1,pageSize:25}),{headers:{'content-type':'application/json'}})}});
+ render(<AcademicWorkspace client={client} group={grp(context)} onSignOut={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:/NORTE-1/}));
+ fireEvent.change(await screen.findByLabelText('Valor'),{target:{value:'12'}});
+ const toggle=screen.getByRole('button',{name:'Menu'});
+ fireEvent.click(toggle);
+ fireEvent.click(document.querySelector('.academic-scrim')!);
+ fireEvent.click(toggle);
+ fireEvent.click(within(screen.getByRole('navigation',{name:'Navegação acadêmica'})).getByRole('button',{name:'Histórico'}));
+ expect(confirm).toHaveBeenCalledTimes(1);
+ expect(window.location.hash).toBe('#academico/preenchimento');
+ expect(screen.getByLabelText('Valor')).toHaveProperty('value','12');
+});
+it('labels the menu group and the rule in use, and keeps the header controls named',()=>{
+ const groups=headerGroups(camMonth('10'));
+ render(<AcademicWorkspace client={dashboardClient()} group={groups[0]} groups={groups} onSignOut={()=>{}}/>);
+ const label=document.querySelector('.academic-side .nav-label') as HTMLElement;
+ expect(label.textContent).toBe('Geral');
+ expect(label.getAttribute('aria-hidden')).toBe('true');
+ expect(document.querySelector('.academic-side-foot')!.textContent).toContain('Regra em uso');
+ expect(screen.getByLabelText('Competência').closest('.ctl')).toBeTruthy();
+ expect(screen.getByLabelText('Papel').closest('.ctl')).toBeTruthy();
+ expect(document.querySelector('.academic-top-row')!.classList.contains('topbar')).toBe(true);
+ expect(document.querySelector('.academic-person')!.classList.contains('user')).toBe(true);
+});
+
+// ---- Spec §8.3 (preflight F16): no e-mail, no ACADEMIC- code and no person on any model-3 screen ----
+const leakUnits:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
+const leakPositions=(id:string)=>['enviada','em_revisao','devolvida','validada'].map((status,i)=>({...position,id:`${id}-${i+1}`,escopoId:id,escopoCodigo:leakUnits[id],status,
+ estadoDado:'valor',inputValue:'90',revisionId:`rev-${id}-${i+1}`,indicatorCode:`DEMO-V1-0${i+1}`,indicatorName:'Registros conferidos'}));
+function leakClient(){
+ return createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
+  const name=String(url).split('/rpc/')[1];
+  const body=JSON.parse(String(init?.body??'{}')) as {p_contexto?:{vinculoId:string};p_unidade_id?:string;p_position_id?:string};
+  const unit=leakUnits[body.p_contexto?.vinculoId??'']?body.p_contexto!.vinculoId:'alfa';
+  const all=[...leakPositions('alfa'),...leakPositions('beta')];
+  const data=name==='get_operational_positions'?{items:leakPositions(unit),total:4,page:1,pageSize:100}
+   :name==='get_unit_batch'?{unitId:body.p_unidade_id,unitCode:leakUnits[body.p_unidade_id!],mode:'zero',items:leakPositions(body.p_unidade_id!).map(p=>({positionId:p.id,indicatorCode:p.indicatorCode,name:p.indicatorName,meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',
+    status:p.status,version:1,estadoDado:'valor',valor:'90',fonte:'Planilha',motivo:null,periodoFonte:'2026-10-01',returnReason:'A fonte informada é de setembro.',revisionNumber:2}))}
+   :name==='get_position_detail'?{position:all.find(p=>p.id===body.p_position_id)??all[0],revisions:[{id:'rev',number:1,authorId:'author',estadoDado:'valor',value:'90',source:'Planilha',sourcePeriod:'2026-10-01',reason:'',submittedAt:'2026-10-20T12:00:00Z',correctionExplanation:null}],decisions:[],memories:[]}
+   :name==='get_unit_results'?districtResults
+   :name==='get_scoped_audit'?{items:[{id:'r',occurredAt:'2026-10-21T12:00:00Z',action:'posicao_devolvida',resourceId:'alfa-3',version:2,reason:'fonte de setembro'},{id:'s',occurredAt:'2026-10-20T12:00:00Z',action:'posicao_enviada',resourceId:'beta-1',version:1,reason:null}],total:2,page:1,pageSize:100}
+   :name==='get_cycle_checklist'?{version:1,state:'aberta',expected:16,received:8,reviewed:2,unavailable:0,decidedUnavailable:0,notApplicable:0,fullCoverage:true,canConsolidate:false,canClose:false,snapshotId:null,publication:'nao_publicada',publicationId:null,ready:2,
+    blockers:[{positionId:'alfa-1',code:'not_validated',message:'Entrada ainda não aceita.'}]}
+   :name==='get_leadership_aggregates'?{acceptedPercent:'50.00',mode:'zero',districts:[{districtCode:'ACADEMIC-NORTE',average:'93.42',completeUnits:1,totalUnits:2}],attention:[{unitCode:'ACADEMIC-NORTE-2',pending:2}]}
+   :name==='get_rule_catalog'?ruleCatalog:name==='get_admin_catalog'?adminCatalog:{items:[],total:0,page:1,pageSize:100};
+  return new Response(JSON.stringify(data),{headers:{'content-type':'application/json'}});
+ }}});
+}
+const twoUnits=(role:AuthorizedContext['role'])=>groupContexts(Object.entries(leakUnits).map(([id,code])=>v3(role,{key:id,vinculoId:id,escopoId:id,escopoCodigo:code,competenciaEstado:'aberta'})))[0];
+const leakGroups={area_tecnica:()=>twoUnits('area_tecnica'),revisor_tecnico:()=>twoUnits('revisor_tecnico'),cam:()=>grp(v3('cam',{competenciaEstado:'aberta'})),gestor_unidade:()=>grp(v3('gestor_unidade')),
+ gestor_distrital:districtGroup,lideranca:()=>grp(v3('lideranca')),administrador:v3Admin} as const;
+it.each(Object.keys(leakGroups) as (keyof typeof leakGroups)[])('%s: no model-3 screen shows an e-mail, an ACADEMIC- code or a person',async role=>{
+ openAcademicPage('painel');
+ render(<AcademicWorkspace client={leakClient()} group={leakGroups[role]()} onSignOut={()=>{}}/>);
+ const settled=async(where:string)=>{
+  await waitFor(()=>expect(document.body.textContent).not.toMatch(/Carregando/));
+  expect(screen.queryByRole('alert'),`${where}: fixture rejected`).toBeNull();
+  expect(document.body.textContent,`${where}: e-mail or scope code`).not.toMatch(/@|ACADEMIC-/);
+  // Only Usuários e vínculos names the demo accounts (spec §5.2).
+  if(!where.endsWith('vinculos'))expect(document.body.textContent,`${where}: person`).not.toMatch(/Conta acadêmica/);
+ };
+ for(const destination of getAcademicDestinations(role)){
+  fireEvent.click(navButton(destination.label));
+  await settled(`${role} ${destination.id}`);
+  // An opened entry is a screen too: the queue and the read-only list show its detail beside the list.
+  const row=document.querySelector<HTMLButtonElement>('.row-link');
+  if(row){fireEvent.click(row);await settled(`${role} ${destination.id} detail`);}
+ }
 });

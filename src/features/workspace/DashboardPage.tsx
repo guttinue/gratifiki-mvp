@@ -4,15 +4,17 @@ import { getWorkspaceMetrics } from "./workspaceModel";
 import type { WorkspacePage } from "./workspaceModel";
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthorizedContext,ContextGroup,CycleChecklist,DashboardData,Page,PositionFilter,PositionSummary } from '../pilot/types';
-import { useEffect,useState } from 'react';
+import { useEffect,useId,useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
 import { loadDashboard } from './academicDashboardApi';
 import { listPositions } from '../submission/positionApi';
 import { loadCycleChecklist } from '../cycle/cycleApi';
-import { loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
-import { loadUnitBatch } from '../batch/batchApi';
-import { competenceStateLabels, monthName, publicationLabels, scopeName } from './displayNames';
-import { CycleBlockers, CycleMetrics, CycleStepper } from '../cycle/CyclePage';
+import { byUnitAndIndicator, loadGroupPositions, statusLabels, unitContexts, type GroupPosition } from '../batch/groupPositions';
+import { loadUnitBatch, type UnitBatch } from '../batch/batchApi';
+import { countByStatus, monthName, plural, scopeName, statusTones } from './displayNames';
+import { formatDecimal } from '../pilot/decimal';
+import { ActivityFeed, StackBar, StageTiles, TodoList, UnitCard } from './v4Parts';
+import { loadUnitResults, type UnitResults } from '../results/resultsApi';
 type AcademicDashboardProps={client:SupabaseClient;context:AuthorizedContext};
 export function AcademicDashboard(props:AcademicDashboardProps){return <ContextDashboard key={props.context.key} {...props}/>;}
 function ContextDashboard({client,context}:AcademicDashboardProps){
@@ -26,76 +28,129 @@ function ContextDashboard({client,context}:AcademicDashboardProps){
 }
 
 // ---- Model 3 (V3): one dashboard per role over the whole group of indicators ----
-type V3Data={kind:'positions';rows:GroupPosition[];returnReason:string|null}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[]};
-const compare=(a:string,b:string)=>a<b?-1:a>b?1:0;
-const byUnitAndIndicator=(a:GroupPosition,b:GroupPosition)=>compare(a.position.escopoCodigo,b.position.escopoCodigo)||compare(a.position.indicatorCode??'',b.position.indicatorCode??'');
-// Each position keeps the context that listed it. For the technical area, the reason of the
-// first returned one comes from its unit's batch, read with that unit's contexts only.
+type V3Data={kind:'positions';rows:GroupPosition[];batches:Map<string,UnitBatch>}|{kind:'cycle';checklist:CycleChecklist;rows:GroupPosition[];results:UnitResults|null};
+const pending=(status:string)=>status==='devolvida'||status==='rascunho'||status==='ausente';
+// Each position keeps the context that listed it. For the technical area, every unit with a to-do
+// has its batch read (reason, goal, saved value) with that unit's contexts only, in parallel.
 async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Promise<V3Data>{
  const rows=(await loadGroupPositions(client,group)).sort(byUnitAndIndicator);
- const returned=rows.find(row=>row.position.status==='devolvida');
- if(!returned||group.role!=='area_tecnica')return{kind:'positions',rows,returnReason:null};
- const unitId=returned.position.escopoId;
- // The reason is a hint here; without it the step still points at the correction.
- const returnReason=await loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>batch.items.find(item=>item.positionId===returned.position.id)?.returnReason??null,()=>null);
- return{kind:'positions',rows,returnReason};
+ const batches=new Map<string,UnitBatch>();
+ // Outside the open month the to-dos are not shown, so their detail is not read.
+ if(group.role!=='area_tecnica'||group.contexts[0].competenciaEstado!=='aberta')return{kind:'positions',rows,batches};
+ const units=[...new Set(rows.filter(row=>pending(row.position.status)).map(row=>row.position.escopoId))];
+ // The batch is detail here: a failed one leaves its to-dos without the sub-line.
+ await Promise.all(units.map(unitId=>loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>{batches.set(unitId,batch);},()=>undefined)));
+ return{kind:'positions',rows,batches};
 }
-function NextStep({kicker,title,text,action,alert}:{kicker:string;title:string;text:string;action?:{label:string;go:()=>void};alert?:boolean}){
- return <section className={alert?'v3-next v3-next-alert':'v3-next'}><div><span className="v3-kicker">{kicker}</span><h3>{title}</h3><p>{text}</p></div>{action&&<button type="button" className="primary" onClick={action.go}>{action.label}</button>}</section>;
-}
-// Rows: the group's positions in unit-code then indicator-code order; one line per unit.
-export function UnitStatusTable({rows,onOpenUnit}:{rows:GroupPosition[];onOpenUnit?:(unitId:string)=>void}){
- const sorted=[...rows].sort(byUnitAndIndicator);
- const indicators=[...new Map(sorted.map(({position})=>[position.indicatorCode??'',position.indicatorName])).entries()].sort(([a],[b])=>compare(a,b));
- const units=[...new Map(sorted.map(({position})=>[position.escopoId,position.escopoCodigo])).entries()];
- return <section aria-label="Situação por unidade" className="v3-panel"><h3>Situação por unidade</h3><div className="table-scroll"><table className="v3-table">
-  <thead><tr><th scope="col">Unidade</th>{indicators.map(([code,name])=><th key={code} scope="col">{code}{name&&<span className="v3-cell-sub">{name}</span>}</th>)}<th scope="col" className="r">Aceitos</th>{onOpenUnit&&<th scope="col" className="r"><span className="sr-only">Ação</span></th>}</tr></thead>
-  <tbody>{units.map(([id,code])=>{const unit=sorted.filter(({position})=>position.escopoId===id);
-   return <tr key={id}><td><strong>{scopeName(code)}</strong></td>{indicators.map(([indicator])=>{const position=unit.find(row=>(row.position.indicatorCode??'')===indicator)?.position;
-    return <td key={indicator}>{position?<span className={`v3-badge v3-st-${position.status}`}>{statusLabels[position.status]}</span>:'–'}</td>;})}
-    <td className="r">{`${unit.filter(({position})=>position.status==='validada').length} de ${unit.length}`}</td>
-    {onOpenUnit&&<td className="r"><button type="button" aria-label={`Abrir ${scopeName(code)}`} onClick={()=>onOpenUnit(id)}>Abrir</button></td>}</tr>;})}</tbody>
- </table></div></section>;
-}
-type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string)=>void;onOpenPosition?:(id:string)=>void};
+export type UnitFocus={positionId:string;field:'valor'|'explicacao'};
+type GroupDashboardProps={client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit?:(unitId:string,focus?:UnitFocus)=>void;onOpenPosition?:(id:string)=>void;onOpenHistory?:()=>void};
 export function AcademicV3Dashboard(props:GroupDashboardProps){return <GroupDashboard key={props.group.key} {...props}/>;}
-function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition}:GroupDashboardProps){
+function GroupDashboard({client,group,onNavigate,onOpenUnit,onOpenPosition,onOpenHistory}:GroupDashboardProps){
  const [data,setData]=useState<V3Data|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
  useEffect(()=>{let current=true;setData(null);setError(false);
-  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group)]).then(([checklist,rows]):V3Data=>({kind:'cycle',checklist,rows})):loadPanelPositions(client,group);
+  // CAM: the scores are detail of the unit cards, so a failed results read keeps the painel.
+  const load=group.role==='cam'?Promise.all([loadCycleChecklist(client,toCommandContext(group.contexts[0])),loadGroupPositions(client,group),loadUnitResults(client,toCommandContext(group.contexts[0])).catch(()=>null)])
+   .then(([checklist,rows,results]):V3Data=>({kind:'cycle',checklist,rows:rows.sort(byUnitAndIndicator),results})):loadPanelPositions(client,group);
   void load.then(value=>{if(current)setData(value);}).catch(()=>{if(current)setError(true);});return()=>{current=false;};},[client,group,retry]);
- const openUnit=(unitId:string)=>onOpenUnit?onOpenUnit(unitId):onNavigate('preenchimento');
+ const openUnit=onOpenUnit??(()=>onNavigate('preenchimento'));
  const openPosition=(id:string)=>onOpenPosition?onOpenPosition(id):onNavigate('conferencia');
  return <section aria-label="Painel autorizado" className="v3-page">
  {error?<p role="alert">Não foi possível confirmar os contadores autorizados.</p>:!data?<p role="status">Carregando contadores…</p>
-  :data.kind==='cycle'?<CamPanel checklist={data.checklist} rows={data.rows} onNavigate={onNavigate} onOpenPosition={openPosition}/>
-  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} onOpenPosition={openPosition}/>:<TechnicalPanel data={data} competence={group.competenciaCodigo} onOpenUnit={openUnit}/>}
+  :data.kind==='cycle'?<CamPanel data={data} client={client} group={group} onNavigate={onNavigate} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>
+  :group.role==='revisor_tecnico'?<ReviewerPanel rows={data.rows} client={client} group={group} onOpenPosition={openPosition} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>:<TechnicalPanel data={data} client={client} group={group} onOpenUnit={openUnit} onOpenHistory={onOpenHistory}/>}
  <button type="button" onClick={()=>setRetry(n=>n+1)}>Atualizar painel</button></section>;
 }
-function TechnicalPanel({data,competence,onOpenUnit}:{data:Extract<V3Data,{kind:'positions'}>;competence:string;onOpenUnit:(unitId:string)=>void}){
- const returned=data.rows.find(({position})=>position.status==='devolvida')?.position;
- const todo=data.rows.filter(({position})=>position.status==='ausente'||position.status==='rascunho');
- const next=todo[0]?.position;
- return <>{returned?<NextStep alert kicker="Devolvida pelo revisor" title={`Corrigir ${scopeName(returned.escopoCodigo)} · ${returned.indicatorName??returned.indicatorCode??''}`} text={data.returnReason??'Abra o preenchimento para ver o motivo.'} action={{label:'Abrir correção',go:()=>onOpenUnit(returned.escopoId)}}/>
-  :next?<NextStep kicker="Próximo passo" title={`Preencher ${scopeName(next.escopoCodigo)}`} text={`${todo.length} de ${data.rows.length} indicadores ainda não foram enviados.`} action={{label:'Abrir preenchimento',go:()=>onOpenUnit(next.escopoId)}}/>
-  :<NextStep kicker="Tudo enviado" title={`Seus indicadores de ${monthName(competence)} estão com o revisor`} text="Se algum for devolvido, ele volta para o preenchimento com o motivo."/>}
-  <UnitStatusTable rows={data.rows} onOpenUnit={onOpenUnit}/></>;
+// AT-01 to AT-04: the flow stages, the to-dos of the open month, one card per unit and the recent activity.
+function TechnicalPanel({data,client,group,onOpenUnit,onOpenHistory}:{data:Extract<V3Data,{kind:'positions'}>;client:SupabaseClient;group:ContextGroup;onOpenUnit:(unitId:string,focus?:UnitFocus)=>void;onOpenHistory?:()=>void}){
+ const c=countByStatus(data.rows);
+ const item=(position:PositionSummary)=>data.batches.get(position.escopoId)?.items.find(i=>i.positionId===position.id);
+ const target=(position:PositionSummary)=>`${scopeName(position.escopoCodigo)} · ${position.indicatorCode??''} ${position.indicatorName??''}`.trim();
+ const unitText=(unit:string|null)=>unit?` ${unit}`:'';
+ const unitsTitle=useId();
+ // The visible verb comes first in the name (label in name); the target tells repeated buttons apart.
+ const act=(label:string,position:PositionSummary,field:UnitFocus['field'])=>({label,ariaLabel:`${label} ${position.indicatorCode??''} · ${scopeName(position.escopoCodigo)}`,onClick:()=>onOpenUnit(position.escopoId,{positionId:position.id,field})});
+ const having=(status:string)=>data.rows.map(row=>row.position).filter(position=>position.status===status);
+ const todos=group.contexts[0].competenciaEstado!=='aberta'?[]:[
+  ...having('devolvida').map(position=>{const i=item(position);return{tone:'bad' as const,title:`Corrigir ${target(position)}`,
+   sub:i&&(i.returnReason?`Devolvida pelo revisor técnico: ${i.returnReason}`:'Devolvida pelo revisor técnico.'),action:act('Corrigir',position,'explicacao')};}),
+  ...having('rascunho').map(position=>{const i=item(position);return{tone:'info' as const,title:`Enviar o rascunho de ${target(position)}`,
+   // A draft can hold no number (unavailable data): then only its state is said.
+   sub:i&&(i.valor!==null?`Valor salvo: ${formatDecimal(i.valor)}${unitText(i.unit)}. Ainda não está com o revisor.`:'Ainda não está com o revisor.'),action:act('Revisar e enviar',position,'valor')};}),
+  ...having('ausente').map(position=>{const i=item(position);return{tone:'neutral' as const,title:`Preencher ${target(position)}`,
+   sub:i&&`Meta: ${i.direction==='maior_melhor'?'no mínimo':'no máximo'} ${formatDecimal(i.meta)}${unitText(i.unit)}`,action:act('Preencher',position,'valor')};}),
+ ];
+ const units=unitsOf(data.rows);
+ return <><StageTiles label="Etapas do fluxo" tiles={[
+   {label:'Não enviados',value:c.ausente,sub:'ainda sem valor',tone:'neutral'},
+   {label:'Rascunhos',value:c.rascunho,sub:'salvos, não enviados',tone:'info'},
+   {label:'Devolvidas',value:c.devolvida,sub:c.devolvida?'precisam de correção':'nenhuma pendente',tone:'bad'},
+   {label:'Em conferência',value:c.enviada+c.em_revisao,sub:`${c.enviada} aguardando · ${c.em_revisao} em análise`,tone:'warn'},
+   {label:'Aceitas',value:c.validada,sub:`de ${c.total} do seu escopo`,tone:'ok'}]}/>
+  <div className="dash"><div className="stack">
+   <TodoList title="Para fazer" items={todos} empty={<><strong>Nada pendente com você.</strong><span>Se algo for devolvido, aparece aqui com o motivo.</span></>}/>
+   <section className="block" aria-labelledby={unitsTitle}><div className="block-head"><h3 id={unitsTitle}>Suas unidades</h3></div><div className="cards">
+    {units.map(([id,code])=>{const u=countByStatus(data.rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);
+     return <UnitCard key={id} title={name} badge={u.devolvida>0&&<span className="v3-badge v3-st-devolvida">{plural(u.devolvida,'devolvida','devolvidas')}</span>}
+      big={<>{u.enviada+u.em_revisao+u.validada} <small>de {u.total} enviados</small></>} bar={<StackBar counts={u}/>}
+      foot={`${plural(u.validada,'aceita','aceitas')} · ${u.enviada+u.em_revisao} com o revisor`} action={{label:'Abrir preenchimento',ariaLabel:`Abrir preenchimento ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+   </div></section></div>
+  <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
-// "First in the queue", not "oldest": PositionSummary carries no submission date.
-function ReviewerPanel({rows,onOpenPosition}:{rows:GroupPosition[];onOpenPosition:(id:string)=>void}){
- const waiting=rows.filter(({position})=>position.status==='enviada'||position.status==='em_revisao');const first=waiting[0]?.position;
- return <>{first?<NextStep kicker="Próximo passo" title={`${waiting.length} ${waiting.length>1?'entradas aguardam':'entrada aguarda'} sua conferência`} text={`A primeira da fila é ${scopeName(first.escopoCodigo)} · ${first.indicatorName??first.indicatorCode??''}.`} action={{label:'Conferir agora',go:()=>onOpenPosition(first.id)}}/>
-  :<NextStep kicker="Fila vazia" title="Nada aguardando você" text="Quando a área técnica enviar, a entrada aparece aqui."/>}
-  <UnitStatusTable rows={rows}/></>;
+// The units of the rows, in the rows' order (unit, then indicator).
+const unitsOf=(rows:GroupPosition[])=>[...new Map(rows.map(({position})=>[position.escopoId,position.escopoCodigo])).entries()];
+// RV-01 to RV-04: the review stages, what waits for a review, one card per unit and the recent activity.
+// "Conferir" only opens the entry: starting the review stays an explicit command (RV-10).
+function ReviewerPanel({rows,client,group,onOpenPosition,onOpenUnit,onOpenHistory}:{rows:GroupPosition[];client:SupabaseClient;group:ContextGroup;onOpenPosition:(id:string)=>void;onOpenUnit:(unitId:string)=>void;onOpenHistory?:()=>void}){
+ const c=countByStatus(rows);const unitsTitle=useId();
+ const todos=rows.map(row=>row.position).filter(position=>position.status==='enviada'||position.status==='em_revisao').map(position=>{const unit=scopeName(position.escopoCodigo);
+  return{tone:statusTones[position.status],title:`Conferir ${unit} · ${position.indicatorCode??''} ${position.indicatorName??''}`.trim(),sub:statusLabels[position.status],
+   action:{label:'Conferir',ariaLabel:`Conferir ${position.indicatorCode??''} · ${unit}`,onClick:()=>onOpenPosition(position.id)}};});
+ return <><StageTiles label="Etapas do fluxo" tiles={[
+   {label:'Com a área técnica',value:c.ausente+c.rascunho,sub:'não enviados ou rascunho',tone:'neutral'},
+   {label:'Para conferir',value:c.enviada,sub:'aguardando início da conferência',tone:'warn'},
+   {label:'Em conferência',value:c.em_revisao,sub:'conferência iniciada',tone:'vio'},
+   {label:'Devolvidas',value:c.devolvida,sub:'aguardando correção',tone:'bad'},
+   {label:'Aceitas',value:c.validada,sub:`de ${c.total} do seu escopo`,tone:'ok'}]}/>
+  <div className="dash"><div className="stack">
+   <TodoList title="Para fazer" items={todos} empty={<><strong>Nada aguardando você.</strong><span>Quando a área técnica enviar, a entrada aparece aqui.</span></>}/>
+   <section className="block" aria-labelledby={unitsTitle}><div className="block-head"><h3 id={unitsTitle}>Unidades do distrito</h3></div><div className="cards">
+    {unitsOf(rows).map(([id,code])=>{const u=countByStatus(rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);const waiting=u.enviada+u.em_revisao;const label=waiting?'Conferir unidade':'Ver entradas';
+     return <UnitCard key={id} title={name} badge={waiting>0&&<span className="v3-badge v3-st-enviada">{waiting} para conferir</span>}
+      big={<>{u.validada} <small>de {u.total} aceitas</small></>} bar={<StackBar counts={u}/>}
+      foot={`${plural(u.devolvida,'devolvida','devolvidas')} · ${u.ausente+u.rascunho} com a área técnica`} action={{label,ariaLabel:`${label} ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+   </div></section></div>
+  <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
-// Read-only: the closing and publishing commands stay on the cycle screen.
-function CamPanel({checklist,rows,onNavigate,onOpenPosition}:{checklist:CycleChecklist;rows:GroupPosition[];onNavigate:(destination:string)=>void;onOpenPosition:(id:string)=>void}){
- return <><CycleStepper checklist={checklist}/><CycleMetrics checklist={checklist}/>
-  <div className="v3-split"><section aria-labelledby="cam-blockers" className="v3-panel"><h3 id="cam-blockers">O que impede o fechamento</h3>
-   {checklist.blockers.length?<CycleBlockers blockers={checklist.blockers} positions={rows.map(row=>row.position)} label="O que impede o fechamento" onOpenPosition={onOpenPosition}/>:<p>Nenhuma pendência impede o fechamento.</p>}</section>
-  <section aria-labelledby="cam-closing" className="v3-panel"><h3 id="cam-closing">Fechamento e publicação</h3>
-   <p>Situação do ciclo: {competenceStateLabels[checklist.state]}</p><p>Publicação: {publicationLabels[checklist.publication]}</p>
-   <button type="button" className="primary" onClick={()=>onNavigate('ciclo')}>Abrir ciclo e fechamento</button></section></div></>;
+// CAM-01. Read-only: every to-do only navigates to the cycle screen, where the commands stay.
+function CamPanel({data,client,group,onNavigate,onOpenUnit,onOpenHistory}:{data:Extract<V3Data,{kind:'cycle'}>;client:SupabaseClient;group:ContextGroup;onNavigate:(destination:string)=>void;onOpenUnit:(unitId:string)=>void;onOpenHistory?:()=>void}){
+ const {checklist,rows,results}=data;const c=countByStatus(rows);const unitsTitle=useId();
+ const month=monthName(group.contexts[0].competenciaCodigo);const ready=checklist.ready??checklist.reviewed;
+ const toCycle=(label:string)=>({label,onClick:()=>onNavigate('ciclo')});
+ const todos:Parameters<typeof TodoList>[0]['items']=[];
+ if(checklist.state==='aberta')todos.push(checklist.canConsolidate
+  ?{tone:'ok',title:`Todas as ${checklist.expected} entradas estão prontas`,sub:'Você já pode iniciar a consolidação.',action:toCycle('Abrir ciclo e fechamento')}
+  // Every entry ready but another server blocker: no count to give.
+  :{tone:'warn',title:ready<checklist.expected?`${plural(checklist.expected-ready,'entrada impede','entradas impedem')} a consolidação`:'Ver o que bloqueia a consolidação',sub:'Cada item leva à entrada. A conferência é do revisor de cada distrito.',action:toCycle('Ver o que falta')});
+ if(checklist.state==='em_consolidacao')todos.push({tone:'warn',title:`Revisar e fechar ${month}`,sub:'Fechar congela os resultados e pede a referência da decisão. Fechar não publica.',action:toCycle('Abrir ciclo e fechamento')});
+ if(checklist.state==='fechada'&&checklist.publication==='nao_publicada')todos.push({tone:'vio',title:`Publicar ${month}`,sub:'Os gestores passam a ver o resultado como publicado.',action:toCycle('Abrir ciclo e fechamento')});
+ if(checklist.state==='fechada')todos.push({tone:'neutral',title:'Exportar a competência em CSV',sub:'Gerado a partir dos valores congelados.',action:toCycle('Abrir ciclo e fechamento')});
+ return <><StageTiles label="Etapas do fluxo" tiles={[
+   {label:'Não enviados',value:c.ausente+c.rascunho,sub:'com a área técnica',tone:'neutral'},
+   {label:'Para conferir',value:c.enviada,sub:'aguardando o revisor',tone:'warn'},
+   {label:'Em conferência',value:c.em_revisao,sub:'abertas pelo revisor',tone:'vio'},
+   {label:'Devolvidas',value:c.devolvida,sub:'aguardando correção',tone:'bad'},
+   {label:'Aceitas',value:c.validada,sub:`de ${c.total} entradas`,tone:'ok'}]}/>
+  <div className="dash"><div className="stack">
+   <TodoList title="Para fazer" items={todos} empty={<strong>Ciclo concluído.</strong>}/>
+   <section className="block" aria-labelledby={unitsTitle}><div className="block-head"><h3 id={unitsTitle}>Unidades</h3></div><div className="cards">
+    {unitsOf(rows).map(([id,code])=>{const u=countByStatus(rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);const pendingCount=u.total-u.validada;
+     // Without a read result (or a base) the card keeps no score.
+     const result=results?.units.find(unit=>unit.unitId===id);
+     return <UnitCard key={id} title={name} badge={pendingCount?<span className="v3-badge v3-st-enviada">{plural(pendingCount,'pendente','pendentes')}</span>:<span className="v3-badge v3-st-validada">Completa</span>}
+      big={result?.points!=null&&<>{formatDecimal(result.points,2)} <small>/ 100{result.partial?' parcial':''}</small></>} bar={<StackBar counts={u}/>}
+      foot={`${u.validada} de ${u.total} aceitas`} action={{label:'Ver resultado',ariaLabel:`Ver resultado ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+   </div></section></div>
+  <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
 
 interface DashboardPageProps {
