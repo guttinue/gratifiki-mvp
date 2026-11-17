@@ -280,11 +280,11 @@ export function BatchEntryPage({ client, group, initialUnitId, initialFocus }: {
                   <input id={`${k}-valor`} type="text" inputMode="decimal" autoComplete="off" value={e.valor} aria-invalid={visible.includes('valor') ? 'true' : undefined}
                     aria-describedby={describedBy('valor', true)} onChange={event => change(item, { valor: event.target.value })} onBlur={() => touch(item, 'valor')} />
                   {item.unit && <span aria-hidden="true">{item.unit}</span>}</span>{error('valor')}</> : '–'}</td>
-            <td className="r" data-label="Pontos"><output className="pts">{points ? formatDecimal(points.points, 2) : '–'}</output><span className="sub">{`de ${formatDecimal(item.weight)}`}</span></td>
+            <td className="r" data-label="Pontos"><output className="pts" aria-live="polite">{points ? formatDecimal(points.points, 2) : '–'}</output><span className="sub">{`de ${formatDecimal(item.weight)}`}</span></td>
           </tr>
           {(isEditable || cardProblem) && <tr className="sub-row"><td colSpan={5}><div className="sub-grid">
             {cardProblem && <p id={`${k}-problem`} role="alert" className="fill-error wide">{cardProblem.message}</p>}
-            {returned && item.returnReason && <p className="returned"><strong>Devolvida pelo revisor técnico.</strong>{' '}{item.returnReason}</p>}
+            {returned && <p className="returned"><strong>Devolvida pelo revisor técnico.</strong>{item.returnReason && <>{' '}{item.returnReason}</>}</p>}
             {isEditable && <>
               <div className="field"><label htmlFor={`${k}-fonte`}>Fonte do dado</label>
                 <input id={`${k}-fonte`} maxLength={500} value={e.fonte} aria-invalid={visible.includes('fonte') ? 'true' : undefined} aria-describedby={describedBy('fonte', true)}

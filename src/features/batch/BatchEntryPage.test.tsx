@@ -464,6 +464,28 @@ describe('BatchEntryPage', () => {
     await waitFor(() => expect(document.activeElement).toBe(within(card('DEMO-V1-03')).getByLabelText('O que você corrigiu?')));
   });
 
+  it('focuses the requested field only once, not again after switching units and back', async () => {
+    const view = rpc(twoUnits);
+    render(<BatchEntryPage client={view.client} group={group} initialUnitId="alfa" initialFocus={{ positionId: 'position-3', field: 'explicacao' }} />);
+    await waitFor(() => expect(document.activeElement).toBe(within(card('DEMO-V1-03')).getByLabelText('O que você corrigiu?')));
+    fireEvent.click(screen.getByRole('tab', { name: /^Unidade Beta/ }));
+    await waitFor(() => expect(view.calls.filter(c => c.name === 'get_unit_batch').length).toBe(2));
+    const alfa = screen.getByRole('tab', { name: /^Unidade Alfa/ });
+    alfa.focus();
+    fireEvent.click(alfa);
+    await waitFor(() => expect(view.calls.filter(c => c.name === 'get_unit_batch').length).toBe(3));
+    await screen.findByLabelText('O que você corrigiu?');
+    expect(document.activeElement).toBe(alfa);
+  });
+
+  it('shows the returned box without a reason (§5.2 fallback)', async () => {
+    const view = rpc(call => call.name === 'get_unit_batch'
+      ? new Response(JSON.stringify({ unitId: 'alfa', unitCode: 'ACADEMIC-NORTE-1', mode: 'zero', items: items.map(item => ({ ...item, returnReason: null })) }), { headers: { 'content-type': 'application/json' } }) : undefined);
+    render(<BatchEntryPage client={view.client} group={group} />);
+    await screen.findByText(/DEMO-V1-01/);
+    expect(within(card('DEMO-V1-03')).getByText('Devolvida pelo revisor técnico.').closest('.returned')!.textContent).toBe('Devolvida pelo revisor técnico.');
+  });
+
   it('sticky footer sums the unit preview and sends N items', async () => {
     const { calls } = await open();
     // 01 = 90 → 28,42; locked 02 (20 of 20) → 25,00; returned 03 (96 h, max 48) → 12,50; accepted 04 → 20,00.

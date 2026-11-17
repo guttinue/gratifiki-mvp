@@ -81,4 +81,12 @@ describe("workspace responsive stylesheet", () => {
     expect(/\.v4-tbl tr\s*\{[^}]*display:\s*grid/s.test(narrow)).toBe(true);
     expect(/\.v4-tbl td\[data-label\]::before\s*\{[^}]*content:\s*attr\(data-label\)/s.test(narrow)).toBe(true);
   });
+
+  it("stacks the fill tabs, sub-grid and send bar below 760px (M-04)", () => {
+    const blocks = [...stylesheet.matchAll(/@media \(max-width: (\d+)px\)\s*\{(.*?)\n\}/gs)];
+    const owner = (rule: RegExp) => blocks.filter((m) => rule.test(m[2])).map((m) => m[1]);
+    expect(owner(/\.unit-tabs \[role="tab"\]\s*\{[^}]*flex:\s*1 1 100%/)).toEqual(["760"]);
+    expect(owner(/\.sub-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/)).toEqual(["760"]);
+    expect(owner(/\.fill-bar button\s*\{[^}]*flex:\s*1 1 100%/)).toEqual(["760"]);
+  });
 });

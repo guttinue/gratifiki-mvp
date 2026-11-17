@@ -2153,7 +2153,7 @@ td code,
   .academic-app .fill-tbl tr.main td.ind-name .sub { display: block; margin-left: 0; }
   .academic-app .fill-tbl tr.sub-row td { display: block; padding: var(--s2) 0 0; }
 }
-@media (max-width: 900px) {
+@media (max-width: 760px) {
   .academic-app .unit-tabs [role="tab"] { flex: 1 1 100%; }
   .academic-app .sub-grid { grid-template-columns: minmax(0, 1fr); }
   .academic-app .fill-bar { gap: var(--s2) var(--s3); padding: 12px; }
