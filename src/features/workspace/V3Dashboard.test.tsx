@@ -73,8 +73,10 @@ describe('AcademicV3Dashboard', () => {
     expect(within(todo).getByText('Devolvida pelo revisor técnico: A fonte informada é de setembro.')).toBeTruthy();
     expect(within(todo).getByText('Valor salvo: 12,5. Ainda não está com o revisor.')).toBeTruthy();
     expect(within(todo).getByText('Meta: no mínimo 10')).toBeTruthy();
-    expect(within(todo).getAllByRole('button').map(button => [button.textContent, button.classList.contains('primary')]))
-      .toEqual([['Corrigir', true], ['Revisar e enviar', false], ['Preencher', false]]);
+    expect(within(todo).getAllByRole('button').map(button => [button.textContent, button.getAttribute('aria-label'), button.classList.contains('primary')])).toEqual([
+      ['Corrigir', 'Corrigir DEMO-V1-03 · Unidade Alfa', true],
+      ['Revisar e enviar', 'Revisar e enviar DEMO-V1-01 · Unidade Alfa', false],
+      ['Preencher', 'Preencher DEMO-V1-02 · Unidade Beta', false]]);
     // One batch per unit with something to do, each read with that unit's contexts only.
     const batches = calls.filter(call => call.name === 'get_unit_batch');
     expect(batches.map(call => call.body.p_unidade_id).sort()).toEqual(['alfa', 'beta']);
@@ -95,25 +97,28 @@ describe('AcademicV3Dashboard', () => {
     expect(screen.getByText('Se algo for devolvido, aparece aqui com o motivo.')).toBeTruthy();
     cleanup();
     const closed = groupContexts(unitGroup('area_tecnica').contexts.map(context => ({ ...context, competenciaEstado: 'em_consolidacao' as const })))[0];
-    render(<AcademicV3Dashboard client={unitClient(flow).client} group={closed} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
+    const { client, calls } = unitClient(flow);
+    render(<AcademicV3Dashboard client={client} group={closed} onNavigate={vi.fn()} onOpenUnit={vi.fn()} />);
     expect(await screen.findByText('Nada pendente com você.')).toBeTruthy();
+    // No to-do shows outside the open month, so no unit batch is read for one.
+    expect(calls.some(call => call.name === 'get_unit_batch')).toBe(false);
   });
 
   it('Corrigir opens the fill screen on the correction field', async () => {
     const onOpenUnit = vi.fn();
     technical(unitClient(flow).client, onOpenUnit);
-    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir DEMO-V1-03 · Unidade Alfa' }));
     expect(onOpenUnit).toHaveBeenCalledWith('alfa', { positionId: 'alfa-2', field: 'explicacao' });
-    fireEvent.click(screen.getByRole('button', { name: 'Revisar e enviar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Revisar e enviar DEMO-V1-01 · Unidade Alfa' }));
     expect(onOpenUnit).toHaveBeenLastCalledWith('alfa', { positionId: 'alfa-0', field: 'valor' });
-    fireEvent.click(screen.getByRole('button', { name: 'Preencher' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preencher DEMO-V1-02 · Unidade Beta' }));
     expect(onOpenUnit).toHaveBeenLastCalledWith('beta', { positionId: 'beta-1', field: 'valor' });
   });
 
   it('opening a to-do or a unit runs no command', async () => {
     const { client, calls } = unitClient(flow);
     technical(client);
-    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Corrigir DEMO-V1-03 · Unidade Alfa' }));
     fireEvent.click(screen.getByRole('button', { name: 'Abrir preenchimento Unidade Beta' }));
     for (const name of ['save_position_draft', 'submit_unit_batch', 'start_position_review', 'review_position']) expect(calls.map(call => call.name)).not.toContain(name);
   });
@@ -128,7 +133,7 @@ describe('AcademicV3Dashboard', () => {
     expect(alfa.textContent).toContain('2 de 4 enviados');
     expect(within(alfa).getByText('1 devolvida')).toBeTruthy();
     expect(within(alfa).getByRole('img', { name: /1 aceita/ }).getAttribute('aria-label')).toBe('1 aceita, 1 aguardando conferência, 1 devolvida, 1 rascunho');
-    expect(alfa.textContent).toContain('1 aceitas · 1 com o revisor');
+    expect(alfa.textContent).toContain('1 aceita · 1 com o revisor');
     expect(cards[1].textContent).toContain('4 de 4 enviados');
     expect(within(cards[1]).queryByText(/devolvida/)).toBeNull();
     fireEvent.click(within(units).getByRole('button', { name: 'Abrir preenchimento Unidade Beta' }));

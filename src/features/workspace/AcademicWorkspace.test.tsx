@@ -237,7 +237,7 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
   if(name==='get_unit_batch'){batches.push(body.p_unidade_id);return json({unitId:body.p_unidade_id,unitCode:units[body.p_unidade_id],mode:'zero',items:[{positionId:`pos-${body.p_unidade_id}`,indicatorCode:'DEMO-V1-01',name:'Registros conferidos',meta:'95',direction:'maior_melhor',weight:'30',decimals:2,max:'100',unit:'%',status:'ausente',version:1,estadoDado:null,valor:null,fonte:null,motivo:null,periodoFonte:null,returnReason:null,revisionNumber:null}]});}
   return json({});
  }}});
- const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica'),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
+ const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica',{competenciaEstado:'aberta'}),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
  // The painel reads the batch of each unit with a to-do; only the fill screen's reads count below.
  const card=await screen.findByRole('button',{name:'Abrir preenchimento Unidade Beta'});
@@ -258,7 +258,8 @@ it('opens the fill screen on the unit chosen in the painel',async()=>{
 it('Corrigir lands on Preenchimento with that unit',async()=>{
  openAcademicPage('painel');
  const units:Record<string,string>={alfa:'ACADEMIC-NORTE-1',beta:'ACADEMIC-NORTE-2'};
- const status:Record<string,string>={alfa:'devolvida',beta:'validada'};
+ // Beta is the returned unit, not the default first one: the test fails if the request is dropped.
+ const status:Record<string,string>={alfa:'validada',beta:'devolvida'};
  const calls:string[]=[];
  const client=createClient('http://localhost:54321','key',{auth:{persistSession:false,storageKey:crypto.randomUUID()},global:{fetch:async(url,init)=>{
   const name=String(url).split('/rpc/')[1];calls.push(name);const body=JSON.parse(String(init?.body??'{}')) as {p_contexto:{vinculoId:string};p_unidade_id:string};
@@ -269,10 +270,10 @@ it('Corrigir lands on Preenchimento with that unit',async()=>{
  }}});
  const group=groupContexts(Object.entries(units).map(([id,code])=>({...v3('area_tecnica',{competenciaEstado:'aberta'}),key:id,vinculoId:id,escopoId:id,escopoCodigo:code})))[0];
  render(<AcademicWorkspace client={client} group={group} onSignOut={()=>{}}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Corrigir'}));
+ fireEvent.click(await screen.findByRole('button',{name:'Corrigir DEMO-V1-01 · Unidade Beta'}));
  expect(window.location.hash).toBe('#academico/preenchimento');
- expect(await screen.findByRole('heading',{name:'Unidade Alfa',level:3})).toBeTruthy();
- expect(screen.getByRole('button',{name:/^Unidade Alfa/}).getAttribute('aria-pressed')).toBe('true');
+ expect(await screen.findByRole('heading',{name:'Unidade Beta',level:3})).toBeTruthy();
+ expect(screen.getByRole('button',{name:/^Unidade Beta/}).getAttribute('aria-pressed')).toBe('true');
  for(const name of ['save_position_draft','submit_unit_batch','start_position_review'])expect(calls).not.toContain(name);
 });
 it('shows the aggregate overview to model-3 leadership and the published aggregates to model 2',async()=>{

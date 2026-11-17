@@ -4,7 +4,7 @@ import { getWorkspaceMetrics } from "./workspaceModel";
 import type { WorkspacePage } from "./workspaceModel";
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuthorizedContext,ContextGroup,CycleChecklist,DashboardData,Page,PositionFilter,PositionSummary } from '../pilot/types';
-import { useEffect,useState } from 'react';
+import { useEffect,useId,useState } from 'react';
 import { toCommandContext } from '../context/contextApi';
 import { loadDashboard } from './academicDashboardApi';
 import { listPositions } from '../submission/positionApi';
@@ -37,7 +37,8 @@ const pending=(status:string)=>status==='devolvida'||status==='rascunho'||status
 async function loadPanelPositions(client:SupabaseClient,group:ContextGroup):Promise<V3Data>{
  const rows=(await loadGroupPositions(client,group)).sort(byUnitAndIndicator);
  const batches=new Map<string,UnitBatch>();
- if(group.role!=='area_tecnica')return{kind:'positions',rows,batches};
+ // Outside the open month the to-dos are not shown, so their detail is not read.
+ if(group.role!=='area_tecnica'||group.contexts[0].competenciaEstado!=='aberta')return{kind:'positions',rows,batches};
  const units=[...new Set(rows.filter(row=>pending(row.position.status)).map(row=>row.position.escopoId))];
  // The batch is detail here: a failed one leaves its to-dos without the sub-line.
  await Promise.all(units.map(unitId=>loadUnitBatch(client,unitContexts(rows,unitId),unitId).then(batch=>{batches.set(unitId,batch);},()=>undefined)));
@@ -82,16 +83,18 @@ function TechnicalPanel({data,client,group,onOpenUnit,onOpenHistory}:{data:Extra
  const item=(position:PositionSummary)=>data.batches.get(position.escopoId)?.items.find(i=>i.positionId===position.id);
  const target=(position:PositionSummary)=>`${scopeName(position.escopoCodigo)} · ${position.indicatorCode??''} ${position.indicatorName??''}`.trim();
  const unitText=(unit:string|null)=>unit?` ${unit}`:'';
- const go=(position:PositionSummary,field:UnitFocus['field'])=>()=>onOpenUnit(position.escopoId,{positionId:position.id,field});
+ const unitsTitle=useId();
+ // The visible verb comes first in the name (label in name); the target tells repeated buttons apart.
+ const act=(label:string,position:PositionSummary,field:UnitFocus['field'])=>({label,ariaLabel:`${label} ${position.indicatorCode??''} · ${scopeName(position.escopoCodigo)}`,onClick:()=>onOpenUnit(position.escopoId,{positionId:position.id,field})});
  const having=(status:string)=>data.rows.map(row=>row.position).filter(position=>position.status===status);
  const todos=group.contexts[0].competenciaEstado!=='aberta'?[]:[
   ...having('devolvida').map(position=>{const i=item(position);return{tone:'bad' as const,title:`Corrigir ${target(position)}`,
-   sub:i&&(i.returnReason?`Devolvida pelo revisor técnico: ${i.returnReason}`:'Devolvida pelo revisor técnico.'),action:{label:'Corrigir',onClick:go(position,'explicacao')}};}),
+   sub:i&&(i.returnReason?`Devolvida pelo revisor técnico: ${i.returnReason}`:'Devolvida pelo revisor técnico.'),action:act('Corrigir',position,'explicacao')};}),
   ...having('rascunho').map(position=>{const i=item(position);return{tone:'info' as const,title:`Enviar o rascunho de ${target(position)}`,
    // A draft can hold no number (unavailable data): then only its state is said.
-   sub:i&&(i.valor!==null?`Valor salvo: ${formatDecimal(i.valor)}${unitText(i.unit)}. Ainda não está com o revisor.`:'Ainda não está com o revisor.'),action:{label:'Revisar e enviar',onClick:go(position,'valor')}};}),
+   sub:i&&(i.valor!==null?`Valor salvo: ${formatDecimal(i.valor)}${unitText(i.unit)}. Ainda não está com o revisor.`:'Ainda não está com o revisor.'),action:act('Revisar e enviar',position,'valor')};}),
   ...having('ausente').map(position=>{const i=item(position);return{tone:'neutral' as const,title:`Preencher ${target(position)}`,
-   sub:i&&`Meta: ${i.direction==='maior_melhor'?'no mínimo':'no máximo'} ${formatDecimal(i.meta)}${unitText(i.unit)}`,action:{label:'Preencher',onClick:go(position,'valor')}};}),
+   sub:i&&`Meta: ${i.direction==='maior_melhor'?'no mínimo':'no máximo'} ${formatDecimal(i.meta)}${unitText(i.unit)}`,action:act('Preencher',position,'valor')};}),
  ];
  const units=[...new Map(data.rows.map(({position})=>[position.escopoId,position.escopoCodigo])).entries()];
  return <><StageTiles label="Etapas do fluxo" tiles={[
@@ -102,11 +105,11 @@ function TechnicalPanel({data,client,group,onOpenUnit,onOpenHistory}:{data:Extra
    {label:'Aceitas',value:c.validada,sub:`de ${c.total} do seu escopo`,tone:'ok'}]}/>
   <div className="dash"><div className="stack">
    <TodoList title="Para fazer" items={todos} empty={<><strong>Nada pendente com você.</strong><span>Se algo for devolvido, aparece aqui com o motivo.</span></>}/>
-   <section className="block" aria-labelledby="units-title"><div className="block-head"><h3 id="units-title">Suas unidades</h3></div><div className="cards">
+   <section className="block" aria-labelledby={unitsTitle}><div className="block-head"><h3 id={unitsTitle}>Suas unidades</h3></div><div className="cards">
     {units.map(([id,code])=>{const u=countByStatus(data.rows.filter(({position})=>position.escopoId===id));const name=scopeName(code);
      return <UnitCard key={id} title={name} badge={u.devolvida>0&&<span className="v3-badge v3-st-devolvida">{plural(u.devolvida,'devolvida','devolvidas')}</span>}
       big={<>{u.enviada+u.em_revisao+u.validada} <small>de {u.total} enviados</small></>} bar={<StackBar counts={u}/>}
-      foot={`${u.validada} aceitas · ${u.enviada+u.em_revisao} com o revisor`} action={{label:'Abrir preenchimento',ariaLabel:`Abrir preenchimento ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
+      foot={`${plural(u.validada,'aceita','aceitas')} · ${u.enviada+u.em_revisao} com o revisor`} action={{label:'Abrir preenchimento',ariaLabel:`Abrir preenchimento ${name}`,onClick:()=>onOpenUnit(id)}}/>;})}
    </div></section></div>
   <ActivityFeed client={client} group={group} onOpenHistory={onOpenHistory}/></div></>;
 }
