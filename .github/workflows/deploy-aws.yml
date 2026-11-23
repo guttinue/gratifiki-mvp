@@ -1,0 +1,40 @@
+name: Deploy AWS
+# CD: runs only after the CI workflow passed on a push to main (or by hand on main).
+on:
+  workflow_run:
+    workflows: [Academic isolated verification]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write # OIDC: short-lived AWS credentials, no stored keys
+concurrency:
+  group: deploy-aws
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SITE_URL: ${{ vars.SITE_URL }}
+      SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+      ARTIFACT_BUCKET: ${{ vars.ARTIFACT_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+      INSTANCE_ID: ${{ vars.INSTANCE_ID }}
+      ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }} # public key, same one every browser receives
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20.0'
+          cache: npm
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+      - run: bash deploy/aws/release.sh all
