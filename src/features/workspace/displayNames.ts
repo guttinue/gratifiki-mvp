@@ -11,7 +11,8 @@ export const unitDisplayNames: Readonly<Record<string, string>> = {
   'ACADEMIC-SUL': 'Distrito Sul',
 };
 
-export const scopeName = (code: string) => unitDisplayNames[code] ?? code;
+// Evaluator kits (AVAL01-NORTE-1...) reuse the same friendly names.
+export const scopeName = (code: string) => unitDisplayNames[code.replace(/^AVAL\d+-/, 'ACADEMIC-')] ?? code;
 
 export function scopeSummary(codes: readonly string[]): string {
   const distinct = [...new Set(codes)];

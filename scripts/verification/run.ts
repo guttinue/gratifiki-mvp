@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { createDemoUsers } from "../create-demo-users.ts";
 import { bootstrapAcademicDemo } from "../bootstrap/academicDemo.ts";
+import { bootstrapEvaluatorKits } from "../bootstrap/evaluatorKits.ts";
 import { academicRoles, secondaryCredentials, type AcademicCredentials } from "../bootstrap/academicFixtures.ts";
 import { assertPortAvailable, createOwnedEnvironment, redactOutput, repositoryRoot, validateOwnedTarget } from "./runtime.ts";
 import { inlineSqlSupport, writeStagedSql } from "./sqlSupport.ts";
@@ -120,6 +121,14 @@ async function runSingleVerification(request: VerificationRequest): Promise<{ ex
       for (const [name,credential] of Object.entries(secondaryCredentials(credentials))) {
         env[`ACADEMIC_${name.toUpperCase()}_EMAIL`]=credential.email;
         env[`ACADEMIC_${name.toUpperCase()}_PASSWORD`]=credential.password;
+      }
+      // Evaluator kits only for their own spec: other suites count scopes/accounts.
+      if (testFile?.endsWith('evaluator-kits.spec.ts')) {
+        const kits=[1,2].map(kit=>({kit,password:`aval0${kit}-${randomUUID().slice(0,4)}`}));
+        secrets.push(...kits.map(k=>k.password));
+        await bootstrapEvaluatorKits(admin,kits);
+        await bootstrapEvaluatorKits(admin,kits); // re-run must be a no-op
+        env.EVALUATOR_KITS=JSON.stringify(kits);
       }
     }
     if (request.suite === "db" || request.suite === "all") {

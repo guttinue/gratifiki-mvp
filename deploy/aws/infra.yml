@@ -21,6 +21,10 @@ Parameters:
   GitHubRepo:
     Type: String
     Default: guttinue/gratifiki-mvp
+  GitHubImmutableRepo:
+    Type: String
+    Description: Subject prefix when the repo uses GitHub's immutable OIDC subject (owner@id/repo@id).
+    Default: guttinue@96751844/gratifiki-mvp@1432737643
   DemoCredentialsParam:
     Type: String
     Default: /gratifiki/demo-credentials
@@ -316,7 +320,9 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
+                token.actions.githubusercontent.com:sub:
+                  - !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
+                  - !Sub 'repo:${GitHubImmutableRepo}:ref:refs/heads/main'
       Policies:
         - PolicyName: gratifiki-deploy
           PolicyDocument:
