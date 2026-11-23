@@ -18,6 +18,7 @@
     "verify:isolated": "node --experimental-strip-types scripts/verification/run.ts",
     "verify:restore": "node --experimental-strip-types scripts/verification/restore-run.ts",
     "demo:academic": "node --experimental-strip-types scripts/bootstrap/academicDemo-run.ts",
+    "demo:evaluators": "node --experimental-strip-types scripts/bootstrap/evaluatorKits-run.ts",
     "demo:users": "node --env-file-if-exists=.env.local --experimental-strip-types scripts/create-demo-users.ts"
   },
   "dependencies": {

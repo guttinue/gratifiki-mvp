@@ -9,6 +9,8 @@ it("names months, scopes and roles for presentation only", () => {
   expect(scopeSummary(["ACADEMIC-NORTE-1", "ACADEMIC-NORTE-2", "ACADEMIC-NORTE-1"])).toBe("Unidade Alfa e Unidade Beta");
   expect(scopeSummary(["ACADEMIC-NORTE-1", "ACADEMIC-NORTE-2", "ACADEMIC-SUL-1", "ACADEMIC-SUL-2"])).toBe("4 unidades");
   expect(scopeName("DEMO-T12-DISTRICT")).toBe("DEMO-T12-DISTRICT");
+  expect(scopeName("AVAL07-NORTE-1")).toBe("Unidade Alfa");
+  expect(scopeName("AVAL07-SUL")).toBe("Distrito Sul");
   expect(roleLabels.revisor_tecnico).toBe("Revisor técnico");
 });
 

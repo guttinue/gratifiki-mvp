@@ -79,6 +79,30 @@ if [ ! -f demo-credentials.env ]; then
   fi
 fi
 
+# 5b. Evaluator kits for the external evaluation (one isolated October per evaluator).
+#     Simple passwords (one per kit), generated once here and appended to the team's
+#     encrypted demo-credentials parameter. Re-runnable: creates only what is missing
+#     and never resets what evaluators did.
+if [ ! -f evaluator-kits.json ]; then
+  ( umask 077
+    sep=''; printf '[' > evaluator-kits.json.tmp; : > evaluator-kits.env.tmp
+    for k in $(seq 1 15); do
+      p=$(printf 'aval%02d-%04d' "$k" $(( $(od -An -N2 -tu2 /dev/urandom) % 10000 )))
+      printf '%s{"kit":%d,"password":"%s"}' "$sep" "$k" "$p" >> evaluator-kits.json.tmp; sep=,
+      printf 'EVALUATOR_KIT_%02d_PASSWORD=%s\n' "$k" "$p" >> evaluator-kits.env.tmp
+    done
+    echo ']' >> evaluator-kits.json.tmp )
+  mv evaluator-kits.env.tmp evaluator-kits.env && mv evaluator-kits.json.tmp evaluator-kits.json
+  if [ -n "${DEMO_CREDENTIALS_PARAM:-}" ]; then
+    ( umask 077; cat demo-credentials.env evaluator-kits.env > all-credentials.tmp )
+    aws ssm put-parameter --region "$AWS_REGION" --name "$DEMO_CREDENTIALS_PARAM" --type SecureString --overwrite --value "file://$APP/all-credentials.tmp" >/dev/null
+    rm -f all-credentials.tmp
+  fi
+fi
+docker run --rm --network host -v "$REL":/app:ro -v "$APP/evaluator-kits.json":/run/kits.json:ro \
+  -e SUPABASE_URL=http://127.0.0.1:8000/ -e SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" -e EVALUATOR_KITS_FILE=/run/kits.json \
+  node:22.20.0-alpine sh -c 'mkdir /tmp/app && cp -r /app/package.json /app/package-lock.json /app/scripts /app/src /tmp/app/ && cd /tmp/app && npm ci --omit=dev --ignore-scripts --no-audit --no-fund >/dev/null && npm run -s demo:evaluators'
+
 # 6. Smoke check through the gateway with the public key only.
 code=$(curl -s -o /dev/null -w '%{http_code}' -H "apikey: $ANON_KEY" http://127.0.0.1:8000/auth/v1/health)
 [ "$code" = 200 ] || { echo "auth health returned $code"; exit 1; }

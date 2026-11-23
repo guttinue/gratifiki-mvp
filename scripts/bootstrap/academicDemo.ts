@@ -2,12 +2,49 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Role } from "../../src/features/pilot/types.ts";
 import { academicId, academicIndicator, academicMonths, academicRoles, academicRule, academicScopes, academicV3Months, demoIndicators, demoRuleSet, secondaryCredentials, type AcademicCredentials } from './academicFixtures.ts';
 
-function assertLoopback(client: SupabaseClient) {
+export function assertLoopback(client: SupabaseClient) {
   const raw: unknown = Reflect.get(client,'supabaseUrl');
   let url: URL;
   try { url = new URL(String(raw)); } catch { throw new Error('Academic bootstrap requires local loopback'); }
   if (url.protocol!=='http:' || !['localhost','127.0.0.1','[::1]'].includes(url.hostname) || url.username || url.password || url.pathname!=='/' || url.search || url.hash) throw new Error('Academic bootstrap requires local loopback');
 }
+// Insert-only helpers shared with the evaluator kits (evaluatorKits.ts).
+export function provisioner(client: SupabaseClient) {
+  // Only rows that are really absent are sent. Closed-cycle guards run BEFORE
+  // INSERT, ahead of ON CONFLICT, so resending existing rows would fail; the
+  // conflict policy stays only to absorb a concurrent bootstrap.
+  async function missingRows<T extends Record<string, unknown>>(table: string, rows: T[], conflict: string): Promise<T[]> {
+    const keys = conflict.split(',');
+    const { data, error } = await client.from(table).select(conflict).in(keys[0], [...new Set(rows.map(row => String(row[keys[0]])))]);
+    if (error || !data) throw new Error(`Academic bootstrap could not inspect ${table}; existing state was not reset`);
+    const saved = data as unknown as Record<string, unknown>[];
+    return rows.filter(row => !saved.some(existing => keys.every(key => String(existing[key]) === String(row[key]))));
+  }
+  async function insertOnly<T extends Record<string, unknown>>(table: string, rows: T[], conflict = 'id') {
+    const missing = await missingRows(table, rows, conflict);
+    if (!missing.length) return;
+    const { error } = await client.from(table).upsert(missing as object[],{ onConflict: conflict, ignoreDuplicates: true });
+    if (error) throw new Error(`Academic bootstrap could not initialize ${table}; existing state was not reset`);
+  }
+  async function ensureIdentity(c: { email: string; password: string }, label: string) {
+    let existing: { id: string } | undefined;
+    for (let page=1; ;page++) {
+      const { data, error } = await client.auth.admin.listUsers({page,perPage:1000});
+      if (error) throw new Error('Academic identities could not be inspected');
+      existing = data.users.find(user=>user.email?.toLowerCase()===c.email.toLowerCase());
+      if (existing || data.users.length<1000) break;
+    }
+    if (!existing) {
+      const { data,error }=await client.auth.admin.createUser({email:c.email,password:c.password,email_confirm:true});
+      if(error || !data.user) throw new Error('Academic identity could not be provisioned');
+      existing=data.user;
+    }
+    await insertOnly('contas_demo',[{ator_id:existing.id,rotulo:label}],'ator_id');
+    return existing.id;
+  }
+  return { missingRows, insertOnly, ensureIdentity };
+}
+
 // Credentials create missing synthetic users only. Re-running does not rotate
 // existing credentials or overwrite mutable business/catalog state.
 // legacyOnly is for the upgrade/restore check on the schema before
@@ -27,39 +64,8 @@ export async function bootstrapAcademicDemo(client: SupabaseClient, credentials:
     const { data: ruleSets, error: setError } = await client.from('conjuntos_regra').select('id,codigo,versao').in('id',[demoRuleSet.id]);
     if (setError || ruleSets?.length!==1 || ruleSets[0].codigo!==demoRuleSet.codigo || ruleSets[0].versao!==demoRuleSet.versao) throw new Error('Academic DEMO-v1 rule set missing or incompatible');
   }
-  // Only rows that are really absent are sent. Closed-cycle guards run BEFORE
-  // INSERT, ahead of ON CONFLICT, so resending existing rows would fail; the
-  // conflict policy stays only to absorb a concurrent bootstrap.
-  async function missingRows<T extends Record<string, unknown>>(table: string, rows: T[], conflict: string): Promise<T[]> {
-    const keys = conflict.split(',');
-    const { data, error } = await client.from(table).select(conflict).in(keys[0], [...new Set(rows.map(row => String(row[keys[0]])))]);
-    if (error || !data) throw new Error(`Academic bootstrap could not inspect ${table}; existing state was not reset`);
-    const saved = data as unknown as Record<string, unknown>[];
-    return rows.filter(row => !saved.some(existing => keys.every(key => String(existing[key]) === String(row[key]))));
-  }
-  async function insertOnly<T extends Record<string, unknown>>(table: string, rows: T[], conflict = 'id') {
-    const missing = await missingRows(table, rows, conflict);
-    if (!missing.length) return;
-    const { error } = await client.from(table).upsert(missing as object[],{ onConflict: conflict, ignoreDuplicates: true });
-    if (error) throw new Error(`Academic bootstrap could not initialize ${table}; existing state was not reset`);
-  }
+  const { missingRows, insertOnly, ensureIdentity } = provisioner(client);
   const actors = {} as Record<Role,string>;
-  async function ensureIdentity(c: { email: string; password: string }, label: string) {
-    let existing: { id: string } | undefined;
-    for (let page=1; ;page++) {
-      const { data, error } = await client.auth.admin.listUsers({page,perPage:1000});
-      if (error) throw new Error('Academic identities could not be inspected');
-      existing = data.users.find(user=>user.email?.toLowerCase()===c.email.toLowerCase());
-      if (existing || data.users.length<1000) break;
-    }
-    if (!existing) {
-      const { data,error }=await client.auth.admin.createUser({email:c.email,password:c.password,email_confirm:true});
-      if(error || !data.user) throw new Error('Academic identity could not be provisioned');
-      existing=data.user;
-    }
-    await insertOnly('contas_demo',[{ator_id:existing.id,rotulo:label}],'ator_id');
-    return existing.id;
-  }
   for (const role of academicRoles) actors[role]=await ensureIdentity(credentials[role],`Conta acadêmica ${role}`);
   const southTechnical = await ensureIdentity(secondary.southTechnical,'Área técnica Sul / duplo vínculo');
   const southReviewer = await ensureIdentity(secondary.southReviewer,'Revisor Sul');
@@ -144,15 +150,17 @@ const octoberPlan: Record<string,(Plan|null)[]> = {
 // principals themselves. A position that any command already touched
 // (lock_version > 1) and a closed or published month are never driven again,
 // so a repeated bootstrap issues no command and no sign-in at all (I4).
-async function seedV3States(client: SupabaseClient, who: Record<'technical'|'reviewer'|'southTechnical'|'southReviewer'|'cam',Identity>,
-  months: { month: { id: string }; positions: Position[] }[], north: Set<string>) {
+// codeOf maps a unit to its plan key; evaluator kits map AVALnn-X to ACADEMIC-X.
+export async function seedV3States(client: SupabaseClient, who: Record<'technical'|'reviewer'|'southTechnical'|'southReviewer'|'cam',Identity>,
+  months: { month: { id: string }; positions: Position[] }[], north: Set<string>,
+  codeOf = (scopeId: string) => academicScopes.find(s=>s.id===scopeId)!.codigo) {
   const failed = (what: string) => new Error(`Academic bootstrap could not ${what} for the V3 demonstration; existing state was not reset`);
   const read = async <T,>(query: PromiseLike<{ data: T[]|null; error: unknown }>, what: string) => { const { data, error } = await query; if (error || !data) throw failed(what); return data; };
   const allPositions = months.flatMap(m=>m.positions);
   const versions = new Map((await read(client.from('posicoes_esperadas').select('id,lock_version').in('id',allPositions.map(p=>p.id)),'inspect positions') as {id:string;lock_version:number}[]).map(p=>[p.id,p.lock_version]));
   const competences = new Map((await read(client.from('competencias').select('id,estado').in('id',months.map(m=>m.month.id)),'inspect competences') as {id:string;estado:string}[]).map(c=>[c.id,c.estado]));
   const closures = await read(client.from('fechamentos').select('id,competencia_id').in('competencia_id',months.map(m=>m.month.id)),'inspect closures') as {id:string;competencia_id:string}[];
-  const links = await read(client.from('vinculos').select('id,actor_id,papel,escopo_id,indicador_id').in('indicador_id',demoIndicators.map(i=>i.id)),'inspect links') as {id:string;actor_id:string;papel:string;escopo_id:string;indicador_id:string}[];
+  const links = await read(client.from('vinculos').select('id,actor_id,papel,escopo_id,indicador_id').in('indicador_id',demoIndicators.map(i=>i.id)).in('actor_id',[...new Set(Object.values(who).map(w=>w.id))]),'inspect links') as {id:string;actor_id:string;papel:string;escopo_id:string;indicador_id:string}[];
   const context = (actor: Identity, role: string, position: Position) => {
     const found = links.find(l=>l.actor_id===actor.id && l.papel===role && l.escopo_id===position.alvo_id && l.indicador_id===position.indicador_id);
     if (!found) throw failed('find a DEMO-v1 link');
@@ -200,13 +208,15 @@ async function seedV3States(client: SupabaseClient, who: Record<'technical'|'rev
       if (closures.some(c=>c.competencia_id===month.id) || competences.get(month.id)!=='aberta') continue;
       const plan = month.id===academicV3Months[0].id?septemberPlan:octoberPlan;
       for (const position of positions) {
-        const step = plan[academicScopes.find(s=>s.id===position.alvo_id)!.codigo][demoIndicators.findIndex(i=>i.id===position.indicador_id)];
+        const step = plan[codeOf(position.alvo_id)][demoIndicators.findIndex(i=>i.id===position.indicador_id)];
         if (step && versions.get(position.id)===1) await drive(position,step);
       }
     }
     // September V3 is consolidated, closed and published by the CAM (I4: once).
     // The server requires the DEMO-DECISAO-/DEMO-PUBLICACAO- prefixes.
-    const september = months.find(m=>m.month.id===academicV3Months[0].id)!.positions[0];
+    const septemberMonth = months.find(m=>m.month.id===academicV3Months[0].id);
+    if (!septemberMonth) return; // evaluator kits have no September
+    const september = septemberMonth.positions[0];
     const cam = { p_contexto: context(who.cam,'cam',september) };
     const checklist = () => call(who.cam,'get_cycle_checklist',cam,false);
     const state = competences.get(september.competencia_id);
