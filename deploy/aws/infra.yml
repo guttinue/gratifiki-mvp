@@ -1,0 +1,348 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Gratifiki MVP (AV2) - CloudFront + private S3 for the SPA, one EC2 t3.small running
+  minimal self-hosted Supabase (Auth, PostgREST, Kong, Postgres), CloudWatch observability
+  and a GitHub OIDC role for CI/CD. The monthly budget alert is created outside this stack.
+
+Parameters:
+  AlertEmail:
+    Type: String
+    Description: E-mail that receives CloudWatch alarm notifications (confirm the SNS e-mail).
+  InstanceType:
+    Type: String
+    Default: t3.small
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  CloudFrontPrefixList:
+    Type: String
+    Description: Managed prefix list com.amazonaws.global.cloudfront.origin-facing in this region.
+    Default: pl-b6a144df
+  GitHubRepo:
+    Type: String
+    Default: guttinue/gratifiki-mvp
+  DemoCredentialsParam:
+    Type: String
+    Default: /gratifiki/demo-credentials
+
+Resources:
+  # ---------- Storage ----------
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+      LifecycleConfiguration: { Rules: [{ Id: expire-releases, Status: Enabled, ExpirationInDays: 30 }] }
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub '${SiteBucket.Arn}/*'
+            Condition: { StringEquals: { AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}' } }
+
+  # ---------- Server ----------
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement: [{ Effect: Allow, Principal: { Service: ec2.amazonaws.com }, Action: sts:AssumeRole }]
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: gratifiki-server
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub '${ArtifactBucket.Arn}/*'
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents, logs:DescribeLogStreams]
+                Resource: !GetAtt AppLogGroup.Arn
+              - Effect: Allow
+                Action: ssm:PutParameter
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter${DemoCredentialsParam}'
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: { Roles: [!Ref InstanceRole] }
+
+  ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Gratifiki API gateway - only CloudFront may reach Kong on 8000; no SSH (SSM only)
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 8000, ToPort: 8000, SourcePrefixListId: !Ref CloudFrontPrefixList, Description: CloudFront origin-facing }
+
+  ServerLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        MetadataOptions: { HttpTokens: required, HttpEndpoint: enabled }
+
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      SecurityGroupIds: [!GetAtt ServerSecurityGroup.GroupId]
+      LaunchTemplate: { LaunchTemplateId: !Ref ServerLaunchTemplate, Version: !GetAtt ServerLaunchTemplate.LatestVersionNumber }
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: { VolumeSize: 20, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags: [{ Key: Name, Value: gratifiki-server }]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          dnf install -y docker amazon-cloudwatch-agent
+          mkdir -p /usr/libexec/docker/cli-plugins
+          curl -fsSL -o /usr/libexec/docker/cli-plugins/docker-compose \
+            https://github.com/docker/compose/releases/download/v2.40.2/docker-compose-linux-x86_64
+          chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+          systemctl enable --now docker
+          # 1 GB swap: headroom for image pulls and Postgres on a 2 GB machine.
+          fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+          echo '/swapfile swap swap defaults 0 0' >> /etc/fstab
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'EOF'
+          {"agent":{"metrics_collection_interval":60},
+           "metrics":{"namespace":"Gratifiki","append_dimensions":{"InstanceId":"${!aws:InstanceId}"},
+             "aggregation_dimensions":[["InstanceId"]],
+             "metrics_collected":{"mem":{"measurement":["mem_used_percent"]},
+                                  "disk":{"measurement":["used_percent"],"resources":["/"]}}}}
+          EOF
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+          touch /var/lib/gratifiki-bootstrap-done
+
+  ServerIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref Server
+      Tags: [{ Key: Name, Value: gratifiki-server }]
+
+  # ---------- Edge ----------
+  SiteOac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-site'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: Gratifiki MVP (AV2)
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        DefaultRootObject: index.html
+        Origins:
+          - Id: site
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref SiteOac
+            S3OriginConfig: { OriginAccessIdentity: '' }
+          - Id: api
+            # Public DNS of the Elastic IP, e.g. ec2-3-14-1-2.us-east-2.compute.amazonaws.com
+            DomainName: !Sub
+              - 'ec2-${Dashed}.${AWS::Region}.compute.amazonaws.com'
+              - Dashed: !Join ['-', !Split ['.', !GetAtt ServerIp.PublicIp]]
+            CustomOriginConfig: { HTTPPort: 8000, OriginProtocolPolicy: http-only }
+        DefaultCacheBehavior:
+          TargetOriginId: site
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6          # Managed-CachingOptimized
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03 # Managed-SecurityHeadersPolicy
+        CacheBehaviors:
+          - PathPattern: /auth/v1/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad          # Managed-CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac  # Managed-AllViewerExceptHostHeader
+          - PathPattern: /rest/v1/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+
+  # ---------- Observability ----------
+  AppLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /gratifiki/app, RetentionInDays: 14 }
+
+  AppErrorFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref AppLogGroup
+      FilterPattern: '?"\"level\":\"error\"" ?"FATAL" ?"ERROR:" ?"[error]"'
+      MetricTransformations: [{ MetricNamespace: Gratifiki, MetricName: AppErrors, MetricValue: '1', DefaultValue: 0 }]
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription: [{ Protocol: email, Endpoint: !Ref AlertEmail }]
+
+  CpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gratifiki-cpu-alta
+      AlarmDescription: CPU do servidor acima de 80% por 10 minutos
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  StatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gratifiki-servidor-com-falha
+      AlarmDescription: Falha de status do sistema - a AWS recupera a instancia automaticamente
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Ref AlarmTopic, !Sub 'arn:aws:automate:${AWS::Region}:ec2:recover']
+
+  MemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gratifiki-memoria-alta
+      AlarmDescription: Memoria usada acima de 85% por 10 minutos
+      Namespace: Gratifiki
+      MetricName: mem_used_percent
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  DiskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gratifiki-disco-cheio
+      AlarmDescription: Disco raiz acima de 80%
+      Namespace: Gratifiki
+      MetricName: disk_used_percent
+      Dimensions: [{ Name: InstanceId, Value: !Ref Server }]
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+
+  AppErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: gratifiki-erros-aplicacao
+      AlarmDescription: 5 ou mais erros nos logs de Auth/API/Postgres/Kong em 5 minutos
+      Namespace: Gratifiki
+      MetricName: AppErrors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: gratifiki
+      DashboardBody: !Sub
+        - |
+          {"widgets":[
+           {"type":"text","x":0,"y":0,"width":24,"height":2,"properties":{"markdown":"## Gratifiki MVP na AWS\nServidor ${Server} (t3.small) atras do CloudFront ${Distribution}. Alarmes notificam por e-mail (SNS)."}},
+           {"type":"metric","x":0,"y":2,"width":8,"height":6,"properties":{"title":"CPU do servidor (%)","region":"${AWS::Region}","stat":"Average","period":300,"metrics":[["AWS/EC2","CPUUtilization","InstanceId","${Server}"]],"yAxis":{"left":{"min":0,"max":100}}}},
+           {"type":"metric","x":8,"y":2,"width":8,"height":6,"properties":{"title":"Memoria e disco (%)","region":"${AWS::Region}","stat":"Average","period":300,"metrics":[["Gratifiki","mem_used_percent","InstanceId","${Server}"],["Gratifiki","disk_used_percent","InstanceId","${Server}"]],"yAxis":{"left":{"min":0,"max":100}}}},
+           {"type":"metric","x":16,"y":2,"width":8,"height":6,"properties":{"title":"Erros nos logs da aplicacao","region":"${AWS::Region}","stat":"Sum","period":300,"metrics":[["Gratifiki","AppErrors"]]}},
+           {"type":"metric","x":0,"y":8,"width":12,"height":6,"properties":{"title":"CloudFront - requisicoes","region":"us-east-1","stat":"Sum","period":300,"metrics":[["AWS/CloudFront","Requests","DistributionId","${Distribution}","Region","Global"]]}},
+           {"type":"metric","x":12,"y":8,"width":12,"height":6,"properties":{"title":"CloudFront - taxa de erro (%)","region":"us-east-1","stat":"Average","period":300,"metrics":[["AWS/CloudFront","4xxErrorRate","DistributionId","${Distribution}","Region","Global"],["AWS/CloudFront","5xxErrorRate","DistributionId","${Distribution}","Region","Global"]]}},
+           {"type":"log","x":0,"y":14,"width":24,"height":6,"properties":{"title":"Ultimas linhas de erro","region":"${AWS::Region}","query":"SOURCE '${LogGroup}' | fields @timestamp, @logStream, @message | filter @message like /(?i)error|fatal/ | sort @timestamp desc | limit 50","view":"table"}}
+          ]}
+        - LogGroup: !Ref AppLogGroup
+
+  # ---------- CI/CD (GitHub Actions via OIDC, no stored AWS keys) ----------
+  GitHubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: gratifiki-github-deploy
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: { Federated: !Ref GitHubOidc }
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubRepo}:ref:refs/heads/main'
+      Policies:
+        - PolicyName: gratifiki-deploy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: [s3:ListBucket]
+                Resource: [!GetAtt SiteBucket.Arn, !GetAtt ArtifactBucket.Arn]
+              - Effect: Allow
+                Action: [s3:PutObject, s3:DeleteObject, s3:GetObject]
+                Resource: [!Sub '${SiteBucket.Arn}/*', !Sub '${ArtifactBucket.Arn}/*']
+              - Effect: Allow
+                Action: cloudfront:CreateInvalidation
+                Resource: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+              - Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${Server}'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript'
+              - Effect: Allow
+                Action: [ssm:GetCommandInvocation, ssm:ListCommandInvocations]
+                Resource: '*'
+
+Outputs:
+  SiteUrl: { Value: !Sub 'https://${Distribution.DomainName}' }
+  DistributionId: { Value: !Ref Distribution }
+  SiteBucketName: { Value: !Ref SiteBucket }
+  ArtifactBucketName: { Value: !Ref ArtifactBucket }
+  InstanceId: { Value: !Ref Server }
+  DeployRoleArn: { Value: !GetAtt DeployRole.Arn }
