@@ -35,7 +35,7 @@ set -a; . ./secrets.env; set +a
 export SITE_URL AWS_REGION=${AWS_REGION:-us-east-2} KONG_CONFIG="$APP/kong.yml"
 
 ( umask 077; sed -e "s|__ANON_KEY__|$ANON_KEY|" -e "s|__SERVICE_KEY__|$SERVICE_ROLE_KEY|" "$SRV/kong.yml.tpl" > kong.yml )
-chown 1000 kong.yml 2>/dev/null || true  # Kong runs as uid 1000 inside its container
+chmod 644 kong.yml  # readable by the Kong container user; $APP itself stays 700
 
 dc() { docker compose -f "$SRV/compose.yml" ${COMPOSE_OVERRIDE:+-f "$COMPOSE_OVERRIDE"} "$@"; }
 psql_db() { dc exec -T db psql -q -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d postgres "$@"; }
