@@ -343,6 +343,23 @@ it('V3 cycle: closing returns focus to Fechamento e publicação',async()=>{
  expect(await screen.findByText(fact('Situação do ciclo: Fechada'))).toBeTruthy();
  expect(document.activeElement).toBe(screen.getByRole('heading',{name:'Fechamento e publicação'}));
 });
+it('V3 cycle: closing tells the shell so the month badge leaves "Aberta"',async()=>{
+ let current:object=v3Checklist([],{state:'em_consolidacao',canClose:true});
+ const api=client(async url=>{
+  const name=String(url).split('/rpc/')[1];
+  if(name==='get_cycle_checklist')return response(current);
+  if(name==='get_operational_positions')return response({items:[],total:0,page:1,pageSize:100});
+  current={...current,state:'fechada',canClose:false,snapshotId:'snapshot'};return response({resourceId:'snapshot',version:21,revisionId:null,status:'fechada',resultValue:null});
+ });
+ const onStateChanged=vi.fn();
+ render(<CyclePage client={api} context={camV3(1)} group={v3Group()} onStateChanged={onStateChanged} />);
+ fireEvent.change(await screen.findByLabelText('Referência do ciclo'),{target:{value:'DEMO-DECISAO-A'}});
+ fireEvent.click(screen.getByRole('button',{name:'Fechar ciclo'}));
+ expect(onStateChanged).not.toHaveBeenCalled();
+ fireEvent.click(screen.getByRole('button',{name:'Confirmar fechamento'}));
+ expect(await screen.findByText(fact('Situação do ciclo: Fechada'))).toBeTruthy();
+ expect(onStateChanged).toHaveBeenCalledTimes(1);
+});
 it('V3 cycle: a cancelled leave prompt keeps the cycle page and opens no entry later',async()=>{
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
  const {api,calls}=v3Cycle([{positionId:'late',code:'missing_submission',message:'Envio ausente.'}]);

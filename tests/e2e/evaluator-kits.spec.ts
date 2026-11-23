@@ -76,6 +76,7 @@ test('an evaluator runs the whole month in kit 1 and kit 2 stays untouched', asy
   await page.getByRole('button', { name: 'Fechar ciclo', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar fechamento', exact: true }).click();
   await expect(page.getByText('Situação do ciclo: Fechada')).toBeVisible();
+  await expect(page.locator('.academic-competence-state').first()).toContainText('Fechada'); // header badge, no reload
   await page.getByLabel('Referência do ciclo').fill('DEMO-PUBLICACAO-AVAL01');
   await page.getByRole('button', { name: 'Publicar demonstração', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar publicação', exact: true }).click();

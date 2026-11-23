@@ -126,7 +126,8 @@ function PendingDecisions({client,positionIds,rows,camContexts,fields,setFields,
   })}</ul>
  </section>;
 }
-export function CyclePage({client,context,group,contexts,renderExport,authorizedPositions=[],onOpenPosition}:{client:SupabaseClient;context:AuthorizedContext;group?:ContextGroup;contexts?:AuthorizedContext[];renderExport?:(checklist:CycleChecklist)=>ReactNode;authorizedPositions?:PositionSummary[];onOpenPosition?:(id:string)=>void}) {
+// onStateChanged: the shell's month badge reads the login-time state, so it must recheck after a transition.
+export function CyclePage({client,context,group,contexts,renderExport,authorizedPositions=[],onOpenPosition,onStateChanged}:{client:SupabaseClient;context:AuthorizedContext;group?:ContextGroup;contexts?:AuthorizedContext[];renderExport?:(checklist:CycleChecklist)=>ReactNode;authorizedPositions?:PositionSummary[];onOpenPosition?:(id:string)=>void;onStateChanged?:()=>void}) {
  const v3=group?.modelo===3;
  // Every CAM context of the actor in this competence, from all groups.
  const camContexts=(contexts??group?.contexts??[]).filter(c=>c.role==='cam'&&c.competenciaId===context.competenciaId);
@@ -169,7 +170,7 @@ export function CyclePage({client,context,group,contexts,renderExport,authorized
    setPending(null);setReason('');setReference('');
    // Re-read durable state: a receipt is never the source of truth for future
    // sessions, snapshot access or publication controls.
-   const loaded=await loadCycleChecklist(client,command);if(active.current){setChecklist(loaded);if(operation.action==='close'||operation.action==='publish')heading.current?.focus();}
+   const loaded=await loadCycleChecklist(client,command);if(active.current){setChecklist(loaded);if(operation.action==='close'||operation.action==='publish')heading.current?.focus();onStateChanged?.();}
   }catch(cause){if(active.current){if(cause instanceof DomainCommandError&&cause.confirmedRejected&&cause.code!=='access_denied')setPending(null);setError(cause instanceof Error?cause.message:'Não foi possível confirmar a operação.');}}
   finally{inFlight.current=false;if(active.current)setBusy(false);}
  }
