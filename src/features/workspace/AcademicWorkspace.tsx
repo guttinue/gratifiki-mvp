@@ -40,14 +40,14 @@ const menuCounts:Partial<Record<Role,{page:string;counts:(status:PositionSummary
 // decides each pending item with the context of that item's unit and indicator.
 // groups/onSelectGroup: every authorized group and the guarded switch to one of
 // them (the model-3 header picks month and role through it).
-export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; contexts?:AuthorizedContext[]; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null; groups?:ContextGroup[]; onSelectGroup?:(key:string)=>void }
+export interface AcademicWorkspaceProps { client:SupabaseClient; group:ContextGroup; contexts?:AuthorizedContext[]; onSignOut:()=>void; contextPicker?:ReactNode; isSigningOut?:boolean; signOutError?:string|null; groups?:ContextGroup[]; onSelectGroup?:(key:string)=>void; onCycleChanged?:()=>void }
 export function AcademicWorkspace(props:AcademicWorkspaceProps) {
  // Key the owned data/edit subtree to the group and to each of its contexts; no
  // response from a previous actor/link/month, and nothing loaded for a context
  // the group no longer holds, can populate the next selection.
  return <NavigationSafety key={`${props.group.key}|${props.group.contexts.map(({key})=>key).join('|')}`}><AcademicContextWorkspace {...props} /></NavigationSafety>;
 }
-function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker,isSigningOut=false,signOutError,groups,onSelectGroup}:AcademicWorkspaceProps) {
+function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker,isSigningOut=false,signOutError,groups,onSelectGroup,onCycleChanged}:AcademicWorkspaceProps) {
  // Model-2 pages still operate on one context; the model-3 pages (results,
  // dashboards, rule catalogue) read what they need from the current group.
  const context=group.contexts[0];
@@ -223,7 +223,7 @@ function AcademicContextWorkspace({client,group,contexts,onSignOut,contextPicker
    </section>}
   </section>}
   {(context.role==='revisor_tecnico'||context.role==='cam')&&(!v3||context.role==='revisor_tecnico'||page==='entradas')&&<ReviewQueue client={client} context={context} group={v3?group:undefined} readOnly={v3&&context.role==='cam'} requestedPositionId={positionRequest?.id} positionRequestKey={positionRequest?.key} initialUnitId={unitRequest?.unitId} onPositionsLoaded={context.role==='cam'?setCamPositions:undefined} />}
-  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={openPosition} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
+  {context.role==='cam'&&(!v3||page==='ciclo')&&<CyclePage key={context.key} client={client} context={context} group={v3?group:undefined} contexts={v3?contexts:undefined} authorizedPositions={camPositions} onOpenPosition={openPosition} onStateChanged={onCycleChanged} renderExport={checklist=><ExportPanel client={client} context={context} checklist={checklist}/>} />}
   </>}
   {error&&<p role="alert">{error}</p>}{signOutError&&<p role="alert">{signOutError}</p>}
  </main></div></div>;

@@ -407,7 +407,7 @@ export function App() {
       </section></main>}
       <div hidden={verifying}><AcademicLoadBoundary key={authorized.group.key}><Suspense fallback={<main className="auth-screen"><section className="auth-card" role="status">Carregando espaço acadêmico…</section></main>}>
         <AcademicWorkspace client={academicClient} group={authorized.group} contexts={authorized.contexts} contextPicker={choices}
-          groups={authorized.groups} onSelectGroup={selectGroup}
+          groups={authorized.groups} onSelectGroup={selectGroup} onCycleChanged={() => void revalidateContext({ visible: true })}
           onSignOut={handleSignOut} isSigningOut={isSigningOut} signOutError={signOutError} />
       </Suspense></AcademicLoadBoundary></div>
     </>;
